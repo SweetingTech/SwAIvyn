@@ -27,7 +27,7 @@
 
 ### Core Services
 - [x] Text chat engine integration
-  - [ ] Local LLM connector (Ollama)
+  - [x] Local LLM connector (Ollama)
   - [ ] Simple prompt manager
   - [ ] Context window handling
 - [ ] File storage service
