@@ -44,6 +44,11 @@ namespace SwAIvyn.Data
         public DbSet<Settings> Settings { get; set; }
 
         /// <summary>
+        /// Gets or sets the Conversations DbSet.
+        /// </summary>
+        public DbSet<Conversation> Conversations { get; set; }
+
+        /// <summary>
         /// Configures the model relationships and constraints.
         /// </summary>
         /// <param name="modelBuilder">The model builder to configure entities.</param>
