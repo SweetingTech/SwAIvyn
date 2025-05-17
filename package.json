@@ -1,8 +1,13 @@
 {
   "dependencies": {
+    "@microsoft/signalr": "^8.0.7",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
+    "framer-motion": "^12.12.1",
+    "lucide-react": "^0.511.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }

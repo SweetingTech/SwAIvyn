@@ -1,6 +1,8 @@
 import { Play, User } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Message } from '../../types/chat';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatMessageProps {
   message: Message;
@@ -40,7 +42,7 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
               ? 'bg-white text-gray-800 border border-gray-200' 
               : 'bg-primary-500 text-white'
           }`}>
-            <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
           </div>
           
           <div className={`mt-1 flex items-center text-xs text-gray-500 ${

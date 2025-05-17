@@ -6,33 +6,52 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ## Getting Started
 
-### Prerequisites
+### Quick Start
 
-- .NET 7 SDK or later
-- Node.js (v16+) and npm
-- Windows 10/11 or Linux with systemd support
+1. Double-click `SwAIvyn.cmd` in the project root
+2. The application will build (first time only) and launch automatically
+3. Interact with the assistant through your web browser
 
-### Installation
+### System Requirements
+
+- Windows 10/11
+- .NET 7.0 Runtime (installed automatically if needed)
+- 4GB RAM minimum (8GB recommended)
+- Local LLM server (optional): Ollama or LM Studio
+
+### Manual Installation
+
+For developers who want to work with the source code:
 
 1. Clone the repository
-2. Build the backend with `dotnet publish`
-3. Run the backend server
-4. Run the frontend React app with `npm run dev`
-5. Start Ollama and LM Studio local LLM servers
+2. Run `.\scripts\build-app.ps1` to build the complete application
+3. The executable will be created in the `dist` folder
 
 ## Project Structure
 
-- Backend: ASP.NET Core with EF Core and SignalR
-- Frontend: React 18 with Vite and TailwindCSS
-- Local LLM connectors for Ollama and LM Studio
+- **Backend**: ASP.NET Core with EF Core and SignalR for real-time communication
+- **Frontend**: React 18 with TypeScript, Vite, and TailwindCSS
+- **Single Executable**: Self-contained application with embedded frontend
+- **Configuration Service**: Dynamic service discovery without hardcoded ports
+
+## Architecture
+
+SwAIvyn uses a service-based architecture with:
+
+- **Configuration Service**: Provides DNS-like naming for services
+- **Chat Service**: Real-time messaging with SignalR
+- **LLM Connector**: Integration with local language models
+- **Voice Processing**: Speech recognition and synthesis
 
 ## Build Instructions
 
-- Backend: `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true`
-- Frontend: `npm install` then `npm run dev`
+- **Complete Application**: `.\scripts\build-app.ps1`
+- **Backend Only**: `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true`
+- **Frontend Only**: `npm install` then `npm run build`
 
 ## Usage
 
+- Launch the application using `SwAIvyn.cmd` or the executable in the `dist` folder
 - Use the Login page to authenticate
 - Interact with AI via text chat or voice room interface
 - Configure settings and AI personality via UI

@@ -1,96 +1,60 @@
-# SwAIvyn Development Roadmap
+# SwAIvyn Project Roadmap
 
-This document outlines the planned development roadmap for SwAIvyn, a privacy-focused AI assistant with dual interfaces and Tamagotchi-like features.
+## Phase 1: Core Infrastructure (Completed)
+- Backend setup with .NET 7, ASP.NET Core hosting, and SQLite database using EF Core.
+- Basic user authentication implemented with username/password, PIN code, and recovery phrases.
+- Database models created for user profiles, AI character profiles, memory items, chat history, and settings.
+- Frontend foundations established with React 18, Vite, TailwindCSS, routing, and basic layout components.
+- Authentication screens and login/setup flow implemented.
+- Core services developed including live connections to Ollama and LM Studio LLMs, simple prompt manager, context window handling, file storage service, and settings service.
+- Comprehensive documentation created and updated.
 
-## Current Status
+## Phase 2: Chat Interface & Basic Features (In Progress)
+- Create chat UI components: message bubbles, input area, file upload zone, conversation history display.
+- Implement WebSocket/SignalR for real-time chat.
+- Add markdown rendering for messages.
+- Create conversation session management: create, switch, and delete conversations.
+- Design database schema for character profiles.
+- Create character card import/export functionality.
+- Build character editor UI.
+- Implement 2D avatar management with upload, cropping, and selection interface.
 
-- [x] Project structure and architecture defined
-- [x] Basic repository setup
-- [ ] Core backend services implementation
-- [ ] Frontend UI components
-- [ ] Basic chat functionality
+## Phase 3: Voice Integration & Room Interface
+- Integrate STT engine (Whisper) with audio capture, stream processing, and transcript generation.
+- Implement TTS engine with voice selection, audio streaming, and playback controls.
+- Create wake word detection service with background audio monitoring and event notification.
+- Design 2D room environment with avatar display, room background, and interactive elements.
+- Build voice-first interaction controls including microphone button and voice status indicators.
+- Create minimizable text chat component with slide animations and auto-hide.
 
-## Short-term Goals (1-3 months)
+## Phase 4: Federation & Advanced Features
+- Implement peer discovery on local network.
+- Create P2P communication protocol with encryption, authentication, and connection management.
+- Build AI-to-AI communication system with message types, response handling, and context sharing.
+- Add user-to-user messaging with forwarding and history.
+- Implement IMAP client for email access and mirroring.
+- Add calendar integration with iCal/CalDAV support.
+- Integrate Browsh for text-based web browsing and history management.
 
-### Backend Development
+## Phase 5: Plugin System & Customization
+- Design plugin interface and manifest format.
+- Build plugin manager service for discovery, installation, updates, and removal.
+- Create plugin management UI.
+- Develop 3D avatar space UI and Tamagotchi-like stat system.
+- Implement room customization and voice profile training systems.
 
-- [ ] Complete API endpoints for core functionality
-- [ ] Implement authentication and user management
-- [ ] Set up database and entity models
-- [ ] Implement SignalR hubs for real-time communication
-- [ ] Create basic memory management system
-- [ ] Integrate with local LLM engines
+## Phase 6: Reliability & Polish
+- Implement automated local and cloud backups with scheduling and encryption.
+- Create Windows and Linux system service wrappers with auto-start and management.
+- Setup single-file executable publishing and installer/setup process.
+- Optimize performance including memory usage, startup time, and database operations.
 
-### Frontend Development
-
-- [ ] Complete UI design and component library
-- [ ] Implement text chat interface
-- [ ] Create settings and configuration screens
-- [ ] Build authentication flows
-- [ ] Implement file upload functionality
-
-### Core Features
-
-- [ ] Basic text chat with AI
-- [ ] User account management
-- [ ] Simple memory storage and retrieval
-- [ ] Basic avatar customization
-
-## Mid-term Goals (3-6 months)
-
-### Backend Enhancements
-
-- [ ] Advanced memory management with vector storage
-- [ ] Voice processing pipeline
-- [ ] Module/plugin system architecture
-- [ ] Backup and restore functionality
-- [ ] Federation protocol design
-
-### Frontend Enhancements
-
-- [ ] Voice-first AI Room interface
-- [ ] Avatar visualization and customization
-- [ ] Memory browsing and editing UI
-- [ ] Module installation and management UI
-
-### Feature Expansion
-
-- [ ] Voice interaction capabilities
-- [ ] Character personality system
-- [ ] Basic federation between instances
-- [ ] Email integration
-
-## Long-term Goals (6+ months)
-
-### Advanced Features
-
-- [ ] 3D avatar support and animations
-- [ ] Advanced federation capabilities
-- [ ] Comprehensive plugin ecosystem
-- [ ] Mobile companion application
-- [ ] Advanced voice recognition with wake word
-- [ ] Virtual living space customization
-
-### Platform Expansion
-
-- [ ] Mobile apps (iOS/Android)
-- [ ] Raspberry Pi optimized version
-- [ ] Community module marketplace
-
-## Technical Debt & Maintenance
-
-- [ ] Comprehensive test coverage
-- [ ] Performance optimization
-- [ ] Security auditing
-- [ ] Documentation
-
-## Community & Ecosystem
-
-- [ ] Developer documentation
-- [ ] API documentation
-- [ ] Community forums
-- [ ] Contribution guidelines
+## Phase 7: Testing & Documentation
+- Create unit, integration, and end-to-end tests.
+- Conduct security audits.
+- Write user manuals, developer documentation, API specs, and setup guides.
+- Ensure legal compliance including MIT license and GDPR.
 
 ---
 
-This roadmap is subject to change based on user feedback, technical challenges, and evolving priorities.
+This roadmap outlines the planned development stages and key milestones for the SwAIvyn project.

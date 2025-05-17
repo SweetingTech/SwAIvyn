@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Paperclip, Camera, Mic } from 'lucide-react';
 import ChatMessage from '../components/chat/ChatMessage';
+import ChatInput from '../components/chat/ChatInput';
 import { Message } from '../types/chat';
+import { useChatHub } from '../hooks/useChatHub';
 
 const initialMessages: Message[] = [
   {
@@ -13,14 +15,26 @@ const initialMessages: Message[] = [
   }
 ];
 
+/**
+ * ChatPage component manages the chat interface including message display,
+ * input area, and integration with SignalR for real-time messaging.
+ */
 const ChatPage = () => {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [inputText, setInputText] = useState('');
+  // Use the custom hook to manage SignalR chat connection and messages
+  const { messages, sendMessage } = useChatHub();
 
+  // Local state for the input text
+  const [inputText, setInputText] = useState<string>('');
+
+  /**
+   * Handles form submission to send a chat message.
+   * @param e Form event
+   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
 
+    // Create a user message object
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: 'user',
@@ -28,19 +42,15 @@ const ChatPage = () => {
       timestamp: new Date().toISOString()
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    // Update local message list immediately for responsiveness
+    // Note: messages state is managed by useChatHub, so no local setMessages here
+    // The message will be added when SignalR broadcasts it back
+
+    // Clear the input field
     setInputText('');
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: 'ai',
-        text: 'I received your message and I\'m processing it. This is a placeholder response.',
-        timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, aiMessage]);
-    }, 1000);
+    // Send message via SignalR
+    sendMessage('user', inputText);
   };
 
   return (
@@ -57,13 +67,13 @@ const ChatPage = () => {
           <div className="px-4 py-2 bg-white border-b">
             <h1 className="text-xl font-semibold text-gray-800">Chat</h1>
           </div>
-          
+
           <div className="flex-grow overflow-y-auto p-4 space-y-4">
             {messages.map(message => (
               <ChatMessage key={message.id} message={message} />
             ))}
           </div>
-          
+
           <form onSubmit={handleSubmit} className="p-4 border-t bg-white">
             <div className="flex items-center space-x-2">
               <input
@@ -100,7 +110,7 @@ const ChatPage = () => {
             </div>
           </form>
         </div>
-        
+
         {/* Sidebar */}
         <div className="hidden lg:block w-80 border-l bg-white">
           <div className="p-4 border-b">
@@ -117,7 +127,7 @@ const ChatPage = () => {
                 Upload Files
               </button>
             </div>
-            
+
             <div className="card">
               <h3 className="text-sm font-medium text-gray-700">Voice</h3>
               <p className="text-sm text-gray-500 mt-1">
@@ -128,7 +138,7 @@ const ChatPage = () => {
                 Start Recording
               </button>
             </div>
-            
+
             <div className="card">
               <h3 className="text-sm font-medium text-gray-700">Camera</h3>
               <p className="text-sm text-gray-500 mt-1">
@@ -145,5 +155,6 @@ const ChatPage = () => {
     </motion.div>
   );
 };
+
 
 export default ChatPage;

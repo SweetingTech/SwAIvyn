@@ -50,25 +50,36 @@ This document provides detailed documentation of the work completed in Phase One
 - LoginPage.tsx for authentication UI supporting username/password and PIN login.
 - Frontend communicates with backend APIs and SignalR hubs.
 
-## Ports and URLs
+## Service Architecture
 
-| Service           | URL                          |
-|-------------------|------------------------------|
-| Backend API       | http://localhost:5000 (default) |
-| Frontend          | http://localhost:3000         |
-| Ollama API        | http://localhost:11434        |
-| LM Studio API     | http://localhost:5000         |
-| SignalR Chat Hub  | /hubs/chat                   |
-| SignalR Voice Hub | /hubs/voice                  |
-| SignalR Notify Hub| /hubs/notification           |
+SwAIvyn now uses a DNS-like naming system for service discovery:
+
+| Service           | Logical Name                 | Default URL                   |
+|-------------------|------------------------------|-------------------------------|
+| Backend API       | api                          | http://localhost:5000         |
+| Ollama API        | ollamaApi                    | http://localhost:11434        |
+| LM Studio API     | lmStudioApi                  | http://localhost:5000         |
+| SignalR Chat Hub  | chatHub                      | /hubs/chat                    |
+| SignalR Voice Hub | voiceHub                     | /hubs/voice                   |
+| SignalR Notify Hub| notificationHub              | /hubs/notification            |
+
+The Configuration Service provides dynamic service discovery, eliminating the need for hardcoded ports.
 
 ## How to Run
 
-1. Start Ollama and LM Studio local servers.
-2. Run backend ASP.NET Core server.
-3. Run frontend React app with `npm run dev`.
-4. Use LoginPage to authenticate.
-5. Use LlmConnectorService to interact with local LLMs.
+### Quick Start (Recommended)
+
+1. Double-click `SwAIvyn.cmd` in the project root
+2. The application will build (first time only) and launch automatically
+3. Interact with the assistant through your web browser
+
+### Manual Development Setup
+
+1. Start Ollama and LM Studio local servers
+2. Run backend ASP.NET Core server with `dotnet run`
+3. Run frontend React app with `npm run dev`
+4. Use LoginPage to authenticate
+5. Use LlmConnectorService to interact with local LLMs
 
 ## Notes
 
@@ -78,6 +89,18 @@ This document provides detailed documentation of the work completed in Phase One
 - Frontend and backend communicate via REST APIs and SignalR hubs.
 - Core services placeholders have been replaced with live implementations where applicable.
 
+## Self-Contained Application
+
+SwAIvyn is now packaged as a self-contained application:
+
+- Single executable (.exe) with no external dependencies
+- Frontend embedded in the backend application
+- Automatic browser launch on startup
+- DNS-like naming system for service discovery
+- No need to run npm or dotnet commands separately
+
+See [Self-Contained Application Guide](self_contained_application.md) and [Build and Deployment Guide](build_and_deployment.md) for more details.
+
 ---
 
-This updated documentation reflects the current state of the project after a comprehensive audit and serves as a reliable reference for developers and users.
+This updated documentation reflects the current state of the project after implementing the self-contained application architecture and DNS-like naming system.

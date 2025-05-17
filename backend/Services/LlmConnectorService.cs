@@ -41,15 +41,15 @@ namespace SwAIvyn.Services
         public LlmConnectorService(IConfiguration configuration)
         {
             _httpClient     = new HttpClient();
-            _ollamaApiUrl   = configuration["AppSettings:OllamaApiUrl"];
-            _lmStudioApiUrl = configuration["AppSettings:LmStudioApiUrl"];
+            _ollamaApiUrl   = configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434";
+            _lmStudioApiUrl = configuration["AppSettings:LmStudioApiUrl"] ?? "http://localhost:5000";
         }
 
         public async Task<IEnumerable<string>> GetOllamaModelsAsync()
         {
             // Ollama returns a list of model objects; we map to their names
             var models = await _httpClient.GetFromJsonAsync<List<OllamaModel>>($"{_ollamaApiUrl}/v1/models");
-            return models?.ConvertAll(m => m.Name) ?? Array.Empty<string>();
+            return models?.ConvertAll(m => m.Name) ?? new List<string>();
         }
 
         public async Task<string> GetLmStudioModelAsync()
@@ -105,23 +105,23 @@ namespace SwAIvyn.Services
         // DTOs for the various endpoints:
         private class OllamaModel
         {
-            public string Name { get; set; }
+            public string Name { get; set; } = string.Empty;
             // other fields omitted
         }
 
         private class OllamaCompletionResponse
         {
-            public string Completion { get; set; }
+            public string Completion { get; set; } = string.Empty;
         }
 
         private class LmStudioModelInfo
         {
-            public string Name { get; set; }
+            public string Name { get; set; } = string.Empty;
         }
 
         private class LmStudioGenerateResponse
         {
-            public string Text { get; set; }
+            public string Text { get; set; } = string.Empty;
         }
     }
 }
