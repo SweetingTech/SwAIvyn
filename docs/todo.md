@@ -3,30 +3,30 @@
 ## 🚀 Phase 1: Core Infrastructure (Foundation)
 
 ### Backend Setup
-- [ ] Create .NET 7 project structure
-- [ ] Setup ASP.NET Core hosting
-- [ ] Configure SQLite with EF Core
-- [ ] Implement basic user authentication
-  - [ ] Username/password login
-  - [ ] PIN code system
-  - [ ] Recovery phrases generation and storage
-- [ ] Create database models
-  - [ ] User profile
-  - [ ] AI character profile
-  - [ ] Memory items
-  - [ ] Chat history
-  - [ ] Settings
+- [x] Create .NET 7 project structure
+- [x] Setup ASP.NET Core hosting
+- [x] Configure SQLite with EF Core
+- [x] Implement basic user authentication
+  - [x] Username/password login
+  - [x] PIN code system
+  - [x] Recovery phrases generation and storage
+- [x] Create database models
+  - [x] User profile
+  - [x] AI character profile
+  - [x] Memory items
+  - [x] Chat history
+  - [x] Settings
 
 ### Frontend Foundations
-- [ ] Setup React project (CRA or Remix)
-- [ ] Install and configure TailwindCSS
-- [ ] Create routing structure
-- [ ] Implement basic layout components
-- [ ] Design login/setup flow
-- [ ] Create authentication screens
+- [x] Setup React project (CRA or Remix)
+- [x] Install and configure TailwindCSS
+- [x] Create routing structure
+- [x] Implement basic layout components
+- [x] Design login/setup flow
+- [x] Create authentication screens
 
 ### Core Services
-- [ ] Text chat engine integration
+- [x] Text chat engine integration
   - [ ] Local LLM connector (Ollama)
   - [ ] Simple prompt manager
   - [ ] Context window handling

@@ -13,6 +13,8 @@ namespace SwAIvyn.Data
         public DbSet<AppUser> Users { get; set; }
         public DbSet<MemoryItem> Memories { get; set; }
         public DbSet<AvatarInfo> Avatars { get; set; }
+        public DbSet<ChatHistory> ChatHistories { get; set; }
+        public DbSet<Settings> Settings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

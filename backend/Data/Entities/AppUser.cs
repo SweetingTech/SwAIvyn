@@ -8,6 +8,7 @@ namespace SwAIvyn.Data.Entities
         public Guid Id { get; set; }
         public string Username { get; set; }
         public string PasswordHash { get; set; }
+        public string PINCode { get; set; }
         public string RecoveryPhrase { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime LastLogin { get; set; }
