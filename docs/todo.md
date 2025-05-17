@@ -28,14 +28,14 @@
 ### Core Services
 - [x] Text chat engine integration
   - [x] Local LLM connector (Ollama)
-  - [ ] Simple prompt manager
-  - [ ] Context window handling
-- [ ] File storage service
-  - [ ] Local file system adapter
-  - [ ] Basic file upload/retrieval API
-- [ ] Settings service
-  - [ ] User preferences
-  - [ ] System configuration storage
+  - [x] Simple prompt manager
+  - [x] Context window handling
+- [x] File storage service
+  - [x] Local file system adapter
+  - [x] Basic file upload/retrieval API
+- [x] Settings service
+  - [x] User preferences
+  - [x] System configuration storage
 
 ## 🌐 Phase 2: Chat Interface & Basic Features
 

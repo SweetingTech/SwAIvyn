@@ -7,6 +7,9 @@ using Microsoft.Extensions.Configuration;
 
 namespace SwAIvyn.Services
 {
+    /// <summary>
+    /// Interface for connecting to local LLM engines such as Ollama and LM Studio.
+    /// </summary>
     public interface ILlmConnectorService
     {
         /// <summary>
@@ -22,6 +25,10 @@ namespace SwAIvyn.Services
         /// <summary>
         /// Sends a prompt to the chosen engine+model and returns the completion.
         /// </summary>
+        /// <param name="prompt">The prompt text to send to the model.</param>
+        /// <param name="engine">The engine to use ("ollama" or "lmstudio").</param>
+        /// <param name="model">The model name to use (optional for Ollama).</param>
+        /// <returns>The generated completion text.</returns>
         Task<string> GenerateResponseAsync(string prompt, string engine = "ollama", string model = null);
     }
 
