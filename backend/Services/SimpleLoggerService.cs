@@ -24,17 +24,17 @@ namespace SwAIvyn.Services
         {
             // Get log directory from configuration or use default
             var logDirectory = configuration["AppSettings:LogDirectory"] ?? "logs";
-            
+
             // Ensure the directory exists
             if (!Directory.Exists(logDirectory))
             {
                 Directory.CreateDirectory(logDirectory);
             }
-            
+
             // Create log file with timestamp
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             _logFilePath = Path.Combine(logDirectory, $"SwAIvyn_{timestamp}.log");
-            
+
             // Log startup
             LogInfo($"Application started at {DateTime.Now}");
             LogInfo($"Log file created at: {_logFilePath}");
@@ -54,10 +54,10 @@ namespace SwAIvyn.Services
 
         public void LogError(string message, Exception? exception = null)
         {
-            var logMessage = exception != null 
+            var logMessage = exception != null
                 ? $"{message} - Exception: {exception.Message}\nStackTrace: {exception.StackTrace}"
                 : message;
-                
+
             WriteToFile("ERROR", logMessage);
             Console.WriteLine($"[ERROR] {message}");
             if (exception != null)
@@ -69,10 +69,10 @@ namespace SwAIvyn.Services
 
         public void LogCritical(string message, Exception? exception = null)
         {
-            var logMessage = exception != null 
+            var logMessage = exception != null
                 ? $"{message} - Exception: {exception.Message}\nStackTrace: {exception.StackTrace}"
                 : message;
-                
+
             WriteToFile("CRITICAL", logMessage);
             Console.WriteLine($"[CRITICAL] {message}");
             if (exception != null)
@@ -80,7 +80,7 @@ namespace SwAIvyn.Services
                 Console.WriteLine($"Exception: {exception.Message}");
                 Console.WriteLine($"StackTrace: {exception.StackTrace}");
             }
-            
+
             // Also create a crash log for critical errors
             if (exception != null)
             {
@@ -88,20 +88,49 @@ namespace SwAIvyn.Services
                 {
                     var logDir = Path.GetDirectoryName(_logFilePath) ?? "logs";
                     var crashLogPath = Path.Combine(logDir, $"crash_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
-                    
+
                     var crashInfo = new StringBuilder();
                     crashInfo.AppendLine($"Crash occurred at: {DateTime.Now}");
                     crashInfo.AppendLine($"Process ID: {System.Diagnostics.Process.GetCurrentProcess().Id}");
+                    crashInfo.AppendLine($"Application: SwAIvyn");
                     crashInfo.AppendLine($"Message: {message}");
-                    crashInfo.AppendLine($"Exception: {exception.Message}");
-                    crashInfo.AppendLine($"StackTrace: {exception.StackTrace}");
-                    
+                    crashInfo.AppendLine($"Exception Type: {exception.GetType().FullName}");
+                    crashInfo.AppendLine($"Exception Message: {exception.Message}");
+
+                    // Get the method name and class from the stack trace
+                    var stackTrace = new System.Diagnostics.StackTrace(exception, true);
+                    var frames = stackTrace.GetFrames();
+
+                    if (frames != null && frames.Length > 0)
+                    {
+                        crashInfo.AppendLine($"Stack Trace Details:");
+                        foreach (var frame in frames)
+                        {
+                            var method = frame.GetMethod();
+                            if (method != null)
+                            {
+                                var className = method.DeclaringType?.FullName ?? "Unknown";
+                                var methodName = method.Name;
+                                var fileName = frame.GetFileName() ?? "Unknown";
+                                var lineNumber = frame.GetFileLineNumber();
+
+                                crashInfo.AppendLine($"  at {className}.{methodName} in {fileName}:line {lineNumber}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Fallback to the exception's stack trace if we can't get detailed info
+                        crashInfo.AppendLine($"Stack Trace: {exception.StackTrace}");
+                    }
+
                     if (exception.InnerException != null)
                     {
-                        crashInfo.AppendLine($"Inner Exception: {exception.InnerException.Message}");
-                        crashInfo.AppendLine($"Inner StackTrace: {exception.InnerException.StackTrace}");
+                        crashInfo.AppendLine($"Inner Exception Type: {exception.InnerException.GetType().FullName}");
+                        crashInfo.AppendLine($"Inner Exception Message: {exception.InnerException.Message}");
+                        crashInfo.AppendLine($"Inner Stack Trace: {exception.InnerException.StackTrace}");
                     }
-                    
+
                     File.WriteAllText(crashLogPath, crashInfo.ToString());
                 }
                 catch (Exception ex)
@@ -121,7 +150,7 @@ namespace SwAIvyn.Services
             try
             {
                 var logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{level}] {message}{Environment.NewLine}";
-                
+
                 lock (_lockObject)
                 {
                     File.AppendAllText(_logFilePath, logEntry);

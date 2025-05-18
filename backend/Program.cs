@@ -5,7 +5,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SwAIvyn.Data;
 using SwAIvyn.Services;
+using SwAIvyn.Services.VectorStore;
+using SwAIvyn.Services.Graph;
 using SwAIvyn.Hubs;
+using SwAIvyn.Middleware;
 using System;
 using System.IO;
 using System.Text;
@@ -17,8 +20,43 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 builder.Services.AddControllers();
+
+// Register DbContext with WAL mode and connection pooling
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+});
+
+// Add DbContextFactory for background services
+builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+});
+
+// Add database initializer service
+builder.Services.AddSingleton<IDatabaseInitializer, DatabaseInitializerService>();
+
+// Add directory initializer service
+builder.Services.AddSingleton<DirectoryInitializerService>();
+
+// Add backup service
+builder.Services.AddHostedService<BackupService>();
+
+// Add conversation and folder services
+builder.Services.AddScoped<IConversationService, ConversationService>();
+builder.Services.AddScoped<IFolderService, FolderService>();
+
+// Add vector store and brain services
+builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
+builder.Services.AddSingleton<IVectorStore, SqliteVectorStore>();
+builder.Services.AddScoped<IBrainService, BrainService>();
+
+// Add Neo4j and BrainGraph services
+builder.Services.AddSingleton<INeo4jService, Neo4jService>();
+builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
+
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -28,6 +66,12 @@ builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
 
 // Register the simple logger service
 builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
+
+// Register the application monitor service
+builder.Services.AddHostedService<ApplicationMonitorService>();
+
+// Make the logger available via dependency injection
+builder.Services.AddTransient<ILogger>(sp => sp.GetRequiredService<ILogger<Program>>());
 
 // Configure standard logging
 builder.Logging.ClearProviders();
@@ -49,6 +93,58 @@ var app = builder.Build();
 
 // Get the logger service
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
+
+// Initialize directories
+try
+{
+    logger.LogInfo("Initializing application directories...");
+    var directoryInitializer = app.Services.GetRequiredService<DirectoryInitializerService>();
+    directoryInitializer.InitializeDirectories();
+    logger.LogInfo("Directory initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogCritical("Failed to initialize directories", ex);
+}
+
+// Initialize database
+try
+{
+    logger.LogInfo("Initializing database...");
+    var dbInitializer = app.Services.GetRequiredService<IDatabaseInitializer>();
+    await dbInitializer.InitializeAsync();
+    logger.LogInfo("Database initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogCritical("Failed to initialize database", ex);
+}
+
+// Initialize vector store
+try
+{
+    logger.LogInfo("Initializing vector store...");
+    var vectorStore = app.Services.GetRequiredService<IVectorStore>();
+    await vectorStore.InitializeAsync();
+    logger.LogInfo("Vector store initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogError($"Failed to initialize vector store. Vector search will not be available. Error: {ex.Message}");
+}
+
+// Initialize Neo4j service
+try
+{
+    logger.LogInfo("Initializing Neo4j service...");
+    var neo4jService = app.Services.GetRequiredService<INeo4jService>();
+    await neo4jService.InitializeAsync();
+    logger.LogInfo("Neo4j service initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogError($"Failed to initialize Neo4j service. Graph functionality will not be available. Error: {ex.Message}");
+}
 
 // Set up global exception handler
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
@@ -82,6 +178,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Add global exception handler middleware
+app.UseGlobalExceptionHandler();
 
 app.UseHttpsRedirection();
 app.UseDefaultFiles(); // Add this to serve index.html by default
