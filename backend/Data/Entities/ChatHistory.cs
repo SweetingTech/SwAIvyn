@@ -20,7 +20,7 @@ namespace SwAIvyn.Data.Entities
         /// <summary>
         /// Gets or sets the conversation identifier.
         /// </summary>
-        public string ConversationId { get; set; }
+        public Guid ConversationId { get; set; }
 
         /// <summary>
         /// Gets or sets the chat message content.
@@ -36,10 +36,15 @@ namespace SwAIvyn.Data.Entities
         /// Gets or sets the timestamp of the message.
         /// </summary>
         public DateTime Timestamp { get; set; }
-        
+
         /// <summary>
         /// Navigation property to the user who sent the message.
         /// </summary>
         public virtual AppUser User { get; set; }
+
+        /// <summary>
+        /// Navigation property to the conversation this message belongs to.
+        /// </summary>
+        public virtual Conversation Conversation { get; set; }
     }
 }

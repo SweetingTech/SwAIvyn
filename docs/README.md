@@ -2,7 +2,7 @@
 
 ## Overview
 
-SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on your local network. It features both traditional text-based chat and an immersive voice-first interface where your AI lives in a customizable virtual space.
+SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on your local network. It features both traditional text-based chat and an immersive voice-first interface where your AI lives in a customizable virtual space. The application includes a hierarchical folder system for organizing conversations and a powerful brain with vector search and graph database capabilities.
 
 ## Getting Started
 
@@ -15,9 +15,11 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 ### System Requirements
 
 - Windows 10/11
-- .NET 7.0 Runtime (installed automatically if needed)
+- .NET 9.0 Runtime (installed automatically if needed)
 - 4GB RAM minimum (8GB recommended)
 - Local LLM server (optional): Ollama or LM Studio
+- SQLite-VSS extension (for vector search)
+- Neo4j (optional, for graph database functionality)
 
 ### Manual Installation
 
@@ -33,13 +35,19 @@ For developers who want to work with the source code:
 - **Frontend**: React 18 with TypeScript, Vite, and TailwindCSS
 - **Single Executable**: Self-contained application with embedded frontend
 - **Configuration Service**: Dynamic service discovery without hardcoded ports
+- **Database**: SQLite with WAL mode, SQLite-VSS for vector search, Neo4j for graph database
+- **File Storage**: JSON files for chat messages, organized by conversation ID
 
 ## Architecture
 
 SwAIvyn uses a service-based architecture with:
 
 - **Configuration Service**: Provides DNS-like naming for services
+- **Folder Service**: Manages hierarchical folder structure for conversations
+- **Conversation Service**: Manages conversations and chat messages
 - **Chat Service**: Real-time messaging with SignalR
+- **Brain Service**: Vector search and memory management
+- **Brain Graph Service**: Graph database for semantic relationships
 - **LLM Connector**: Integration with local language models
 - **Voice Processing**: Speech recognition and synthesis
 
@@ -53,16 +61,23 @@ SwAIvyn uses a service-based architecture with:
 
 - Launch the application using `SwAIvyn.cmd` or the executable in the `dist` folder
 - Use the Login page to authenticate
+- Create folders to organize your conversations
+- Start new conversations or continue existing ones
 - Interact with AI via text chat or voice room interface
+- Use the Brain to search across conversations and memories
+- Explore semantic relationships with the Brain Graph visualization
 - Configure settings and AI personality via UI
 
 ## Dependencies
 
-- .NET 7
+- .NET 9.0
 - React 18
 - TailwindCSS
-- Ollama LLM server
-- LM Studio LLM server
+- SQLite (with WAL mode)
+- SQLite-VSS extension
+- Neo4j (embedded or remote)
+- Ollama LLM server (optional)
+- LM Studio LLM server (optional)
 
 ## License
 

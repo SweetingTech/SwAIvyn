@@ -1,0 +1,1 @@
+check the list that you made. Is what you're doing going to help you achieve your goal?  Are you deviating from the original task? If yes, stop and get back to what the task was.

@@ -42,7 +42,7 @@ namespace SwAIvyn.Data.Entities
         /// Gets or sets the date and time of the last login.
         /// </summary>
         public DateTime LastLogin { get; set; }
-        
+
         /// <summary>
         /// Navigation property for the user's memories.
         /// </summary>
@@ -52,5 +52,10 @@ namespace SwAIvyn.Data.Entities
         /// Navigation property for the user's avatars.
         /// </summary>
         public virtual ICollection<AvatarInfo> Avatars { get; set; }
+
+        /// <summary>
+        /// Navigation property for the user's conversations.
+        /// </summary>
+        public virtual ICollection<Conversation> Conversations { get; set; }
     }
 }

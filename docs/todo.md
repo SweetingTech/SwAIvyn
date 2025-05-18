@@ -1,249 +1,213 @@
-# SwAIvyn Development To-Do List
+# SwAIvyn Development To‑Do List (Updated Roadmap)
 
-## 🚀 Phase 1: Core Infrastructure (Foundation)
-
-### Backend Setup
-- [x] Create .NET 7 project structure
-- [x] Setup ASP.NET Core hosting
-- [x] Configure SQLite with EF Core
-- [x] Implement basic user authentication
-  - [x] Username/password login
-  - [x] PIN code system
-  - [x] Recovery phrases generation and storage
-- [x] Create database models
-  - [x] User profile
-  - [x] AI character profile
-  - [x] Memory items
-  - [x] Chat history
-  - [x] Settings
-
-### Frontend Foundations
-- [x] Setup React project (CRA or Remix)
-- [x] Install and configure TailwindCSS
-- [x] Create routing structure
-- [x] Implement basic layout components
-- [x] Design login/setup flow
-- [x] Create authentication screens
-
-### Core Services
-- [x] Text chat engine integration
-  - [x] Local LLM connector (Ollama)
-  - [x] Simple prompt manager
-  - [x] Context window handling
-- [x] File storage service
-  - [x] Local file system adapter
-  - [x] Basic file upload/retrieval API
-- [x] Settings service
-  - [x] User preferences
-  - [x] System configuration storage
-
-## 🌐 Phase 2: Chat Interface & Basic Features
-
-### Text Chat Implementation
-- [x] Create chat UI components
-  - [x] Message bubbles
-  - [x] Input area with send button
-  - [x] File upload zone
-  - [x] Conversation history display
-- [x] Implement WebSocket/SignalR for real-time chat
-- [x] Add markdown rendering for messages
-- [x] Create conversation session management
-  - [x] Create new conversations
-  - [x] Switch between conversations
-  - [x] Delete conversations
-
-### Character System
-- [x] Design database schema for character profiles
-- [x] Create character card import/export functionality
-- [x] Build character editor UI
-- [x] Implement 2D avatar management
-  - [x] Avatar upload and cropping
-  - [x] Avatar selection interface
-  - [x] Placeholder for future 3D integration
-
-### Basic Memory System
-- [x] Implement vector storage for AI memories
-- [x] Create memory retrieval service for chat context
-- [x] Build simple memory browser UI
-- [x] Add ability to create/edit/delete memories
-
-## 🎤 Phase 3: Voice Integration & Room Interface
-
-### Voice System
-- [ ] Integrate STT engine (Whisper)
-  - [ ] Audio capture from browser
-  - [ ] Stream processing to backend
-  - [ ] Transcript generation
-- [ ] Implement TTS engine
-  - [ ] Voice selection
-  - [ ] Audio streaming to frontend
-  - [ ] Playback controls
-- [ ] Create wake word detection service
-  - [ ] Background audio monitoring
-  - [ ] Wake word configuration
-  - [ ] Wake event notification system
-
-### AI Room Interface
-- [ ] Design 2D room environment
-  - [ ] Avatar display area
-  - [ ] Room background
-  - [ ] Interactive elements placeholder
-- [ ] Build voice-first interaction controls
-  - [ ] Large microphone button
-  - [ ] Voice status indicators
-  - [ ] Listen/replay button
-- [ ] Create minimizable text chat component
-  - [ ] Slide-in/out animation
-  - [ ] Auto-hide when inactive
-  - [ ] Quick access for text input when needed
-
-## 🔄 Phase 4: Federation & Advanced Features
-
-### Federation System
-- [ ] Implement peer discovery on local network
-- [ ] Create P2P communication protocol
-  - [ ] Message encryption
-  - [ ] Authentication
-  - [ ] Connection management
-- [ ] Build AI-to-AI communication system
-  - [ ] Message types (query, reminder, etc.)
-  - [ ] Response handling
-  - [ ] Context sharing protocol
-- [ ] Add user-to-user messaging
-  - [ ] Message forwarding
-  - [ ] Message history
-
-### Email & Calendar Integration
-- [ ] Implement IMAP client for email access
-  - [ ] Email account configuration
-  - [ ] Email mirroring to local storage
-  - [ ] Email query API
-- [ ] Add calendar integration
-  - [ ] iCal/CalDAV support
-  - [ ] Event storage and indexing
-  - [ ] Availability checking
-
-### Web Access
-- [ ] Integrate Browsh for text-based browsing
-  - [ ] URL handling
-  - [ ] Content parsing
-  - [ ] Result formatting for AI
-- [ ] Create browsing history management
-
-## 🧩 Phase 5: Plugin System & Customization
-
-### Plugin Architecture
-- [ ] Design plugin interface
-  - [ ] Plugin manifest format
-  - [ ] Loading/unloading mechanism
-  - [ ] Version management
-- [ ] Build plugin manager service
-  - [ ] Plugin discovery
-  - [ ] Plugin installation/removal
-  - [ ] Plugin updates
-- [ ] Create plugin management UI
-  - [ ] List installed plugins
-  - [ ] Enable/disable plugins
-  - [ ] Configure plugin settings
-
-### 3D Avatar Placeholder
-- [ ] Create 3D avatar space UI
-  - [ ] Placeholder for future 3D model
-  - [ ] Basic animation framework
-  - [ ] Interaction points
-- [ ] Design Tamagotchi-like stat system
-  - [ ] Database structure for avatar stats
-  - [ ] Stat update mechanisms
-  - [ ] Visual indicators
-
-### Advanced Customization
-- [ ] Room customization system
-  - [ ] Item placement
-  - [ ] Background selection
-  - [ ] Theme customization
-- [ ] Voice profile training system
-  - [ ] Voice sample collection
-  - [ ] Voice adaptation for STT
-  - [ ] Custom voice creation for TTS
-
-## 💾 Phase 6: Reliability & Polish
-
-### Backup System
-- [ ] Implement automated local backups
-  - [ ] Schedule configuration
-  - [ ] Incremental backup strategy
-  - [ ] Database dumps
-- [ ] Add NAS/cloud backup options
-  - [ ] Connection management
-  - [ ] Encrypted storage
-  - [ ] Restore functionality
-
-### Windows Service Integration
-- [ ] Create Windows service wrapper
-  - [ ] Auto-start configuration
-  - [ ] Background operation
-  - [ ] System tray integration
-- [ ] Implement system service for Linux
-  - [ ] systemd unit file
-  - [ ] Auto-start configuration
-  - [ ] Service management
-
-### Packaging & Distribution
-- [ ] Setup single-file executable publishing
-  - [ ] Resource embedding
-  - [ ] Dependency management
-  - [ ] Platform-specific builds
-- [ ] Create installer/setup process
-  - [ ] First-run experience
-  - [ ] Upgrade handling
-  - [ ] Configuration migration
-
-### Performance Optimization
-- [ ] Profile and optimize memory usage
-- [ ] Improve initial startup time
-- [ ] Optimize database operations
-- [ ] Fine-tune real-time communication
-
-## 🧪 Phase 7: Testing & Documentation
-
-### Testing
-- [ ] Create unit tests for core services
-- [ ] Implement integration tests
-- [ ] Perform end-to-end testing
-- [ ] Conduct security audit
-
-### Documentation
-- [ ] Write user manual
-- [ ] Create developer documentation
-- [ ] Document API endpoints
-- [ ] Create setup and configuration guide
-
-### Legal & Compliance
-- [ ] Add MIT license
-- [ ] Create privacy policy
-- [ ] Document data handling practices
-- [ ] Ensure GDPR compliance for any shared features
+> **Legend**  ✅ Done    🟡 In Progress    ⬜ To Do    ⚡ New / Revised Task
 
 ---
 
-## 🌟 Future Enhancements (Post-MVP)
+## 🚀 Phase 1: Core Infrastructure (Foundation) ✅
 
-### Mobile Companion App
-- [ ] Design mobile UI
-- [ ] Implement mobile-friendly features
-- [ ] Create notification system
+### Backend Setup
 
-### Advanced 3D Avatar System
-- [ ] Full 3D model support
-- [ ] Advanced animations
-- [ ] User-created avatars
+* ✅ Create .NET 9 project structure
+* ✅ Setup ASP.NET Core hosting
+* ✅ Configure SQLite with EF Core (WAL mode)
+* ✅ Implement basic user authentication
 
-### Multi-User Support
-- [ ] Family account management
-- [ ] Shared and private memories
-- [ ] Permission system
+  * ✅ Username/password login
+  * ✅ PIN code system
+  * ✅ Recovery phrase generation & storage
+* ✅ Create database models
 
-### Advanced AI Features
-- [ ] Multi-agent workflows
-- [ ] Cross-instance learning
-- [ ] Advanced reasoning capabilities
+  * ✅ User profile
+  * ✅ AI character profile
+  * ✅ Folders (hierarchical)
+  * ✅ Conversations (folder relationships)
+  * ✅ Chat index (file‑based)
+  * ✅ Memory items
+  * ✅ Settings
+* ✅ **Startup health guard** — abort boot if SQLite or Neo4j unavailable
+* ✅ **Seed default AI profile** on first run
+
+### Frontend Foundations
+
+* ✅ React project (Remix)
+* ✅ TailwindCSS configured
+* ✅ Routing scaffold
+* ✅ Basic layout components
+* ✅ Login/setup flow & auth screens
+
+### Core Services
+
+* ✅ Local LLM connector (Ollama)
+* ✅ Prompt manager & context window
+* ✅ File storage service (JSON chat logs)
+* ✅ Folder & conversation management
+* ✅ Brain service
+
+  * ✅ Vector storage (SQLite‑VSS)
+  * ✅ Graph DB (Neo4j)
+  * ✅ Semantic search merge
+  * ✅ **Remote vector fallback hook**
+* ✅ Settings service (user prefs / system config)
+* ✅ **HealthCheck API endpoints**
+
+  * `/api/health/sqlite`
+  * `/api/health/neo4j`
+  * `/api/health/vector`
+
+---
+
+## 🌐 Phase 2: Chat Interface & Basic Features ✅
+
+### Text Chat Implementation
+
+* ✅ Chat UI (bubbles, input, uploads, history)
+* ✅ Real‑time SignalR
+* ✅ Markdown rendering
+* ✅ Conversation CRUD
+* ✅ **Folder management UI**
+
+  * ✅ Folder tree view
+  * ✅ Add / rename / delete
+  * ✅ Drag‑and‑drop conversations
+* ✅ **Conversation search**
+
+  * ✅ Title & content search
+  * ✅ Folder filter
+  * ✅ Date sort
+
+### Character System
+
+* ✅ Character schema & card import/export
+* ✅ Character editor UI
+* ✅ 2D avatar management
+
+### Brain System
+
+* ✅ Vector store + memory retrieval
+* ✅ Graph relations in Neo4j
+* ✅ **Brain explorer UI**
+
+  * ✅ Memory browser (search / edit / delete)
+  * ✅ Graph visualization (Bloom/D3)
+  * ✅ Relationship editor
+* ✅ Manual memory & edge CRUD from UI
+
+---
+
+## 🎤 Phase 3: Voice Integration & Room Interface ⬜
+
+### Voice System
+
+* ⬜ STT (Whisper) integration
+
+  * ⬜ Browser audio capture
+  * ⬜ Streaming to backend
+  * ⬜ Transcript injection into chat
+* ⬜ TTS engine
+
+  * ⬜ Voice picker
+  * ⬜ Audio stream to frontend
+  * ⬜ Playback controls
+* ⬜ Wake‑word detection
+
+  * ⬜ Background monitoring
+  * ⬜ Config UI
+  * ⬜ Notification event
+
+### AI Room Interface
+
+* ⬜ 2D room canvas (avatar, background)
+* ⬜ Voice‑first controls (mic button, status, replay)
+* ⬜ Minimizable text chat (slide/auto‑hide)
+
+---
+
+## 🔄 Phase 4: Federation & Advanced Features ⬜
+
+### Federation System
+
+* ⬜ Local peer discovery
+* ⬜ P2P protocol (encrypted, authenticated)
+* ⬜ AI‑to‑AI messaging & context share
+* ⬜ User‑to‑user messaging (forwarding + history)
+
+### Email & Calendar
+
+* ⬜ IMAP client + local mirror
+* ⬜ iCal/CalDAV integration & availability checks
+
+### Web Access
+
+* ⬜ Browsh integration for text browsing
+* ⬜ History manager
+
+---
+
+## 🧩 Phase 5: Plugin System & Customization ⬜
+
+*(unchanged – begins after Phase 4)*
+
+---
+
+## 💾 Phase 6: Reliability & Polish 🟡
+
+### Backup System
+
+* ✅ Automated local DB backups
+* ⚡ ⬜ Include `/sessions/**` JSON logs in backup
+* ⬜ NAS / cloud encrypted backup + restore
+
+### Windows / Linux Service
+
+* ⬜ Windows service wrapper & tray icon
+* ⬜ Linux systemd unit
+
+### Packaging & Distribution
+
+* ⬜ Single‑file publish (win‑x64, macOS, linux)
+* ⬜ Installer & upgrade migration
+
+### Performance
+
+* ✅ SQLite tuned, WAL mode
+* ✅ Efficient JSON message writes
+* ⬜ Memory profiling & startup optimisation
+* ⬜ Vector search tuning & cache
+
+---
+
+## 🧪 Phase 7: Testing & Documentation ⬜
+
+### Testing
+
+* ⬜ Unit tests for Folder/Conversation/Brain services
+* ⬜ Integration: startup health + message flow
+* ⬜ End‑to‑end UI tests
+* ⬜ Security audit
+
+### Documentation
+
+* ✅ Architecture, schema, data‑flow docs
+* ⬜ User manual
+* ⬜ Developer guide + API docs
+* ⬜ Setup / configuration guide
+
+### Legal & Compliance
+
+* ⬜ MIT license, privacy policy, GDPR handling
+
+---
+
+## 🌟 Future Enhancements (Post‑MVP) ⬜
+
+*(mobile app, 3D avatar system, multi‑user support, advanced AI reasoning, etc.)*
+
+---
+
+### Immediate Next Focus
+
+1. **Health checks + startup guard** ✅
+2. **Folder management & search UIs** ✅
+3. **Brain explorer view** ✅
+4. **Whisper audio capture POC** ⬜

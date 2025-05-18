@@ -1,0 +1,1 @@
+always create a task list of what you're trying to do before you start coding. 
