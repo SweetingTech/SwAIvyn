@@ -5,6 +5,8 @@ import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
 import { Message } from '../types/chat';
 import { useChatHub } from '../hooks/useChatHub';
+import FolderTree from '../components/FolderTree';
+import BrainExplorer from '../components/BrainExplorer';
 
 const initialMessages: Message[] = [
   {
@@ -116,6 +118,10 @@ const ChatPage = () => {
           <div className="p-4 border-b">
             <h2 className="text-lg font-medium text-gray-800">Tools</h2>
           </div>
+          {/* Folder management UI - replace 'demo-user-id' with actual userId from auth context */}
+          <FolderTree userId={"demo-user-id"} onSelectFolder={folderId => { /* handle folder selection */ }} />
+          {/* Brain explorer UI */}
+          <BrainExplorer />
           <div className="p-4 space-y-4">
             <div className="card">
               <h3 className="text-sm font-medium text-gray-700">Files</h3>

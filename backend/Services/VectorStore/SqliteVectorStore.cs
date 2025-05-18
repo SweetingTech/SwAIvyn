@@ -258,5 +258,24 @@ namespace SwAIvyn.Services.VectorStore
                 };
             }
         }
+
+        /// <inheritdoc/>
+        public async Task<bool> HealthCheckAsync()
+        {
+            try
+            {
+                // Try a simple query to check DB connection
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT 1";
+                await cmd.ExecuteScalarAsync();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 }

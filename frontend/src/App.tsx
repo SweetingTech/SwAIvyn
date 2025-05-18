@@ -7,6 +7,8 @@ import VoiceRoomPage from './pages/VoiceRoomPage';
 import MemoryPage from './pages/MemoryPage';
 import ModulesPage from './pages/ModulesPage';
 import SettingsPage from './pages/SettingsPage';
+import MemoryBrowser from './pages/MemoryBrowser';
+import ConversationManagement from './pages/ConversationManagement';
 
 function App() {
   return (
@@ -19,6 +21,8 @@ function App() {
           <Route path="memory" element={<MemoryPage />} />
           <Route path="modules" element={<ModulesPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="memory-browser" element={<MemoryBrowser userId={"demo-user-id"} />} />
+          <Route path="conversation-management" element={<ConversationManagement userId={"demo-user-id"} onSelectConversation={() => {}} />} />
         </Route>
       </Routes>
     </Suspense>

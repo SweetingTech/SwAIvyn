@@ -1,6 +1,6 @@
 # SwAIvyn Development To‑Do List (Updated Roadmap)
 
-> **Legend**  ✅ Done   🟡 In Progress   ⬜ To Do   ⚡ New / Revised Task
+> **Legend**  ✅ Done    🟡 In Progress    ⬜ To Do    ⚡ New / Revised Task
 
 ---
 
@@ -25,8 +25,8 @@
   * ✅ Chat index (file‑based)
   * ✅ Memory items
   * ✅ Settings
-* ⚡ ⬜ **Startup health guard** — abort boot if SQLite or Neo4j unavailable
-* ⚡ ⬜ **Seed default AI profile** on first run
+* ✅ **Startup health guard** — abort boot if SQLite or Neo4j unavailable
+* ✅ **Seed default AI profile** on first run
 
 ### Frontend Foundations
 
@@ -47,9 +47,9 @@
   * ✅ Vector storage (SQLite‑VSS)
   * ✅ Graph DB (Neo4j)
   * ✅ Semantic search merge
-  * ⚡ ⬜ **Remote vector fallback hook**
+  * ✅ **Remote vector fallback hook**
 * ✅ Settings service (user prefs / system config)
-* ⚡ ⬜ **HealthCheck API endpoints**
+* ✅ **HealthCheck API endpoints**
 
   * `/api/health/sqlite`
   * `/api/health/neo4j`
@@ -57,7 +57,7 @@
 
 ---
 
-## 🌐 Phase 2: Chat Interface & Basic Features 🟡
+## 🌐 Phase 2: Chat Interface & Basic Features ✅
 
 ### Text Chat Implementation
 
@@ -65,16 +65,16 @@
 * ✅ Real‑time SignalR
 * ✅ Markdown rendering
 * ✅ Conversation CRUD
-* ⚡ ⬜ **Folder management UI**
+* ✅ **Folder management UI**
 
-  * ⬜ Folder tree view
-  * ⬜ Add / rename / delete
-  * ⬜ Drag‑and‑drop conversations
-* ⚡ ⬜ **Conversation search**
+  * ✅ Folder tree view
+  * ✅ Add / rename / delete
+  * ✅ Drag‑and‑drop conversations
+* ✅ **Conversation search**
 
-  * ⬜ Title & content search
-  * ⬜ Folder filter
-  * ⬜ Date sort
+  * ✅ Title & content search
+  * ✅ Folder filter
+  * ✅ Date sort
 
 ### Character System
 
@@ -86,12 +86,12 @@
 
 * ✅ Vector store + memory retrieval
 * ✅ Graph relations in Neo4j
-* ⚡ ⬜ **Brain explorer UI**
+* ✅ **Brain explorer UI**
 
-  * ⬜ Memory browser (search / edit / delete)
-  * ⬜ Graph visualization (Bloom/D3)
-  * ⬜ Relationship editor
-* ⬜ Manual memory & edge CRUD from UI
+  * ✅ Memory browser (search / edit / delete)
+  * ✅ Graph visualization (Bloom/D3)
+  * ✅ Relationship editor
+* ✅ Manual memory & edge CRUD from UI
 
 ---
 
@@ -207,7 +207,7 @@
 
 ### Immediate Next Focus
 
-1. **Health checks + startup guard**
-2. **Folder management & search UIs**
-3. **Brain explorer view**
-4. **Whisper audio capture POC**
+1. **Health checks + startup guard** ✅
+2. **Folder management & search UIs** ✅
+3. **Brain explorer view** ✅
+4. **Whisper audio capture POC** ⬜

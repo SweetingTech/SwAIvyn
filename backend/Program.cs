@@ -33,10 +33,10 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
 {
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     options.UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
-});
+}, ServiceLifetime.Scoped);
 
 // Add database initializer service
-builder.Services.AddSingleton<IDatabaseInitializer, DatabaseInitializerService>();
+builder.Services.AddScoped<IDatabaseInitializer, DatabaseInitializerService>();
 
 // Add directory initializer service
 builder.Services.AddSingleton<DirectoryInitializerService>();
@@ -54,7 +54,8 @@ builder.Services.AddSingleton<IVectorStore, SqliteVectorStore>();
 builder.Services.AddScoped<IBrainService, BrainService>();
 
 // Add Neo4j and BrainGraph services
-builder.Services.AddSingleton<INeo4jService, Neo4jService>();
+builder.Services.AddScoped<INeo4jService, Neo4jService>();
+builder.Services.AddSingleton<Neo4jRuntimeService>();
 builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 
 builder.Services.AddSignalR();
@@ -94,6 +95,51 @@ var app = builder.Build();
 // Get the logger service
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
+// Startup health guard: abort if SQLite unavailable
+logger.LogInfo("Performing startup health checks...");
+using (var scope = app.Services.CreateScope())
+{
+    var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+    if (!await dbInitializer.CanConnectAsync())
+    {
+        logger.LogCritical("Startup aborted: SQLite database unavailable.");
+        Environment.Exit(1);
+    }
+
+    // Skip Neo4j health check completely
+    logger.LogInfo("Startup health checks passed.");
+}
+
+// --- Seed default AI profile on first run ---
+try
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        // If no AI character profiles exist, create a default
+        if (!db.Avatars.Any())
+        {
+            db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
+            {
+                Id = Guid.NewGuid(),
+                UserId = db.Users.FirstOrDefault()?.Id ?? Guid.NewGuid(), // Assign to first user or dummy
+                Name = "Default AI",
+                ImagePath = "",
+                Personality = "Friendly and helpful AI assistant.",
+                VoiceSettings = "default",
+                CreatedAt = DateTime.UtcNow,
+                LastModified = DateTime.UtcNow
+            });
+            db.SaveChanges();
+            logger.LogInfo("Seeded default AI profile.");
+        }
+    }
+}
+catch (Exception ex)
+{
+    logger.LogError("Failed to seed default AI profile", ex);
+}
+
 // Initialize directories
 try
 {
@@ -111,9 +157,12 @@ catch (Exception ex)
 try
 {
     logger.LogInfo("Initializing database...");
-    var dbInitializer = app.Services.GetRequiredService<IDatabaseInitializer>();
-    await dbInitializer.InitializeAsync();
-    logger.LogInfo("Database initialization completed successfully");
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+        await dbInitializer.InitializeAsync();
+        logger.LogInfo("Database initialization completed successfully");
+    }
 }
 catch (Exception ex)
 {
@@ -133,17 +182,55 @@ catch (Exception ex)
     logger.LogError($"Failed to initialize vector store. Vector search will not be available. Error: {ex.Message}");
 }
 
-// Initialize Neo4j service
+// Initialize Neo4j runtime and service
+var neo4jEmbedded = builder.Configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", false);
+var requireNeo4j = builder.Configuration.GetValue<bool>("AppSettings:RequireNeo4j", false);
+logger.LogInfo($"Neo4j embedded mode is {(neo4jEmbedded ? "enabled" : "disabled")}");
+logger.LogInfo($"Neo4j required: {requireNeo4j}");
+
 try
 {
-    logger.LogInfo("Initializing Neo4j service...");
-    var neo4jService = app.Services.GetRequiredService<INeo4jService>();
-    await neo4jService.InitializeAsync();
-    logger.LogInfo("Neo4j service initialization completed successfully");
+    // Get Neo4j services
+    var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
+
+    // Initialize Neo4j runtime (extract and start Neo4j)
+    logger.LogInfo("Initializing Neo4j runtime...");
+    await neo4jRuntime.InitializeAsync();
+
+    using (var scope = app.Services.CreateScope())
+    {
+        var neo4jService = scope.ServiceProvider.GetRequiredService<INeo4jService>();
+
+        // Initialize Neo4j service
+        logger.LogInfo("Initializing Neo4j service...");
+        await neo4jService.InitializeAsync();
+        logger.LogInfo("Neo4j service initialization completed successfully");
+
+        // Check if Neo4j is available
+        var graphOk = await neo4jService.PingAsync();
+        if (!graphOk && requireNeo4j)
+        {
+            logger.LogCritical("Startup aborted: Neo4j service unavailable.");
+            Environment.Exit(1);
+        }
+
+        if (!graphOk)
+        {
+            logger.LogWarning("Neo4j offline - graph features disabled until reconnection.");
+        }
+    }
 }
 catch (Exception ex)
 {
-    logger.LogError($"Failed to initialize Neo4j service. Graph functionality will not be available. Error: {ex.Message}");
+    if (requireNeo4j)
+    {
+        logger.LogCritical("Startup aborted: Neo4j service unavailable.", ex);
+        Environment.Exit(1);
+    }
+    else
+    {
+        logger.LogWarning($"Failed to initialize Neo4j service. Graph functionality will not be available. Error: {ex.Message}");
+    }
 }
 
 // Set up global exception handler
@@ -197,6 +284,16 @@ app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<VoiceHub>("/hubs/voice");
 app.MapHub<NotificationHub>("/hubs/notification");
 
+// Add health endpoint for Neo4j
+app.MapGet("/api/health/neo4j", async (Neo4jRuntimeService neo4jRuntime) =>
+    Results.Ok(await neo4jRuntime.GetStatusAsync()));
+
+// Set URLs explicitly
+if (!app.Urls.Any())
+{
+    app.Urls.Add("http://localhost:5000");
+}
+
 // Log application startup
 logger.LogInfo($"Application starting on URLs: {string.Join(", ", app.Urls)}");
 
@@ -205,6 +302,18 @@ var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(() =>
 {
     logger.LogInfo("Application is shutting down...");
+
+    // Gracefully shut down Neo4j
+    try
+    {
+        var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
+        neo4jRuntime.Dispose();
+        logger.LogInfo("Neo4j runtime shut down successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError("Failed to shut down Neo4j runtime", ex);
+    }
 });
 
 // Create logs directory if it doesn't exist
@@ -248,6 +357,7 @@ if (!app.Environment.IsDevelopment())
 else
 {
     logger.LogInfo("Running in development mode");
+    logger.LogInfo("Application URLs: " + string.Join(", ", app.Urls));
     app.Run();
     logger.LogInfo("Application has stopped");
 }

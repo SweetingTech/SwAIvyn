@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SwAIvyn.Services.Graph
@@ -11,7 +12,7 @@ namespace SwAIvyn.Services.Graph
     /// <summary>
     /// Service for interacting with Neo4j graph database
     /// </summary>
-    public class Neo4jService : INeo4jService
+    public class Neo4jService : INeo4jService, IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly ISimpleLoggerService _logger;
@@ -20,6 +21,9 @@ namespace SwAIvyn.Services.Graph
         private readonly string _neo4jPassword;
         private readonly bool _isEmbedded;
         private bool _isInitialized = false;
+        private bool _online = false;
+        private Timer _reconnectTimer;
+        private readonly object _lockObject = new object();
 
         /// <summary>
         /// Initializes a new instance of the Neo4jService
@@ -32,11 +36,17 @@ namespace SwAIvyn.Services.Graph
         {
             _httpClient = new HttpClient();
             _logger = logger;
-            
+
             _neo4jUri = configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474";
             _neo4jUser = configuration["AppSettings:Neo4jUser"] ?? "neo4j";
             _neo4jPassword = configuration["AppSettings:Neo4jPassword"] ?? "password";
             _isEmbedded = configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", true);
+
+            // Log the configuration
+            _logger.LogInfo($"Neo4j configuration: Uri={_neo4jUri}, User={_neo4jUser}, Embedded={_isEmbedded}");
+
+            // Start the reconnect timer (check every 30 seconds)
+            _reconnectTimer = new Timer(async _ => await CheckConnectionAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
         /// <inheritdoc/>
@@ -45,6 +55,14 @@ namespace SwAIvyn.Services.Graph
             try
             {
                 _logger.LogInfo("Initializing Neo4j service...");
+
+                // If Neo4j is not embedded, we don't need to initialize it
+                if (!_isEmbedded)
+                {
+                    _logger.LogInfo("Neo4j embedded mode is disabled. Skipping Neo4j initialization.");
+                    _isInitialized = true;
+                    return;
+                }
 
                 if (_isEmbedded)
                 {
@@ -317,6 +335,12 @@ namespace SwAIvyn.Services.Graph
             if (!_isInitialized && !query.Contains("dbms.cluster.overview"))
                 await InitializeAsync();
 
+            // If Neo4j is not embedded, return an empty result
+            if (!_isEmbedded)
+            {
+                return new List<Dictionary<string, object>>();
+            }
+
             try
             {
                 var requestData = new
@@ -427,12 +451,22 @@ namespace SwAIvyn.Services.Graph
             {
                 var status = new Dictionary<string, object>();
 
+                // If Neo4j is not embedded, return a default status
+                if (!_isEmbedded)
+                {
+                    status["Connected"] = false;
+                    status["Mode"] = "Remote";
+                    status["Uri"] = _neo4jUri;
+                    status["Message"] = "Neo4j embedded mode is disabled";
+                    return status;
+                }
+
                 try
                 {
                     var query = "CALL dbms.cluster.overview()";
                     var result = await ExecuteQueryAsync(query);
                     status["Connected"] = true;
-                    status["Mode"] = _isEmbedded ? "Embedded" : "Remote";
+                    status["Mode"] = "Embedded";
                     status["Uri"] = _neo4jUri;
                 }
                 catch (Exception ex)
@@ -452,6 +486,80 @@ namespace SwAIvyn.Services.Graph
                     ["Error"] = ex.Message
                 };
             }
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> HealthCheckAsync()
+        {
+            // If Neo4j is not embedded, we don't need to check its health
+            if (!_isEmbedded)
+            {
+                return true;
+            }
+
+            return await PingAsync();
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> PingAsync()
+        {
+            try
+            {
+                // If Neo4j is not embedded, we don't need to check its health
+                if (!_isEmbedded)
+                {
+                    return true;
+                }
+
+                // Try a simple query to check Neo4j connection
+                await ExecuteQueryAsync("RETURN 1 AS ok");
+                _online = true;
+            }
+            catch
+            {
+                _online = false;
+            }
+            return _online;
+        }
+
+        /// <inheritdoc/>
+        public bool IsOnline => _online;
+
+        /// <summary>
+        /// Checks the connection to Neo4j and updates the online status
+        /// </summary>
+        private async Task CheckConnectionAsync()
+        {
+            try
+            {
+                // Only check if Neo4j is embedded
+                if (!_isEmbedded)
+                {
+                    return;
+                }
+
+                // Try to ping Neo4j
+                await PingAsync();
+
+                // If we get here, Neo4j is online
+                if (_online)
+                {
+                    _logger.LogInfo("Neo4j connection restored");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to check Neo4j connection: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Disposes the Neo4j service
+        /// </summary>
+        public void Dispose()
+        {
+            _reconnectTimer?.Dispose();
+            _httpClient?.Dispose();
         }
     }
 }

@@ -143,5 +143,22 @@ namespace SwAIvyn.Services.Graph
         /// </summary>
         /// <returns>Status information</returns>
         Task<Dictionary<string, object>> GetStatusAsync();
+
+        /// <summary>
+        /// Performs a health check on the Neo4j service
+        /// </summary>
+        /// <returns>True if the service is healthy</returns>
+        Task<bool> HealthCheckAsync();
+
+        /// <summary>
+        /// Pings the Neo4j service to check if it's available
+        /// </summary>
+        /// <returns>True if the service is available</returns>
+        Task<bool> PingAsync();
+
+        /// <summary>
+        /// Gets a value indicating whether the Neo4j service is online
+        /// </summary>
+        bool IsOnline { get; }
     }
 }

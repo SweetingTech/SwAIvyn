@@ -22,7 +22,7 @@ namespace SwAIvyn.Services.VectorStore
         /// <summary>
         /// Gets or sets optional metadata associated with the hit
         /// </summary>
-        public Dictionary<string, string> Metadata { get; set; }
+        public Dictionary<string, string>? Metadata { get; set; }
     }
 
     /// <summary>
@@ -64,7 +64,7 @@ namespace SwAIvyn.Services.VectorStore
         /// <param name="metadata">Optional metadata</param>
         /// <param name="scope">Vector scope</param>
         /// <returns>True if successful</returns>
-        Task<bool> StoreVectorAsync(Guid id, float[] embedding, Dictionary<string, string> metadata = null, VectorScope scope = VectorScope.Core);
+        Task<bool> StoreVectorAsync(Guid id, float[] embedding, Dictionary<string, string>? metadata = null, VectorScope scope = VectorScope.Core);
 
         /// <summary>
         /// Searches for similar vectors
@@ -88,5 +88,11 @@ namespace SwAIvyn.Services.VectorStore
         /// </summary>
         /// <returns>Status information</returns>
         Task<Dictionary<string, object>> GetStatusAsync();
+
+        /// <summary>
+        /// Checks the health of the vector store
+        /// </summary>
+        /// <returns>True if healthy</returns>
+        Task<bool> HealthCheckAsync();
     }
 }

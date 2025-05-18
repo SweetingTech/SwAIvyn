@@ -16,6 +16,11 @@ namespace SwAIvyn.Services
         /// Initializes the database, creating it if it doesn't exist and enabling WAL mode
         /// </summary>
         Task InitializeAsync();
+
+        /// <summary>
+        /// Checks if the database can connect
+        /// </summary>
+        Task<bool> CanConnectAsync();
     }
 
     /// <summary>
@@ -87,6 +92,22 @@ namespace SwAIvyn.Services
             {
                 _logger.LogCritical("Failed to initialize database", ex);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Checks if the database can connect
+        /// </summary>
+        public async Task<bool> CanConnectAsync()
+        {
+            try
+            {
+                using var context = _dbContextFactory.CreateDbContext();
+                return await context.Database.CanConnectAsync();
+            }
+            catch
+            {
+                return false;
             }
         }
 

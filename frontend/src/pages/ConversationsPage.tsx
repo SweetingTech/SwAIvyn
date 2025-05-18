@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import ConversationSearch from '../components/ConversationSearch';
 
 interface Conversation {
   id: string;
@@ -25,6 +26,9 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
   // State for the new conversation title input
   const [newTitle, setNewTitle] = useState('');
 
+  // State for search query
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Fetch conversations for the user when userId changes
   useEffect(() => {
     fetch(`/api/conversation/${userId}`)
@@ -32,6 +36,12 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
       .then(data => setConversations(data))
       .catch(console.error);
   }, [userId]);
+
+  // Filter conversations by search query (title/content)
+  const filteredConversations = conversations.filter(c =>
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+    // Add content search if available: || c.content?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   /**
    * Creates a new conversation with the entered title.
@@ -64,6 +74,8 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
   return (
     <div className="p-4">
       <h2 className="text-xl font-semibold mb-4">Conversations</h2>
+      {/* Conversation search UI */}
+      <ConversationSearch onSearch={setSearchQuery} />
       <div className="mb-4 flex space-x-2">
         <input
           type="text"
@@ -80,7 +92,7 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
         </button>
       </div>
       <ul>
-        {conversations.map(convo => (
+        {filteredConversations.map(convo => (
           <li key={convo.id} className="flex justify-between items-center py-2 border-b">
             <button
               onClick={() => onSelectConversation(convo.id)}
