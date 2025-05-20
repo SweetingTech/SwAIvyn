@@ -16,6 +16,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using SQLitePCL;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
 
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
@@ -37,7 +39,33 @@ builder.Services.AddSingleton<SqliteVssExtensionInterceptor>(sp =>
 // Register DbContext with WAL mode and connection pooling
 builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultConnection");
+    var appSettingsDataDir = configuration["AppSettings:DataDirectory"] ?? "../data";
+    string resolvedDataDirectory;
+
+    if (Path.IsPathRooted(appSettingsDataDir))
+    {
+        resolvedDataDirectory = appSettingsDataDir;
+    }
+    else
+    {
+        resolvedDataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, appSettingsDataDir));
+    }
+
+    var csBuilder = new SqliteConnectionStringBuilder(connectionString);
+    if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
+    {
+        // Ensure the DataSource path is made absolute, relative to the resolvedDataDirectory
+        // This handles cases like "Data Source=swai-vyn.db" or "Data Source=../data/swai-vyn.db"
+        // by ensuring the final path is within the intended data directory structure.
+        string dbFileName = Path.GetFileName(csBuilder.DataSource); // Extracts "swai-vyn.db"
+        csBuilder.DataSource = Path.GetFullPath(Path.Combine(resolvedDataDirectory, dbFileName));
+    }
+    connectionString = csBuilder.ToString();
+    var loggerForDb = sp.GetRequiredService<ISimpleLoggerService>(); // Assuming ISimpleLoggerService is registered as Singleton or Scoped
+    loggerForDb.LogInfo($"Using resolved connection string for ApplicationDbContext: {connectionString}");
+
     options
         .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
         .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
@@ -46,7 +74,30 @@ builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
 // Add DbContextFactory for background services
 builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultConnection");
+    var appSettingsDataDir = configuration["AppSettings:DataDirectory"] ?? "../data";
+    string resolvedDataDirectory;
+
+    if (Path.IsPathRooted(appSettingsDataDir))
+    {
+        resolvedDataDirectory = appSettingsDataDir;
+    }
+    else
+    {
+        resolvedDataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, appSettingsDataDir));
+    }
+
+    var csBuilder = new SqliteConnectionStringBuilder(connectionString);
+    if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
+    {
+        string dbFileName = Path.GetFileName(csBuilder.DataSource);
+        csBuilder.DataSource = Path.GetFullPath(Path.Combine(resolvedDataDirectory, dbFileName));
+    }
+    connectionString = csBuilder.ToString();
+    var loggerForDbFactory = sp.GetRequiredService<ISimpleLoggerService>();  // Assuming ISimpleLoggerService is registered as Singleton or Scoped
+    loggerForDbFactory.LogInfo($"Using resolved connection string for ApplicationDbContext (Factory): {connectionString}");
+    
     options
         .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
         .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
@@ -140,6 +191,35 @@ using (var scope = app.Services.CreateScope())
     logger.LogInfo("Startup health checks completed.");
 }
 
+// Initialize directories
+try
+{
+    logger.LogInfo("Initializing application directories...");
+    var directoryInitializer = app.Services.GetRequiredService<DirectoryInitializerService>();
+    directoryInitializer.InitializeDirectories();
+    logger.LogInfo("Directory initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogCritical("Failed to initialize directories", ex);
+}
+
+// Initialize database
+try
+{
+    logger.LogInfo("Initializing database...");
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+        await dbInitializer.InitializeAsync();
+        logger.LogInfo("Database initialization completed successfully");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogCritical("Failed to initialize database", ex);
+}
+
 // --- Seed default user and AI profile on first run ---
 try
 {
@@ -209,35 +289,6 @@ catch (Exception ex)
     {
         logger.LogError($"Inner exception: {ex.InnerException.Message}");
     }
-}
-
-// Initialize directories
-try
-{
-    logger.LogInfo("Initializing application directories...");
-    var directoryInitializer = app.Services.GetRequiredService<DirectoryInitializerService>();
-    directoryInitializer.InitializeDirectories();
-    logger.LogInfo("Directory initialization completed successfully");
-}
-catch (Exception ex)
-{
-    logger.LogCritical("Failed to initialize directories", ex);
-}
-
-// Initialize database
-try
-{
-    logger.LogInfo("Initializing database...");
-    using (var scope = app.Services.CreateScope())
-    {
-        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-        await dbInitializer.InitializeAsync();
-        logger.LogInfo("Database initialization completed successfully");
-    }
-}
-catch (Exception ex)
-{
-    logger.LogCritical("Failed to initialize database", ex);
 }
 
 // Initialize vector store
@@ -356,8 +407,8 @@ app.MapHub<VoiceHub>("/hubs/voice");
 app.MapHub<NotificationHub>("/hubs/notification");
 
 // Add health endpoint for Neo4j
-app.MapGet("/api/health/neo4j", async (Neo4jRuntimeService neo4jRuntime) =>
-    Results.Ok(await neo4jRuntime.GetStatusAsync()));
+app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>
+    Results.Ok(await neo4jService.GetStatusAsync()));
 
 // Set URLs explicitly
 if (!app.Urls.Any())

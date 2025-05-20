@@ -48,7 +48,24 @@ namespace SwAIvyn.Services
             _dbContextFactory = dbContextFactory;
             _logger = logger;
             _connectionString = configuration.GetConnectionString("DefaultConnection");
-            _dataDirectory = configuration["AppSettings:DataDirectory"] ?? "../data";
+
+            // Make DataDirectory path more robust
+            string configuredDataDir = configuration["AppSettings:DataDirectory"];
+            if (string.IsNullOrEmpty(configuredDataDir))
+            {
+                configuredDataDir = "../data"; // Default if not configured
+            }
+
+            if (Path.IsPathRooted(configuredDataDir))
+            {
+                _dataDirectory = configuredDataDir;
+            }
+            else
+            {
+                // Resolve relative paths based on the application's base directory
+                _dataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, configuredDataDir));
+            }
+            _logger.LogInfo($"Data directory resolved to: {_dataDirectory}");
         }
 
         /// <summary>
@@ -60,19 +77,12 @@ namespace SwAIvyn.Services
             {
                 _logger.LogInfo("Initializing database...");
 
-                // Ensure data directory exists
+                // Ensure data directory exists (using the now absolute path)
                 EnsureDirectoryExists(_dataDirectory);
                 
-                // Extract database path from connection string
-                var dbPath = ExtractDatabasePath(_connectionString);
-                if (!string.IsNullOrEmpty(dbPath))
-                {
-                    var dbDirectory = Path.GetDirectoryName(dbPath);
-                    if (!string.IsNullOrEmpty(dbDirectory))
-                    {
-                        EnsureDirectoryExists(dbDirectory);
-                    }
-                }
+                // The connection string will be made absolute in Program.cs,
+                // so the database will be created in the correct location.
+                // We just need to ensure _dataDirectory itself exists.
 
                 // Create database if it doesn't exist
                 using (var context = await _dbContextFactory.CreateDbContextAsync())

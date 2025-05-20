@@ -12,20 +12,42 @@ namespace SwAIvyn.Services.VectorStore
     /// </summary>
     public class SqliteVssExtensionInterceptor : DbConnectionInterceptor
     {
-        private readonly string _extensionName;
+        private readonly string _resolvedExtensionPath;
         private readonly ISimpleLoggerService _logger;
 
         /// <summary>
         /// Initializes a new instance of the SqliteVssExtensionInterceptor
         /// </summary>
-        /// <param name="extensionName">The name of the extension to load</param>
+        /// <param name="configuredExtensionPath">The configured path (filename or relative/absolute path) for the extension from AppSettings.</param>
         /// <param name="logger">Logger service</param>
         public SqliteVssExtensionInterceptor(
-            string extensionName = "sqlite-vss.dll",
+            string configuredExtensionPath, // No default, must be provided from Program.cs
             ISimpleLoggerService logger = null)
         {
-            _extensionName = extensionName;
             _logger = logger;
+            string extensionPath = configuredExtensionPath;
+
+            if (string.IsNullOrWhiteSpace(extensionPath))
+            {
+                _logger?.LogWarning("SQLite-VSS extension path is not configured. Using default 'sqlite-vss.dll'.");
+                extensionPath = "sqlite-vss.dll";
+            }
+
+            if (!extensionPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger?.LogInfo($"Appending .dll to VSS extension path: {extensionPath}");
+                extensionPath += ".dll";
+            }
+
+            if (Path.IsPathRooted(extensionPath))
+            {
+                _resolvedExtensionPath = extensionPath;
+            }
+            else
+            {
+                _resolvedExtensionPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, extensionPath));
+            }
+            _logger?.LogInfo($"SQLite-VSS Interceptor: Resolved extension path to '{_resolvedExtensionPath}'");
         }
 
         /// <summary>
@@ -45,14 +67,14 @@ namespace SwAIvyn.Services.VectorStore
                     var version = cmd.ExecuteScalar();
                     _logger?.LogInfo($"SQLite Version: {version}");
 
-                    _logger?.LogInfo($"Loading SQLite-VSS extension '{_extensionName}' for connection {connection.GetHashCode()}");
+                    _logger?.LogInfo($"Attempting to load SQLite-VSS extension from '{_resolvedExtensionPath}' for connection {connection.GetHashCode()}");
                     sqlite.EnableExtensions(true);
-                    sqlite.LoadExtension(_extensionName);
-                    _logger?.LogInfo($"Successfully loaded SQLite-VSS extension for connection {connection.GetHashCode()}");
+                    sqlite.LoadExtension(_resolvedExtensionPath);
+                    _logger?.LogInfo($"Successfully loaded SQLite-VSS extension from '{_resolvedExtensionPath}' for connection {connection.GetHashCode()}");
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning($"Failed to load SQLite-VSS extension '{_extensionName}': {ex.Message}");
+                    _logger?.LogWarning($"Failed to load SQLite-VSS extension from '{_resolvedExtensionPath}': {ex.Message}");
                     _logger?.LogWarning("Vector search functionality will not be available.");
                     // Don't bubble up the exception, allow the application to continue
                 }
@@ -79,14 +101,14 @@ namespace SwAIvyn.Services.VectorStore
                     var version = await cmd.ExecuteScalarAsync(cancellationToken);
                     _logger?.LogInfo($"SQLite Version: {version}");
 
-                    _logger?.LogInfo($"Loading SQLite-VSS extension '{_extensionName}' for connection {connection.GetHashCode()}");
+                    _logger?.LogInfo($"Attempting to load SQLite-VSS extension from '{_resolvedExtensionPath}' for connection {connection.GetHashCode()}");
                     sqlite.EnableExtensions(true);
-                    sqlite.LoadExtension(_extensionName);
-                    _logger?.LogInfo($"Successfully loaded SQLite-VSS extension for connection {connection.GetHashCode()}");
+                    sqlite.LoadExtension(_resolvedExtensionPath);
+                    _logger?.LogInfo($"Successfully loaded SQLite-VSS extension from '{_resolvedExtensionPath}' for connection {connection.GetHashCode()}");
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning($"Failed to load SQLite-VSS extension '{_extensionName}': {ex.Message}");
+                    _logger?.LogWarning($"Failed to load SQLite-VSS extension from '{_resolvedExtensionPath}': {ex.Message}");
                     _logger?.LogWarning("Vector search functionality will not be available.");
                     // Don't bubble up the exception, allow the application to continue
                 }

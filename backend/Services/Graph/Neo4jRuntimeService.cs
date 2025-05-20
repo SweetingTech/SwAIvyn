@@ -72,10 +72,26 @@ namespace SwAIvyn.Services.Graph
             {
                 _logger.LogInfo("Initializing Neo4j runtime...");
 
-                // Get the latest port settings from configuration
+                bool isEmbedded = _configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", false);
+                _logger.LogInfo($"Neo4jEmbedded setting is: {isEmbedded}");
+
+                if (!isEmbedded)
+                {
+                    _logger.LogInfo("Neo4jEmbedded is false. Skipping embedded Neo4j runtime initialization, extraction, and startup.");
+                    // Ensure we still have the correct ports for external connection if Neo4jService relies on them from this service.
+                    _boltPort = _settingsProvider.GetNeo4jBoltPort();
+                    _httpPort = _settingsProvider.GetNeo4jHttpPort();
+                    _logger.LogInfo($"Ports for external Neo4j (from settingsProvider) - Bolt: {_boltPort}, HTTP: {_httpPort}");
+                    return;
+                }
+
+                // Proceed with embedded setup only if Neo4jEmbedded is true
+                _logger.LogInfo("Neo4jEmbedded is true. Proceeding with embedded Neo4j setup.");
+
+                // Get the latest port settings from configuration for embedded instance
                 _boltPort = _settingsProvider.GetNeo4jBoltPort();
                 _httpPort = _settingsProvider.GetNeo4jHttpPort();
-                _logger.LogInfo($"Using Neo4j ports from settings - Bolt: {_boltPort}, HTTP: {_httpPort}");
+                _logger.LogInfo($"Using Neo4j ports from settings for embedded instance - Bolt: {_boltPort}, HTTP: {_httpPort}");
 
                 if (!Directory.Exists(_neo4jHomePath))
                 {
@@ -85,6 +101,7 @@ namespace SwAIvyn.Services.Graph
                 }
                 else if (File.Exists(_neo4jConfPath))
                 {
+                    // Even if it exists, ensure configuration reflects current appsettings.json ports
                     await UpdateNeo4jConfigurationAsync();
                 }
 
@@ -94,10 +111,10 @@ namespace SwAIvyn.Services.Graph
                 }
                 else
                 {
-                    _logger.LogWarning("Neo4j runtime not found. Skipping startup.");
+                    _logger.LogWarning("Neo4j runtime not found for embedded mode. Skipping startup.");
                 }
 
-                _logger.LogInfo("Neo4j runtime initialization completed");
+                _logger.LogInfo("Neo4j runtime initialization completed for embedded mode.");
             }
             catch (Exception ex)
             {
@@ -377,26 +394,11 @@ namespace SwAIvyn.Services.Graph
 
         public void Dispose()
         {
-            try
-            {
-                _shutdownTokenSource.Cancel();
-                if (_neo4jProcess != null && !_neo4jProcess.HasExited)
-                {
-                    _logger.LogInfo("Terminating Neo4j process...");
-                    _neo4jProcess.Kill(true);
-                    _neo4jProcess.Dispose();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Error during Neo4j cleanup", ex);
-            }
+            bool isEmbedded = _configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", false);
 
-            try
+            if (isEmbedded)
             {
-                _logger.LogInfo("Stopping Neo4j...");
-
-                // Try to cancel the token source if it's not already disposed
+                _logger.LogInfo("Disposing Neo4jRuntimeService for embedded instance...");
                 try
                 {
                     if (!_shutdownTokenSource.IsCancellationRequested)
@@ -404,49 +406,58 @@ namespace SwAIvyn.Services.Graph
                         _shutdownTokenSource.Cancel();
                     }
                 }
-                catch (ObjectDisposedException)
-                {
-                    // Token source already disposed, ignore
-                }
+                catch (ObjectDisposedException) { /* Already disposed */ }
 
-                // Stop the Neo4j process
+
                 if (_neo4jProcess != null && !_neo4jProcess.HasExited)
                 {
+                    _logger.LogInfo("Stopping embedded Neo4j process...");
                     try
                     {
-                        _neo4jProcess.Kill(true);
+                        _neo4jProcess.Kill(true); // Force kill
+                        _neo4jProcess.WaitForExit(5000); // Wait for 5 seconds
+                        if (!_neo4jProcess.HasExited)
+                        {
+                             _logger.LogWarning("Neo4j process did not exit after kill signal and wait.");
+                        }
                         _neo4jProcess.Dispose();
-                        _logger.LogInfo("Neo4j runtime shut down successfully");
+                        _logger.LogInfo("Embedded Neo4j process stopped and disposed.");
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        _logger.LogWarning($"Could not kill Neo4j process, it might have already exited: {ex.Message}");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError("Failed to stop Neo4j process", ex);
+                        _logger.LogError("Error stopping embedded Neo4j process", ex);
                     }
                 }
-
-                // Dispose the HTTP client
-                try
+                else
                 {
-                    _httpClient.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError("Failed to dispose HTTP client", ex);
-                }
-
-                // Dispose the cancellation token source
-                try
-                {
-                    _shutdownTokenSource.Dispose();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Already disposed, ignore
+                     _logger.LogInfo("Embedded Neo4j process was not running or already exited.");
                 }
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError("Error during Neo4jRuntimeService disposal", ex);
+                _logger.LogInfo("Disposing Neo4jRuntimeService (no embedded instance to stop).");
+            }
+            
+            try
+            {
+                 _httpClient?.Dispose();
+            }
+            catch(Exception ex)
+            {
+                _logger.LogError("Error disposing HttpClient in Neo4jRuntimeService", ex);
+            }
+           
+            try
+            {
+                 _shutdownTokenSource?.Dispose();
+            }
+            catch(Exception ex)
+            {
+                _logger.LogError("Error disposing CancellationTokenSource in Neo4jRuntimeService", ex);
             }
 
             GC.SuppressFinalize(this);
