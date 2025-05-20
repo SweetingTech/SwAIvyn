@@ -10,10 +10,23 @@
 - Comprehensive documentation created and updated.
 
 ## Phase 2: Chat Interface & Basic Features (In Progress)
-- Create chat UI components: message bubbles, input area, file upload zone, conversation history display.
-- Implement WebSocket/SignalR for real-time chat.
-- Add markdown rendering for messages.
-- Create conversation session management: create, switch, and delete conversations.
+- ✅ Create chat UI components: message bubbles, input area, file upload zone, conversation history display.
+- ✅ Implement WebSocket/SignalR for real-time chat.
+- ✅ Add markdown rendering for messages.
+- ✅ Create conversation session management: create, switch, and delete conversations.
+- ✅ Implement user-configurable LLM settings with database storage.
+- ✅ Create settings UI for configuring LLM connections (Ollama, LM Studio).
+- ✅ Integrate chat functionality with user-selected LLM settings.
+- ✅ Implement folder management for organizing conversations:
+  - ✅ Create, rename, and delete folders
+  - ✅ Hierarchical folder structure
+  - ✅ Automatic deletion of contained conversations when folder is deleted
+- ✅ Implement automatic chat session management:
+  - ✅ Start with empty chat session
+  - ✅ Assign UUID on first message
+  - ✅ Auto-save sessions
+  - ✅ Generate title from first message
+  - ✅ Rename, edit, and delete sessions
 - Design database schema for character profiles.
 - Create character card import/export functionality.
 - Build character editor UI.

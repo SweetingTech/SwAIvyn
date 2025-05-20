@@ -9,14 +9,14 @@
 
 ## Database Technology Stack
 
-| Concern                                | Engine                                                         | .NET package / lib                                           | Persistence file(s)                        |
-| -------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------ |
-| Relational / config / auth             | **SQLite** (WAL mode)                                          | `Microsoft.EntityFrameworkCore.Sqlite`                       | `swai-vyn.db`                              |
-| Vector search                          | **SQLite-VSS** (HNSW index as extension)                       | `sqlite-vss` DLL + `Microsoft.Data.Sqlite`                   | `swai-vyn.db` (VSS tables)                 |
-| Graph database                         | **Neo4j** (embedded or remote)                                 | Custom HTTP client                                           | Neo4j database files                       |
-| Ephemeral cache                        | In-process `MemoryCache` (`IMemoryCache`)                      | built-in                                                     | N/A                                        |
-| Chat messages                          | File system (JSON files)                                        | System.IO + System.Text.Json                                 | `/sessions/{conversationId}/{timestamp}.json` |
-| Large binary blobs (avatar PNGs, WAVs) | File system                                                    | –                                                            | `/Assets/…`                                |
+| Concern                                | Engine                                                         | .NET package / lib                                           | Persistence file(s)                        | Authentication |
+| -------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------ | -------------- |
+| Relational / config / auth             | **SQLite** (WAL mode)                                          | `Microsoft.EntityFrameworkCore.Sqlite`                       | `swai-vyn.db`                              | N/A |
+| Vector search                          | **SQLite-VSS** (HNSW index as extension)                       | `sqlite-vss` DLL + `Microsoft.Data.Sqlite`                   | `swai-vyn.db` (VSS tables)                 | N/A |
+| Graph database                         | **Neo4j** (embedded or remote)                                 | Custom HTTP client                                           | Neo4j database files                       | Username: `neo4j`<br>Password: `password`<br>Config: `appsettings.json`<br>Auth file: `%AppData%\SwAIvyn\neo4j\conf\auth` |
+| Ephemeral cache                        | In-process `MemoryCache` (`IMemoryCache`)                      | built-in                                                     | N/A                                        | N/A |
+| Chat messages                          | File system (JSON files)                                        | System.IO + System.Text.Json                                 | `/sessions/{conversationId}/{timestamp}.json` | N/A |
+| Large binary blobs (avatar PNGs, WAVs) | File system                                                    | –                                                            | `/Assets/…`                                | N/A |
 
 ## Implementation Steps
 
@@ -122,11 +122,20 @@ public class Settings
     public Guid? UserId { get; set; }
     public string Key { get; set; }
     public string Value { get; set; }
-    public bool IsGlobal { get; set; }
+    public DateTime LastModified { get; set; }
 
     // Navigation properties
     public AppUser User { get; set; }
 }
+
+// Common settings keys include:
+// - OllamaApiUrl
+// - LmStudioApiUrl
+// - Neo4jUri
+// - Neo4jBoltPort
+// - Neo4jHttpPort
+// - DefaultLlmEngine
+// - DefaultLlmModel
 
 // AvatarInfo.cs
 public class AvatarInfo
@@ -463,8 +472,21 @@ await vectorStore.InitializeAsync();
 
 ## Next Steps
 
-1. **Create data directory structure** on startup
-2. **Implement backup service** for automated backups
+1. **Create data directory structure** on startup ✅
+2. **Implement backup service** for automated backups ✅
 3. **Add migration support** for future schema changes
-4. **Update controllers** to use the refined data models
-5. **Implement memory embedding** with the vector store
+4. **Update controllers** to use the refined data models ✅
+5. **Implement memory embedding** with the vector store ✅
+6. **Implement user-configurable LLM settings** ✅
+7. **Create settings UI** for configuring LLM connections and preferences ✅
+8. **Integrate chat functionality** with user-selected LLM settings ✅
+9. **Implement folder management for organizing conversations** ✅
+   - Create, rename, and delete folders
+   - Hierarchical folder structure
+   - Automatic deletion of contained conversations when folder is deleted
+10. **Implement automatic chat session management** ✅
+   - Start with empty chat session
+   - Assign UUID on first message
+   - Auto-save sessions
+   - Generate title from first message
+   - Rename, edit, and delete sessions

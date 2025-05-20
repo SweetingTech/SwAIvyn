@@ -129,7 +129,7 @@ class ConfigService {
 
     this.isLoading = true;
     this.loadPromise = this.fetchEndpoints();
-    
+
     try {
       this.endpoints = await this.loadPromise;
       return this.endpoints;
@@ -153,7 +153,7 @@ class ConfigService {
   private async fetchEndpoints(): Promise<Endpoints> {
     try {
       const response = await fetch('/api/config');
-      
+
       if (response.ok) {
         return await response.json();
       }
@@ -221,18 +221,55 @@ The base URL is configured in `appsettings.json`:
     "BackupsDirectory": "../data/backups",
     "ModulesDirectory": "../data/modules",
     "OllamaApiUrl": "http://localhost:11434",
-    "LmStudioApiUrl": "http://localhost:5000"
+    "LmStudioApiUrl": "http://localhost:1234"
   }
 }
 ```
 
-### Changing the Base URL
+### Changing Service URLs
 
-To change the base URL:
+#### Method 1: Through the Settings UI (Recommended)
+
+To change service URLs through the user interface:
+
+1. Open the SwAIvyn application
+2. Navigate to Settings > Connections
+3. Update the service URLs as needed
+4. Save changes
+5. No restart required
+
+#### Method 2: Through Configuration Files (Advanced)
+
+To change default service URLs in configuration files:
 
 1. Edit `appsettings.json`
-2. Update the `AppSettings:BaseUrl` value
+2. Update the relevant settings:
+   - `AppSettings:BaseUrl` - Main application URL
+   - `AppSettings:OllamaApiUrl` - Ollama API URL
+   - `AppSettings:LmStudioApiUrl` - LM Studio API URL
+   - `AppSettings:Neo4jUri` - Neo4j HTTP URL
+   - `AppSettings:Neo4jBoltPort` - Neo4j Bolt port
 3. Restart the application
+
+## User-Configurable Services
+
+Some services in SwAIvyn are user-configurable through the Settings interface:
+
+| Service | Logical Name | Default URL | User Configurable |
+|---------|-------------|-------------|-------------------|
+| Backend API | api | http://localhost:5000 | No |
+| Ollama API | ollamaApi | http://localhost:11434 | **Yes** |
+| LM Studio API | lmStudioApi | http://localhost:1234 | **Yes** |
+| Neo4j HTTP | neo4jHttp | http://localhost:7474 | **Yes** |
+| Neo4j Bolt | neo4jBolt | bolt://localhost:7687 | **Yes** |
+
+Users can change these settings through:
+
+1. The Settings page in the SwAIvyn application
+2. The "Connections" tab in the Settings interface
+3. No application restart is required for changes to take effect
+
+The application stores user-configured settings in the database, which override the default values in appsettings.json.
 
 ## Benefits
 
@@ -243,6 +280,7 @@ This DNS-like naming system provides several benefits:
 3. **Resilience**: Fallback to default values if configuration is unavailable
 4. **Maintainability**: No hardcoded URLs scattered throughout the codebase
 5. **Testability**: Easy to mock or override endpoints for testing
+6. **User Configurability**: End users can change service endpoints without editing configuration files
 
 ## Adding New Services
 

@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  User, Network, Save, Speech, Database, 
-  Palette, Image as ImageIcon, Upload, 
-  Volume2, ServerCog 
+import {
+  User, Network, Save, Speech, Database,
+  Palette, Image as ImageIcon, Upload,
+  Volume2, ServerCog
 } from 'lucide-react';
+import { Tooltip } from '../components/Tooltip';
+import chatService from '../services/chatService';
 
 const tabs = [
   { id: 'account', label: 'Account', icon: <User size={16} /> },
@@ -17,9 +19,21 @@ const tabs = [
   { id: 'network', label: 'Network', icon: <Network size={16} /> }
 ];
 
+const VoiceSettings = () => {
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-medium">Voice Settings</h2>
+      <p className="text-sm text-gray-600 mb-4">
+        Configure voice settings for your AI assistant.
+      </p>
+      {/* Add voice settings content here */}
+    </div>
+  );
+};
+
 const SettingsPage = () => {
   const [activeTab, setActiveTab] = useState('account');
-  
+
   return (
     <motion.div
       className="min-h-[calc(100vh-64px)] bg-gray-50 p-4"
@@ -33,7 +47,7 @@ const SettingsPage = () => {
           <h1 className="text-2xl font-medium text-gray-800">Settings</h1>
           <p className="text-gray-600">Configure your AI assistant</p>
         </div>
-        
+
         <div className="bg-white rounded-lg shadow-soft overflow-hidden">
           <div className="sm:flex">
             <div className="sm:w-64 bg-gray-50 p-0">
@@ -57,7 +71,7 @@ const SettingsPage = () => {
                 </ul>
               </nav>
             </div>
-            
+
             <div className="flex-grow p-6">
               {activeTab === 'account' && <AccountSettings />}
               {activeTab === 'invocation' && <InvocationSettings />}
@@ -88,7 +102,7 @@ const AccountSettings = () => {
           Manage your account information and security settings
         </p>
       </div>
-      
+
       <div className="space-y-4">
         <div>
           <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
@@ -100,7 +114,7 @@ const AccountSettings = () => {
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
           />
         </div>
-        
+
         <div>
           <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
             Password
@@ -136,7 +150,7 @@ const AccountSettings = () => {
             </div>
           )}
         </div>
-        
+
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-2">Recovery Phrases</h3>
           {!recoveryCodes ? (
@@ -167,7 +181,7 @@ const AccountSettings = () => {
           )}
         </div>
       </div>
-      
+
       <div className="pt-4 flex justify-end">
         <button className="btn btn-primary">
           <Save size={16} className="mr-1.5" />
@@ -179,148 +193,293 @@ const AccountSettings = () => {
 };
 
 const ModelSettings = () => {
-  const [useLocal, setUseLocal] = useState(true);
-  const [selectedEngine, setEngine] = useState('');
-  const [localAddress, setLocalAddress] = useState('');
-  const [selectedProvider, setProvider] = useState('');
-  const [apiKey, setApiKey] = useState('');
+  const [selectedEngine, setEngine] = useState('ollama');
+  const [selectedModel, setModel] = useState('');
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
+  const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
+  const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Load current settings on component mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        setLoading(true);
+        // Get current LLM settings
+        const settings = await chatService.getLlmSettings();
+        setEngine(settings.engine || 'ollama');
+        setModel(settings.model || '');
+
+        // Get connection settings from API
+        try {
+          const connectionResponse = await fetch('/api/settings/connections');
+          if (connectionResponse.ok) {
+            const connectionSettings = await connectionResponse.json();
+            setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
+            setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
+          } else {
+            // Use default values if API call fails
+            setOllamaApiUrl('http://localhost:11434');
+            setLmStudioApiUrl('http://localhost:1234');
+          }
+        } catch (connectionError) {
+          console.error('Error loading connection settings:', connectionError);
+          // Use default values if API call fails
+          setOllamaApiUrl('http://localhost:11434');
+          setLmStudioApiUrl('http://localhost:1234');
+        }
+
+        // Get available models from API
+        try {
+          if (settings.engine === 'ollama') {
+            const modelsResponse = await fetch('/api/llm/ollama/models');
+            if (modelsResponse.ok) {
+              const models = await modelsResponse.json();
+              setOllamaModels(models);
+            } else {
+              // Use dummy data if API call fails
+              setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi']);
+            }
+          }
+        } catch (modelsError) {
+          console.error('Error loading models:', modelsError);
+          // Use dummy data if API call fails
+          setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi']);
+        }
+      } catch (error) {
+        console.error('Error loading LLM settings:', error);
+        setSaveError('Failed to load settings. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSettings();
+  }, []);
+
+  // Save settings
+  const saveSettings = async () => {
+    try {
+      setLoading(true);
+      setSaveSuccess(false);
+      setSaveError('');
+
+      // Save LLM settings
+      await chatService.updateLlmSettings(selectedEngine, selectedModel);
+
+      // Save connection settings to API
+      try {
+        await fetch('/api/settings/connections', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ollamaApiUrl: ollamaApiUrl,
+            lmStudioApiUrl: lmStudioApiUrl
+          })
+        });
+        console.log('Connection settings saved successfully');
+      } catch (connectionError) {
+        console.error('Error saving connection settings:', connectionError);
+        // Continue even if connection settings fail
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 5000); // Show success message for 5 seconds
+    } catch (error) {
+      console.error('Error saving LLM settings:', error);
+      setSaveError('Failed to save settings. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-medium">AI Model Settings</h2>
+
+      {loading && (
+        <div className="text-sm text-gray-500">Loading settings...</div>
+      )}
+
       <div className="space-y-4">
-        <label className="flex items-center">
-          <input
-            type="radio"
-            className="mr-2"
-            checked={useLocal}
-            onChange={() => setUseLocal(true)}
-          />
-          Use Local LLM
-        </label>
-        {useLocal && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+            LLM Engine
+            <Tooltip text="Choose which language model engine to use (Ollama or LM Studio)">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
+          </label>
+          <select
+            className="w-full border rounded px-3 py-2"
+            value={selectedEngine}
+            onChange={e => setEngine(e.target.value)}
+            disabled={loading}
+          >
+            <option value="ollama">Ollama</option>
+            <option value="lmstudio">LM Studio</option>
+          </select>
+        </div>
+
+        {selectedEngine === 'ollama' && (
           <>
-            <select
-              className="w-full border rounded px-3 py-2"
-              value={selectedEngine}
-              onChange={e => setEngine(e.target.value)}
-            >
-              <option value="">Select local engine...</option>
-              <option value="ollama">Ollama (Local)</option>
-              <option value="vllm">vLLM (Local)</option>
-              <option value="lmstudio">LM Studio (Local)</option>
-            </select>
-            <input
-              type="text"
-              placeholder="Local LLM address (e.g., http://localhost:11434)"
-              value={localAddress}
-              onChange={e => setLocalAddress(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                Ollama API URL
+                <Tooltip text="The URL where your Ollama server is running. Default: http://localhost:11434">
+                  <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+                </Tooltip>
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  placeholder="http://localhost:11434"
+                  value={ollamaApiUrl}
+                  onChange={e => setOllamaApiUrl(e.target.value)}
+                  className="flex-grow border rounded px-3 py-2"
+                  disabled={loading}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const response = await fetch(`${ollamaApiUrl}/v1/models`);
+                      if (response.ok) {
+                        const data = await response.json();
+                        if (data.models && data.models.length > 0) {
+                          alert(`Connection successful! Found models: ${data.models.map((m: { name: string }) => m.name).join(', ')}`);
+                        } else {
+                          alert('Connection successful, but no models found.');
+                        }
+                      } else {
+                        alert(`Connection failed: ${response.status} ${response.statusText}`);
+                      }
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : String(error);
+                      alert(`Connection failed: ${message}`);
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  Test Connection
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ollama Model
+              </label>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedModel}
+                onChange={e => setModel(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">Select a model...</option>
+                {ollamaModels.map((model: string) => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+            </div>
           </>
         )}
 
-        <label className="flex items-center mt-4">
-          <input
-            type="radio"
-            className="mr-2"
-            checked={!useLocal}
-            onChange={() => setUseLocal(false)}
-          />
-          Use External API
-        </label>
-        {!useLocal && (
-          <>
-            <select
-              className="w-full border rounded px-3 py-2"
-              value={selectedProvider}
-              onChange={e => setProvider(e.target.value)}
-            >
-              <option value="">Select provider...</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="mistral">Mistral AI</option>
-            </select>
-
-            <input
-              type="password"
-              className="w-full border rounded px-3 py-2 mt-2"
-              placeholder="API Key"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-            />
-          </>
+        {selectedEngine === 'lmstudio' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              LM Studio API URL
+              <Tooltip text="The URL where your LM Studio server is running. Default: http://localhost:1234">
+                <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+              </Tooltip>
+            </label>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                placeholder="http://localhost:1234"
+                value={lmStudioApiUrl}
+                onChange={e => setLmStudioApiUrl(e.target.value)}
+                className="flex-grow border rounded px-3 py-2"
+                disabled={loading}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const response = await fetch(`${lmStudioApiUrl}/v1/models`);
+                    if (response.ok) {
+                      const data = await response.json();
+                      if (data.data && data.data.length > 0) {
+                        alert(`Connection successful! Found model: ${data.data[0].id}`);
+                      } else {
+                        alert('Connection successful, but no models found.');
+                      }
+                    } else {
+                      alert(`Connection failed: ${response.status} ${response.statusText}`);
+                    }
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    alert(`Connection failed: ${message}`);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                Test Connection
+              </button>
+            </div>
+          </div>
         )}
       </div>
-      <div className="pt-4 flex justify-end">
-        <button className="btn btn-primary flex items-center">
-          <Save size={16} className="mr-1.5" />
-          Save Changes
+
+      <div className="pt-4 flex justify-between items-center">
+        <div>
+          {saveSuccess && (
+            <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50 animate-fade-in">
+              Settings saved successfully!
+            </div>
+          )}
+          {saveError && (
+            <div className="fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded shadow-lg z-50 animate-fade-in">
+              {saveError}
+            </div>
+          )}
+        </div>
+        <button
+          className="btn btn-primary flex items-center"
+          onClick={saveSettings}
+          disabled={loading}
+        >
+          {loading ? <span className="loader mr-2"></span> : <Save size={16} className="mr-1.5" />}
+          {loading ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
     </div>
   );
 };
 
-const VoiceSettings = () => {
-  const [selectedStt, setStt] = useState('');
-  const [selectedTts, setTts] = useState('');
-  const [selectedVoice, setVoice] = useState('');
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-medium">Voice & Speech Settings</h2>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm">Speech-to-Text Engine</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={selectedStt}
-            onChange={e => setStt(e.target.value)}
-          >
-            <option value="">Select STT engine...</option>
-            <option value="whisper">OpenAI Whisper</option>
-            <option value="native">Browser Speech Recognition</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm">Text-to-Speech Engine</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={selectedTts}
-            onChange={e => setTts(e.target.value)}
-          >
-            <option value="">Select TTS engine...</option>
-            <option value="elevenlabs">ElevenLabs</option>
-            <option value="native">Browser Speech Synthesis</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm">Voice Model</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={selectedVoice}
-            onChange={e => setVoice(e.target.value)}
-            disabled={!selectedTts}
-          >
-            <option value="">Select a voice...</option>
-          </select>
-        </div>
-      </div>
-      <div className="pt-4 flex justify-end">
-        <button className="btn btn-primary flex items-center">
-          <Save size={16} className="mr-1.5" />
-          Save Changes
-        </button>
-      </div>
-    </div>
-  );
-};
+interface Avatar {
+  id: string;
+  type: string;
+  thumbnailPath: string;
+}
 
 const CharacterSettings = () => {
   const [cardFile, setCardFile] = useState<File|null>(null);
-  const [avatars, setAvatars] = useState([]);
+  const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [activeAvatar, setActiveAvatar] = useState('');
+
+  useEffect(() => {
+    setAvatars([{ id: '1', type: '2D', thumbnailPath: '/default-avatar.png' }]);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -367,7 +526,7 @@ const CharacterSettings = () => {
               }`}
             >
               {a.type === '2D' ? (
-                <img 
+                <img
                   src={a.thumbnailPath}
                   alt="Avatar"
                   className="w-16 h-16 object-cover rounded"
@@ -380,7 +539,7 @@ const CharacterSettings = () => {
             </div>
           ))}
         </div>
-        <input 
+        <input
           type="file"
           accept="image/*"
           className="block w-full text-sm text-gray-500
@@ -402,11 +561,18 @@ const CharacterSettings = () => {
   );
 };
 
+interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
 const AgentsSettings = () => {
-  const [agents, setAgents] = useState([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
 
   const toggleAgent = (id: string) => {
-    setAgents(agents.map(a => 
+    setAgents(agents.map(a =>
       a.id === id ? { ...a, enabled: !a.enabled } : a
     ));
   };
@@ -427,8 +593,8 @@ const AgentsSettings = () => {
             <button
               onClick={() => toggleAgent(a.id)}
               className={`px-3 py-1 rounded ${
-                a.enabled 
-                  ? 'bg-red-100 text-red-700' 
+                a.enabled
+                  ? 'bg-red-100 text-red-700'
                   : 'bg-green-100 text-green-700'
               }`}
             >
@@ -450,11 +616,14 @@ const InvocationSettings = () => {
           Configure how you interact with your AI assistant
         </p>
       </div>
-      
+
       <div className="space-y-4">
         <div>
-          <label htmlFor="ai-name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="ai-name" className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
             AI Name
+            <Tooltip text="Set the name for your AI assistant">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
           </label>
           <input
             id="ai-name"
@@ -465,10 +634,13 @@ const InvocationSettings = () => {
             This is how you'll refer to your AI assistant
           </p>
         </div>
-        
+
         <div>
-          <label htmlFor="wake-word" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="wake-word" className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
             Wake Word
+            <Tooltip text="Set the phrase to activate voice recognition">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
           </label>
           <input
             id="wake-word"
@@ -479,10 +651,13 @@ const InvocationSettings = () => {
             Say this phrase to activate voice recognition
           </p>
         </div>
-        
+
         <div>
-          <label htmlFor="wake-sensitivity" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="wake-sensitivity" className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
             Wake Word Sensitivity
+            <Tooltip text="Adjust the sensitivity for detecting the wake word">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
           </label>
           <input
             id="wake-sensitivity"
@@ -497,7 +672,7 @@ const InvocationSettings = () => {
           </div>
         </div>
       </div>
-      
+
       <div className="pt-4 flex justify-end">
         <button className="btn btn-primary">
           <Save size={16} className="mr-1.5" />
@@ -517,7 +692,7 @@ const AppearanceSettings = () => {
           Customize the look and feel of your AI assistant
         </p>
       </div>
-      
+
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -538,7 +713,7 @@ const AppearanceSettings = () => {
             </button>
           </div>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Accent Color
@@ -552,7 +727,7 @@ const AppearanceSettings = () => {
           </div>
         </div>
       </div>
-      
+
       <div className="pt-4 flex justify-end">
         <button className="btn btn-primary">
           <Save size={16} className="mr-1.5" />
@@ -572,7 +747,7 @@ const NetworkSettings = () => {
           Configure network and connection settings
         </p>
       </div>
-      
+
       <div className="space-y-4">
         <div className="flex items-center">
           <input
@@ -580,17 +755,23 @@ const NetworkSettings = () => {
             type="checkbox"
             className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
           />
-          <label htmlFor="federation" className="ml-2 block text-sm text-gray-700">
+          <label htmlFor="federation" className="ml-2 block text-sm text-gray-700 flex items-center">
             Enable Federation
+            <Tooltip text="Allow your AI to communicate with other instances, sharing selected memories and capabilities">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
           </label>
         </div>
         <p className="text-xs text-gray-500">
           Federation allows your AI to communicate with other instances, sharing selected memories and capabilities
         </p>
-        
+
         <div>
-          <label htmlFor="server-url" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="server-url" className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
             Federation Server
+            <Tooltip text="Enter the URL of the federation server">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
           </label>
           <input
             id="server-url"
@@ -599,22 +780,25 @@ const NetworkSettings = () => {
             placeholder="Enter server URL"
           />
         </div>
-        
+
         <div className="flex items-center">
           <input
             id="offline-mode"
             type="checkbox"
             className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
           />
-          <label htmlFor="offline-mode" className="ml-2 block text-sm text-gray-700">
+          <label htmlFor="offline-mode" className="ml-2 block text-sm text-gray-700 flex items-center">
             Offline Mode
+            <Tooltip text="Enable offline mode to use only local models and avoid network requests">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
           </label>
         </div>
         <p className="text-xs text-gray-500">
           In offline mode, your AI will only use local models and won't make any network requests
         </p>
       </div>
-      
+
       <div className="pt-4 flex justify-end">
         <button className="btn btn-primary">
           <Save size={16} className="mr-1.5" />

@@ -55,8 +55,8 @@ This document describes the dataflow and architecture of the SwAIvyn project bac
 
 - Backend ASP.NET Core server runs on default port (e.g., 5000 or 5001 for HTTPS).
 - CORS configured to allow frontend at http://localhost:3000.
-- Ollama API expected at http://localhost:11434.
-- LM Studio API expected at http://localhost:5000.
+- Ollama API expected at http://localhost:11434 (user-configurable in Settings).
+- LM Studio API expected at http://localhost:1234 (user-configurable in Settings).
 - SignalR hubs mapped at:
   - /hubs/chat
   - /hubs/voice

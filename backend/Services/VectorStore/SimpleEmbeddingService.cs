@@ -13,26 +13,27 @@ namespace SwAIvyn.Services.VectorStore
     public class SimpleEmbeddingService : IEmbeddingService
     {
         private readonly HttpClient _httpClient;
+        private readonly IConfigurationService _configurationService;
         private readonly ISimpleLoggerService _logger;
-        private readonly string _embeddingEndpoint;
+        private readonly IConfiguration _configuration;
         private readonly int _dimensions;
 
         /// <summary>
         /// Initializes a new instance of the SimpleEmbeddingService
         /// </summary>
         /// <param name="configuration">Application configuration</param>
+        /// <param name="configurationService">Configuration service</param>
         /// <param name="logger">Logger service</param>
         public SimpleEmbeddingService(
             IConfiguration configuration,
+            IConfigurationService configurationService,
             ISimpleLoggerService logger)
         {
             _httpClient = new HttpClient();
+            _configurationService = configurationService;
             _logger = logger;
-            
-            // Default to Ollama for embeddings
-            var ollamaUrl = configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434";
-            _embeddingEndpoint = $"{ollamaUrl}/api/embeddings";
-            
+            _configuration = configuration;
+
             _dimensions = configuration.GetValue<int>("AppSettings:VectorDimensions", 768);
         }
 
@@ -90,6 +91,11 @@ namespace SwAIvyn.Services.VectorStore
         {
             try
             {
+                // Get the Ollama API URL from configuration
+                var ollamaApiUrl = _configurationService.GetOllamaApiUrl();
+                var embeddingEndpoint = $"{ollamaApiUrl}/api/embeddings";
+                _logger.LogInfo($"Using embedding endpoint: {embeddingEndpoint}");
+
                 var request = new
                 {
                     model = "all-minilm",
@@ -101,7 +107,7 @@ namespace SwAIvyn.Services.VectorStore
                     Encoding.UTF8,
                     "application/json");
 
-                var response = await _httpClient.PostAsync(_embeddingEndpoint, content);
+                var response = await _httpClient.PostAsync(embeddingEndpoint, content);
                 response.EnsureSuccessStatusCode();
 
                 var responseJson = await response.Content.ReadAsStringAsync();

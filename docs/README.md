@@ -43,12 +43,13 @@ For developers who want to work with the source code:
 SwAIvyn uses a service-based architecture with:
 
 - **Configuration Service**: Provides DNS-like naming for services
+- **Settings Service**: Manages user-configurable settings in the database
 - **Folder Service**: Manages hierarchical folder structure for conversations
 - **Conversation Service**: Manages conversations and chat messages
-- **Chat Service**: Real-time messaging with SignalR
+- **AI Chat Service**: Generates AI responses using user-selected LLM settings
+- **LLM Connector**: Integration with local language models (Ollama, LM Studio)
 - **Brain Service**: Vector search and memory management
 - **Brain Graph Service**: Graph database for semantic relationships
-- **LLM Connector**: Integration with local language models
 - **Voice Processing**: Speech recognition and synthesis
 
 ## Build Instructions
@@ -61,12 +62,23 @@ SwAIvyn uses a service-based architecture with:
 
 - Launch the application using `SwAIvyn.cmd` or the executable in the `dist` folder
 - Use the Login page to authenticate
-- Create folders to organize your conversations
-- Start new conversations or continue existing ones
+- Create folders to organize your conversations:
+  - Create, rename, and delete folders via the sidebar
+  - Organize conversations in a hierarchical folder structure
+  - Deleting a folder also removes all contained conversations
+- Manage chat sessions:
+  - Start with an empty chat session on application launch
+  - Chat sessions are automatically saved with UUID assignment on first message
+  - Session title is generated from the first message
+  - Rename, edit, and delete existing chat sessions
+  - Click "New Chat" to start a fresh session
 - Interact with AI via text chat or voice room interface
 - Use the Brain to search across conversations and memories
 - Explore semantic relationships with the Brain Graph visualization
-- Configure settings and AI personality via UI
+- Configure settings via the Settings page:
+  - Connection settings for Ollama, LM Studio, and Neo4j
+  - Default LLM engine and model selection
+  - AI personality customization
 
 ## Dependencies
 
@@ -76,6 +88,8 @@ SwAIvyn uses a service-based architecture with:
 - SQLite (with WAL mode)
 - SQLite-VSS extension
 - Neo4j (embedded or remote)
+  - Default credentials: Username `neo4j`, Password `password`
+  - See [Neo4j Configuration Guide](Neo4j_Configuration_Guide.md) for details
 - Ollama LLM server (optional)
 - LM Studio LLM server (optional)
 

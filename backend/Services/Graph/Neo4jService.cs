@@ -15,10 +15,12 @@ namespace SwAIvyn.Services.Graph
     public class Neo4jService : INeo4jService, IDisposable
     {
         private readonly HttpClient _httpClient;
+        private readonly IConfigurationService _configurationService;
         private readonly ISimpleLoggerService _logger;
-        private readonly string _neo4jUri;
-        private readonly string _neo4jUser;
-        private readonly string _neo4jPassword;
+        private readonly IConfiguration _configuration;
+        private string _neo4jUri;
+        private string _neo4jUser;
+        private string _neo4jPassword;
         private readonly bool _isEmbedded;
         private bool _isInitialized = false;
         private bool _online = false;
@@ -29,21 +31,26 @@ namespace SwAIvyn.Services.Graph
         /// Initializes a new instance of the Neo4jService
         /// </summary>
         /// <param name="configuration">Application configuration</param>
+        /// <param name="configurationService">Configuration service</param>
         /// <param name="logger">Logger service</param>
         public Neo4jService(
             IConfiguration configuration,
+            IConfigurationService configurationService,
             ISimpleLoggerService logger)
         {
             _httpClient = new HttpClient();
+            _configurationService = configurationService;
             _logger = logger;
+            _configuration = configuration;
 
-            _neo4jUri = configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474";
+            // These will be updated in InitializeAsync with values from configuration
+            _neo4jUri = _configurationService.GetNeo4jUri();
             _neo4jUser = configuration["AppSettings:Neo4jUser"] ?? "neo4j";
             _neo4jPassword = configuration["AppSettings:Neo4jPassword"] ?? "password";
             _isEmbedded = configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", true);
 
-            // Log the configuration
-            _logger.LogInfo($"Neo4j configuration: Uri={_neo4jUri}, User={_neo4jUser}, Embedded={_isEmbedded}");
+            // Log the initial configuration
+            _logger.LogInfo($"Initial Neo4j configuration: Uri={_neo4jUri}, User={_neo4jUser}, Embedded={_isEmbedded}");
 
             // Start the reconnect timer (check every 30 seconds)
             _reconnectTimer = new Timer(async _ => await CheckConnectionAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -55,6 +62,15 @@ namespace SwAIvyn.Services.Graph
             try
             {
                 _logger.LogInfo("Initializing Neo4j service...");
+
+                // Get the latest Neo4j settings from configuration
+                _neo4jUri = _configurationService.GetNeo4jUri();
+
+                _logger.LogInfo($"Using Neo4j settings from configuration: Uri={_neo4jUri}");
+
+                // Set up authentication for Neo4j HTTP API
+                var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_neo4jUser}:{_neo4jPassword}"));
+                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
 
                 // If Neo4j is not embedded, we don't need to initialize it
                 if (!_isEmbedded)
@@ -71,10 +87,6 @@ namespace SwAIvyn.Services.Graph
                     _logger.LogInfo("Starting embedded Neo4j server...");
                     // await StartEmbeddedServerAsync();
                 }
-
-                // Set up authentication for Neo4j HTTP API
-                var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_neo4jUser}:{_neo4jPassword}"));
-                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
 
                 // Test connection
                 var status = await GetStatusAsync();
@@ -335,12 +347,6 @@ namespace SwAIvyn.Services.Graph
             if (!_isInitialized && !query.Contains("dbms.cluster.overview"))
                 await InitializeAsync();
 
-            // If Neo4j is not embedded, return an empty result
-            if (!_isEmbedded)
-            {
-                return new List<Dictionary<string, object>>();
-            }
-
             try
             {
                 var requestData = new
@@ -454,10 +460,19 @@ namespace SwAIvyn.Services.Graph
                 // If Neo4j is not embedded, return a default status
                 if (!_isEmbedded)
                 {
-                    status["Connected"] = false;
-                    status["Mode"] = "Remote";
-                    status["Uri"] = _neo4jUri;
-                    status["Message"] = "Neo4j embedded mode is disabled";
+                    try
+                    {
+                        var query = "RETURN 1 AS ok";
+                        var result = await ExecuteQueryAsync(query);
+                        status["Connected"] = true;
+                        status["Mode"] = "Remote";
+                        status["Uri"] = _neo4jUri;
+                    }
+                    catch (Exception ex)
+                    {
+                        status["Connected"] = false;
+                        status["Error"] = ex.Message;
+                    }
                     return status;
                 }
 
@@ -512,7 +527,8 @@ namespace SwAIvyn.Services.Graph
                 }
 
                 // Try a simple query to check Neo4j connection
-                await ExecuteQueryAsync("RETURN 1 AS ok");
+                var query = "RETURN 1 AS ok";
+                await ExecuteQueryAsync(query);
                 _online = true;
             }
             catch

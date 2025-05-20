@@ -25,11 +25,12 @@ The application follows a client-server architecture:
 | `SimpleLoggerService` | Handles application logging | `LogInfo()`, `LogWarning()`, `LogError()`, `LogCritical()` |
 | `ApplicationMonitorService` | Monitors application health | `ExecuteAsync()`, `LogApplicationStatus()` |
 | `ConfigurationService` | Manages application settings | `GetSetting()`, `SetSetting()`, `GetAllSettings()` |
+| `SettingsService` | Manages user settings | `GetSettingAsync()`, `SetSettingAsync()`, `GetSettingsAsync()` |
 | `AuthService` | Handles user authentication | `Login()`, `Register()`, `VerifyPin()`, `GenerateToken()` |
 | `FolderService` | Manages folder structure | `CreateFolderAsync()`, `GetFoldersAsync()`, `UpdateFolderParentAsync()` |
 | `ConversationService` | Manages conversations | `CreateConversationAsync()`, `AppendMessageAsync()`, `GetLastOpenConversationAsync()` |
-| `ChatService` | Manages chat functionality | `SendMessage()`, `GetChatHistory()` |
-| `LlmConnectorService` | Connects to language models | `SendPrompt()`, `StreamResponse()` |
+| `AiChatService` | Manages AI chat responses | `GenerateAndStoreResponseAsync()`, `GetCurrentLlmSettingsAsync()`, `SetDefaultLlmSettingsAsync()` |
+| `LlmConnectorService` | Connects to language models | `GenerateResponseAsync()`, `GetOllamaModelsAsync()`, `GetLmStudioModelAsync()` |
 | `MemoryService` | Manages user memories | `AddMemory()`, `GetMemories()`, `SearchMemories()` |
 | `BrainService` | Manages vector search | `AddMemoryAsync()`, `SearchAsync()`, `DeleteMemoryAsync()` |
 | `Neo4jService` | Manages graph database | `CreateNodeAsync()`, `CreateRelationshipAsync()`, `ExecuteQueryAsync()` |
@@ -40,13 +41,15 @@ The application follows a client-server architecture:
 
 | Component | Purpose | Key Functions |
 |-----------|---------|--------------|
+| `ChatSidebar` | Chat session management | Display, create, rename, delete folders and chat sessions |
 | `FolderTree` | Folder structure UI | Display, create, organize folders |
 | `ConversationList` | Conversation listing | Display, filter, select conversations |
+| `ChatPage` | Main chat page | Manage chat state, handle session creation and switching |
 | `ChatInterface` | Main chat UI | Message display, input handling |
 | `MemoryManager` | Memory management UI | Add, view, search memories |
 | `BrainExplorer` | Brain visualization | Display graph relationships |
 | `SearchInterface` | Search functionality | Search conversations and memories |
-| `SettingsPanel` | Application settings | Configure app behavior |
+| `SettingsPanel` | Application settings | Configure app behavior, LLM settings |
 | `VoiceControls` | Voice interaction UI | Start/stop voice input, play TTS |
 | `AuthScreens` | Login/registration UI | User authentication flows |
 
@@ -63,11 +66,18 @@ The application follows a client-server architecture:
 3. **Conversation Management**:
    - New conversation → `ConversationController` → `ConversationService` → Database + File system
    - Conversation retrieval: Database → `ConversationService` → `ConversationController` → Frontend
+   - Folder organization: `FolderController` → `FolderService` → Database
+   - Automatic session creation: First message → UUID assignment → Database
+   - Session title generation: First message content → Truncated title
+   - Session deletion: `ConversationController` → `ConversationService` → Cascade delete messages
 
 4. **Chat Interaction**:
-   - User message → `ConversationController` → `ConversationService` → File system + `ChatIndex`
-   - Message indexing: `ConversationService` → `ChatIndex` table
-   - AI response: `LlmConnectorService` → `ConversationService` → File system + `ChatIndex`
+   - Empty session on startup: `ConversationService` → `GetLastOpenConversationAsync()` or new session
+   - User message → `ConversationController` → `AiChatService` → `ConversationService` → File system + `ChatIndex`
+   - LLM settings: `AiChatService` → `SettingsService` → User preferences (engine, model)
+   - AI generation: `AiChatService` → `LlmConnectorService` → LLM API (Ollama/LM Studio)
+   - Response storage: `AiChatService` → `ConversationService` → File system + `ChatIndex`
+   - Session switching: `ChatSidebar` → `handleSelectConversation()` → Load messages
 
 5. **Memory and Brain Operations**:
    - Memory creation → `BrainController` → `BrainService` → Vector store
@@ -180,7 +190,16 @@ The application uses a comprehensive logging system that captures:
    - UserId (FK, nullable)
    - Key
    - Value
-   - IsGlobal
+   - LastModified
+
+   *Key settings include:*
+   - OllamaApiUrl
+   - LmStudioApiUrl
+   - Neo4jUri
+   - Neo4jBoltPort
+   - Neo4jHttpPort
+   - DefaultLlmEngine
+   - DefaultLlmModel
 
 ### Vector and Graph Storage
 
@@ -212,6 +231,24 @@ The application uses a comprehensive logging system that captures:
    - Verify user credentials in the database
    - Check for token expiration
    - Review auth service logs
+
+4. **Neo4j Authentication Issues**:
+   - Default Neo4j credentials are:
+     - Username: `neo4j`
+     - Password: `password`
+   - These credentials are configured in `appsettings.json` under `AppSettings:Neo4jUser` and `AppSettings:Neo4jPassword`
+   - The Neo4j auth file is created at `%AppData%\SwAIvyn\neo4j\conf\auth` during first startup
+
+5. **SQLite-VSS Extension Issues**:
+   - The SQLite-VSS extension is required for vector search functionality
+   - The extension file (`sqlite-vss.dll`) should be in the application directory
+   - If the extension fails to load, check that the file exists and is accessible
+   - The application will try to load the extension from both the full path and the filename
+
+6. **Neo4j Configuration Warnings**:
+   - Neo4j 2025.04.0 uses different configuration settings than previous versions
+   - The application now uses the newer `server.*` settings instead of the deprecated `dbms.*` settings
+   - Strict validation is disabled to allow for a smoother transition
 
 ### Viewing Logs
 

@@ -117,7 +117,14 @@ The application settings are stored in `appsettings.json`:
     "BaseUrl": "http://localhost:5000",
     "DataDirectory": "../data",
     "OllamaApiUrl": "http://localhost:11434",
-    "LmStudioApiUrl": "http://localhost:5000"
+    "LmStudioApiUrl": "http://localhost:5000",
+    "Neo4jUri": "http://localhost:7474",
+    "Neo4jUser": "neo4j",
+    "Neo4jPassword": "password",
+    "Neo4jBoltPort": 7687,
+    "Neo4jHttpPort": 7474,
+    "Neo4jEmbedded": false,
+    "RequireNeo4j": false
   }
 }
 ```
@@ -173,23 +180,23 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
     - uses: actions/checkout@v2
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: 7.0.x
-        
+
     - name: Setup Node.js
       uses: actions/setup-node@v2
       with:
         node-version: '16'
-        
+
     - name: Build
       run: .\scripts\build-app.ps1
-      
+
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:

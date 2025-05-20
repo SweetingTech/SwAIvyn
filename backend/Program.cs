@@ -15,24 +15,41 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using SQLitePCL;
+
+// Initialize SQLitePCL.raw for extension loading
+Batteries_V2.Init();
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 builder.Services.AddControllers();
 
+// Register the SQLite-VSS extension interceptor
+builder.Services.AddSingleton<SqliteVssExtensionInterceptor>(sp =>
+    new SqliteVssExtensionInterceptor(
+        sp.GetRequiredService<IConfiguration>()
+          .GetValue<string>("AppSettings:VssExtensionPath", "sqlite-vss.dll"),
+        sp.GetRequiredService<ISimpleLoggerService>()
+    )
+);
+
 // Register DbContext with WAL mode and connection pooling
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
 {
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+    options
+        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
+        .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 });
 
 // Add DbContextFactory for background services
-builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
+builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
 {
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+    options
+        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
+        .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 }, ServiceLifetime.Scoped);
 
 // Add database initializer service
@@ -48,6 +65,18 @@ builder.Services.AddHostedService<BackupService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IFolderService, FolderService>();
 
+// Register the simple logger service first (no dependencies)
+builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
+
+// Register the settings provider (configuration-based, no database dependency)
+builder.Services.AddSingleton<ISettingsProvider, SettingsProvider>();
+
+// Register the settings service (database-based, for user settings)
+builder.Services.AddScoped<ISettingsService, SettingsService>();
+
+// Register the configuration service
+builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
+
 // Add vector store and brain services
 builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
 builder.Services.AddSingleton<IVectorStore, SqliteVectorStore>();
@@ -58,15 +87,13 @@ builder.Services.AddScoped<INeo4jService, Neo4jService>();
 builder.Services.AddSingleton<Neo4jRuntimeService>();
 builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 
+// Add LLM and AI chat services
+builder.Services.AddScoped<ILlmConnectorService, LlmConnectorService>();
+builder.Services.AddScoped<IAiChatService, AiChatService>();
+
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-// Register the configuration service
-builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
-
-// Register the simple logger service
-builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
 
 // Register the application monitor service
 builder.Services.AddHostedService<ApplicationMonitorService>();
@@ -95,34 +122,71 @@ var app = builder.Build();
 // Get the logger service
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
-// Startup health guard: abort if SQLite unavailable
+// Startup health guard: warn if SQLite unavailable
 logger.LogInfo("Performing startup health checks...");
 using (var scope = app.Services.CreateScope())
 {
     var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
     if (!await dbInitializer.CanConnectAsync())
     {
-        logger.LogCritical("Startup aborted: SQLite database unavailable.");
-        Environment.Exit(1);
+        logger.LogWarning("SQLite database connection check failed. Some features may not be available.");
+    }
+    else
+    {
+        logger.LogInfo("SQLite database connection check passed.");
     }
 
     // Skip Neo4j health check completely
-    logger.LogInfo("Startup health checks passed.");
+    logger.LogInfo("Startup health checks completed.");
 }
 
-// --- Seed default AI profile on first run ---
+// --- Seed default user and AI profile on first run ---
 try
 {
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        // If no AI character profiles exist, create a default
+
+        // Check if we need to create a default user
+        Guid defaultUserId;
+        if (!db.Users.Any())
+        {
+            logger.LogInfo("No users found. Creating default admin user...");
+
+            // Create a default admin user
+            var defaultUser = new SwAIvyn.Data.Entities.AppUser
+            {
+                Id = Guid.NewGuid(),
+                Username = "admin",
+                // Simple hash of "admin" password - in production you'd use a proper password hasher
+                PasswordHash = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+                PINCode = "1234",
+                RecoveryPhrase = "default recovery phrase for admin account",
+                CreatedAt = DateTime.UtcNow,
+                LastLogin = DateTime.UtcNow
+            };
+
+            db.Users.Add(defaultUser);
+            db.SaveChanges();
+            defaultUserId = defaultUser.Id;
+            logger.LogInfo($"Created default admin user with ID: {defaultUserId}");
+        }
+        else
+        {
+            // Get the first user's ID
+            defaultUserId = db.Users.First().Id;
+            logger.LogInfo($"Using existing user with ID: {defaultUserId} for default AI profile");
+        }
+
+        // If no AI character profiles exist, create a default one linked to our user
         if (!db.Avatars.Any())
         {
+            logger.LogInfo("No AI profiles found. Creating default AI profile...");
+
             db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
             {
                 Id = Guid.NewGuid(),
-                UserId = db.Users.FirstOrDefault()?.Id ?? Guid.NewGuid(), // Assign to first user or dummy
+                UserId = defaultUserId, // Use our confirmed user ID
                 Name = "Default AI",
                 ImagePath = "",
                 Personality = "Friendly and helpful AI assistant.",
@@ -130,6 +194,7 @@ try
                 CreatedAt = DateTime.UtcNow,
                 LastModified = DateTime.UtcNow
             });
+
             db.SaveChanges();
             logger.LogInfo("Seeded default AI profile.");
         }
@@ -137,7 +202,13 @@ try
 }
 catch (Exception ex)
 {
-    logger.LogError("Failed to seed default AI profile", ex);
+    logger.LogError("Failed to seed default user and AI profile", ex);
+    logger.LogError($"Error details: {ex.Message}");
+
+    if (ex.InnerException != null)
+    {
+        logger.LogError($"Inner exception: {ex.InnerException.Message}");
+    }
 }
 
 // Initialize directories

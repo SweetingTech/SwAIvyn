@@ -39,6 +39,9 @@
 ### Core Services
 
 * ✅ Local LLM connector (Ollama)
+  * ✅ Ollama API integration
+  * ✅ LM Studio API integration
+  * ✅ User-configurable LLM settings
 * ✅ Prompt manager & context window
 * ✅ File storage service (JSON chat logs)
 * ✅ Folder & conversation management
@@ -49,6 +52,9 @@
   * ✅ Semantic search merge
   * ✅ **Remote vector fallback hook**
 * ✅ Settings service (user prefs / system config)
+  * ✅ Database-backed settings storage
+  * ✅ User-specific and global settings
+  * ✅ LLM engine and model preferences
 * ✅ **HealthCheck API endpoints**
 
   * `/api/health/sqlite`
@@ -210,4 +216,10 @@
 1. **Health checks + startup guard** ✅
 2. **Folder management & search UIs** ✅
 3. **Brain explorer view** ✅
-4. **Whisper audio capture POC** ⬜
+4. **User-configurable LLM settings** ✅
+5. **LLM settings UI** ✅
+6. **Chat session management** ✅
+   - Auto-save with UUID assignment
+   - Folder organization
+   - Rename, edit, delete sessions
+7. **Whisper audio capture POC** ⬜
