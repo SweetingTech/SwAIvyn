@@ -1,6 +1,6 @@
 export interface Message {
   id: string;
-  sender: 'user' | 'ai';
+  sender: 'user' | 'ai' | 'system';
   text: string;
   timestamp: string;
   attachments?: Attachment[];

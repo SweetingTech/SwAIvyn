@@ -14,18 +14,22 @@ namespace SwAIvyn.Controllers
     public class ConversationController : ControllerBase
     {
         private readonly IConversationService _conversationService;
+        private readonly IAiChatService _aiChatService;
         private readonly ISimpleLoggerService _logger;
 
         /// <summary>
         /// Initializes a new instance of the ConversationController
         /// </summary>
         /// <param name="conversationService">Conversation service</param>
+        /// <param name="aiChatService">AI chat service</param>
         /// <param name="logger">Logger service</param>
         public ConversationController(
             IConversationService conversationService,
+            IAiChatService aiChatService,
             ISimpleLoggerService logger)
         {
             _conversationService = conversationService;
+            _aiChatService = aiChatService;
             _logger = logger;
         }
 
@@ -234,6 +238,33 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, "An error occurred while appending the message");
             }
         }
+
+        /// <summary>
+        /// Sends a user message and gets an AI response
+        /// </summary>
+        /// <param name="request">Chat request</param>
+        /// <returns>The AI response</returns>
+        [HttpPost("chat")]
+        public async Task<IActionResult> SendChatMessage([FromBody] ChatRequest request)
+        {
+            try
+            {
+                // Generate and store the AI response
+                var aiResponse = await _aiChatService.GenerateAndStoreResponseAsync(
+                    request.ConversationId, request.UserId, request.Message);
+
+                return Ok(new { response = aiResponse });
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error processing chat message for conversation {request.ConversationId}", ex);
+                return StatusCode(500, "An error occurred while processing the chat message");
+            }
+        }
     }
 
     /// <summary>
@@ -310,5 +341,29 @@ namespace SwAIvyn.Controllers
         /// </summary>
         [Required]
         public string Content { get; set; }
+    }
+
+    /// <summary>
+    /// Request to send a chat message and get an AI response
+    /// </summary>
+    public class ChatRequest
+    {
+        /// <summary>
+        /// Gets or sets the conversation ID
+        /// </summary>
+        [Required]
+        public Guid ConversationId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user ID
+        /// </summary>
+        [Required]
+        public Guid UserId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the message content
+        /// </summary>
+        [Required]
+        public string Message { get; set; }
     }
 }

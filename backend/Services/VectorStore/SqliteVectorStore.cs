@@ -14,7 +14,7 @@ namespace SwAIvyn.Services.VectorStore
     /// </summary>
     public class SqliteVectorStore : IVectorStore
     {
-        private readonly string _connectionString;
+        private readonly string? _connectionString;
         private readonly ISimpleLoggerService _logger;
         private readonly string _extensionPath;
         private readonly int _dimensions;
@@ -44,51 +44,88 @@ namespace SwAIvyn.Services.VectorStore
             {
                 _logger.LogInfo("Initializing SQLite vector store...");
 
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
-
-                // Enable extensions
-                connection.EnableExtensions();
-
-                // Try to load the VSS extension
+                // Check if the extension file exists
+                string? dataDir = null;
                 try
                 {
-                    using var loadExtCmd = connection.CreateCommand();
-                    loadExtCmd.CommandText = $"SELECT load_extension('{_extensionPath}');";
-                    await loadExtCmd.ExecuteNonQueryAsync();
-                    _logger.LogInfo("SQLite-VSS extension loaded successfully");
+                    var builder = new SqliteConnectionStringBuilder(_connectionString ?? string.Empty);
+                    dataDir = Path.GetDirectoryName(builder.DataSource);
+                }
+                catch
+                {
+                    dataDir = null;
+                }
+                string extensionFullPath = Path.Combine(dataDir ?? string.Empty, _extensionPath);
+                string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                string extensionAppPath = Path.Combine(appDir, _extensionPath);
+
+                _logger.LogInfo($"Looking for SQLite-VSS extension at: {extensionFullPath} or {extensionAppPath}");
+
+                if (!File.Exists(extensionFullPath) && !File.Exists(extensionAppPath))
+                {
+                    _logger.LogWarning($"SQLite-VSS extension file not found at {extensionFullPath} or {extensionAppPath}");
+                    _logger.LogWarning($"Make sure the file '{_extensionPath}' exists in the data directory or application directory");
+                }
+
+                using var connection = new SqliteConnection(_connectionString ?? string.Empty);
+                await connection.OpenAsync();
+
+                // Enable extensions explicitly
+                connection.EnableExtensions(true);
+                _logger.LogInfo("SQLite extensions enabled");
+
+                // The extension loading is now handled by the SqliteVssExtensionInterceptor
+                // Just create the vector table if it doesn't exist
+                try
+                {
+                    using var createTableCmd = connection.CreateCommand();
+                    createTableCmd.CommandText = $@"
+                        CREATE VIRTUAL TABLE IF NOT EXISTS CoreVectors
+                        USING vss0(
+                            id TEXT PRIMARY KEY,
+                            embedding BLOB,
+                            metadata TEXT,
+                            dims({_dimensions}),
+                            distance('{_distance}')
+                        );";
+                    await createTableCmd.ExecuteNonQueryAsync();
+
+                    _isInitialized = true;
+                    _logger.LogInfo("SQLite vector store initialized successfully");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError("Failed to load SQLite-VSS extension", ex);
-                    throw new InvalidOperationException("SQLite-VSS extension could not be loaded. Vector search will not be available.", ex);
+                    _logger.LogWarning($"Failed to create vector table: {ex.Message}");
+
+                    if (ex.InnerException != null)
+                    {
+                        _logger.LogWarning($"Inner exception: {ex.InnerException.Message}");
+                    }
+
+                    _logger.LogWarning("Vector search functionality will not be available.");
+
+                    // Set initialized to true but with limited functionality
+                    _isInitialized = true;
+                    return; // Return without throwing an exception
                 }
-
-                // Create the vector table if it doesn't exist
-                using var createTableCmd = connection.CreateCommand();
-                createTableCmd.CommandText = $@"
-                    CREATE VIRTUAL TABLE IF NOT EXISTS CoreVectors
-                    USING vss0(
-                        id TEXT PRIMARY KEY,
-                        embedding BLOB,
-                        metadata TEXT,
-                        dims({_dimensions}),
-                        distance('{_distance}')
-                    );";
-                await createTableCmd.ExecuteNonQueryAsync();
-
-                _isInitialized = true;
-                _logger.LogInfo("SQLite vector store initialized successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogCritical("Failed to initialize SQLite vector store", ex);
-                throw;
+                _logger.LogWarning($"Failed to initialize SQLite vector store: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    _logger.LogWarning($"Inner exception: {ex.InnerException.Message}");
+                }
+                _logger.LogWarning("Vector search functionality will not be available.");
+
+                // Set initialized to true but with limited functionality
+                _isInitialized = true;
+                return;
             }
         }
 
         /// <inheritdoc/>
-        public async Task<bool> StoreVectorAsync(Guid id, float[] embedding, Dictionary<string, string> metadata = null, VectorScope scope = VectorScope.Core)
+        public async Task<bool> StoreVectorAsync(Guid id, float[] embedding, Dictionary<string, string>? metadata = null, VectorScope scope = VectorScope.Core)
         {
             if (!_isInitialized)
                 await InitializeAsync();
@@ -98,8 +135,27 @@ namespace SwAIvyn.Services.VectorStore
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
+                using var connection = new SqliteConnection(_connectionString ?? string.Empty);
                 await connection.OpenAsync();
+
+                // Check if the VSS extension is available by testing for the CoreVectors table
+                try
+                {
+                    using var testCmd = connection.CreateCommand();
+                    testCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='CoreVectors';";
+                    var tableName = await testCmd.ExecuteScalarAsync();
+
+                    if (tableName == null)
+                    {
+                        _logger.LogWarning("CoreVectors table does not exist. Vector storage is not available.");
+                        return false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to check for CoreVectors table: {ex.Message}");
+                    return false;
+                }
 
                 // Convert embedding to blob
                 var blob = new byte[embedding.Length * sizeof(float)];
@@ -122,7 +178,7 @@ namespace SwAIvyn.Services.VectorStore
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to store vector for ID {id}", ex);
+                _logger.LogWarning($"Failed to store vector for ID {id}: {ex.Message}");
                 return false;
             }
         }
@@ -138,8 +194,27 @@ namespace SwAIvyn.Services.VectorStore
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
+                using var connection = new SqliteConnection(_connectionString ?? string.Empty);
                 await connection.OpenAsync();
+
+                // Check if the VSS extension is available by testing for the vss_search function
+                try
+                {
+                    using var testCmd = connection.CreateCommand();
+                    testCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='CoreVectors';";
+                    var tableName = await testCmd.ExecuteScalarAsync();
+
+                    if (tableName == null)
+                    {
+                        _logger.LogWarning("CoreVectors table does not exist. Vector search is not available.");
+                        return new List<SearchHit>();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to check for CoreVectors table: {ex.Message}");
+                    return new List<SearchHit>();
+                }
 
                 // Convert query vector to blob
                 var blob = new byte[queryVector.Length * sizeof(float)];
@@ -178,7 +253,7 @@ namespace SwAIvyn.Services.VectorStore
             }
             catch (Exception ex)
             {
-                _logger.LogError("Failed to search vectors", ex);
+                _logger.LogWarning($"Failed to search vectors: {ex.Message}");
                 return new List<SearchHit>();
             }
         }
@@ -194,7 +269,7 @@ namespace SwAIvyn.Services.VectorStore
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
+                using var connection = new SqliteConnection(_connectionString ?? string.Empty);
                 await connection.OpenAsync();
 
                 // Delete the vector
@@ -207,7 +282,7 @@ namespace SwAIvyn.Services.VectorStore
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to delete vector for ID {id}", ex);
+                _logger.LogError($"Failed to delete vector for ID {id}: {ex.Message}");
                 return false;
             }
         }
@@ -220,7 +295,7 @@ namespace SwAIvyn.Services.VectorStore
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
+                using var connection = new SqliteConnection(_connectionString ?? string.Empty);
                 await connection.OpenAsync();
 
                 var status = new Dictionary<string, object>();
@@ -234,7 +309,7 @@ namespace SwAIvyn.Services.VectorStore
                 }
 
                 // Get database size
-                var dbPath = new SqliteConnectionStringBuilder(_connectionString).DataSource;
+                var dbPath = new SqliteConnectionStringBuilder(_connectionString ?? string.Empty).DataSource;
                 if (File.Exists(dbPath))
                 {
                     var fileInfo = new FileInfo(dbPath);
@@ -251,7 +326,7 @@ namespace SwAIvyn.Services.VectorStore
             }
             catch (Exception ex)
             {
-                _logger.LogError("Failed to get vector store status", ex);
+                _logger.LogError($"Failed to get vector store status: {ex.Message}");
                 return new Dictionary<string, object>
                 {
                     ["Error"] = ex.Message
@@ -265,7 +340,7 @@ namespace SwAIvyn.Services.VectorStore
             try
             {
                 // Try a simple query to check DB connection
-                using var conn = new Microsoft.Data.Sqlite.SqliteConnection(_connectionString);
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection(_connectionString ?? string.Empty);
                 await conn.OpenAsync();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = "SELECT 1";

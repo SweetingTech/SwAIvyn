@@ -28,7 +28,7 @@ This document provides detailed documentation of the work completed in Phase One
 ### LLM Connector Service
 - LlmConnectorService connects to local LLM engines Ollama and LM Studio.
 - Ollama API base URL: http://localhost:11434
-- LM Studio API base URL: http://localhost:5000
+- LM Studio API base URL: http://localhost:1234 (updated from 5000 to avoid port conflicts)
 - Methods:
   - GetOllamaModelsAsync(): Lists available Ollama models dynamically.
   - GetLmStudioModelAsync(): Gets current LM Studio model.
@@ -54,16 +54,16 @@ This document provides detailed documentation of the work completed in Phase One
 
 SwAIvyn now uses a DNS-like naming system for service discovery:
 
-| Service           | Logical Name                 | Default URL                   |
-|-------------------|------------------------------|-------------------------------|
-| Backend API       | api                          | http://localhost:5000         |
-| Ollama API        | ollamaApi                    | http://localhost:11434        |
-| LM Studio API     | lmStudioApi                  | http://localhost:5000         |
-| SignalR Chat Hub  | chatHub                      | /hubs/chat                    |
-| SignalR Voice Hub | voiceHub                     | /hubs/voice                   |
-| SignalR Notify Hub| notificationHub              | /hubs/notification            |
+| Service           | Logical Name                 | Default URL                   | User Configurable |
+|-------------------|------------------------------|-------------------------------|-------------------|
+| Backend API       | api                          | http://localhost:5000         | No                |
+| Ollama API        | ollamaApi                    | http://localhost:11434        | **Yes**           |
+| LM Studio API     | lmStudioApi                  | http://localhost:1234         | **Yes**           |
+| SignalR Chat Hub  | chatHub                      | /hubs/chat                    | No                |
+| SignalR Voice Hub | voiceHub                     | /hubs/voice                   | No                |
+| SignalR Notify Hub| notificationHub              | /hubs/notification            | No                |
 
-The Configuration Service provides dynamic service discovery, eliminating the need for hardcoded ports.
+The Configuration Service provides dynamic service discovery, eliminating the need for hardcoded ports. Users can configure the URLs for LLM services (Ollama, LM Studio) through the Settings page under the "Connections" tab.
 
 ## How to Run
 

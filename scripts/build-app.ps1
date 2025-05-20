@@ -77,6 +77,22 @@ dotnet publish "SwAIvyn.csproj" `
     -p:PublishTrimmed=false `
     -p:EnableCompressionInSingleFile=true
 
+# Copy sqlite-vss.dll to the output directory from root if it exists
+$rootDll = Join-Path $rootDir "sqlite-vss.dll"
+if (Test-Path $rootDll) {
+    Copy-Item $rootDll -Destination (Join-Path $distDir "sqlite-vss.dll") -Force
+}
+# Also copy from data if present (in case user updates there)
+$dataDll = Join-Path $rootDir "data\sqlite-vss.dll"
+if (Test-Path $dataDll) {
+    Copy-Item $dataDll -Destination (Join-Path $distDir "sqlite-vss.dll") -Force
+}
+# Also copy from assets if present
+$assetsDll = Join-Path $rootDir "assets\sqlite-vss.dll"
+if (Test-Path $assetsDll) {
+    Copy-Item $assetsDll -Destination (Join-Path $distDir "sqlite-vss.dll") -Force
+}
+
 $buildResult = $LASTEXITCODE
 Pop-Location
 
