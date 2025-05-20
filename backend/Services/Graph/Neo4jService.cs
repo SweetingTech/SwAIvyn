@@ -72,31 +72,24 @@ namespace SwAIvyn.Services.Graph
                 var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_neo4jUser}:{_neo4jPassword}"));
                 _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
 
-                // If Neo4j is not embedded, we don't need to initialize it
-                if (!_isEmbedded)
-                {
-                    _logger.LogInfo("Neo4j embedded mode is disabled. Skipping Neo4j initialization.");
-                    _isInitialized = true;
-                    return;
-                }
+                // Initialization is complete once headers are set, regardless of embedded status.
+                // Actual connectivity is checked by PingAsync or GetStatusAsync.
+                _isInitialized = true; 
+                _logger.LogInfo("Neo4j service basic initialization completed (HTTP client configured).");
 
                 if (_isEmbedded)
                 {
-                    // For embedded Neo4j, we would start the embedded server here
-                    // This is a placeholder for now
-                    _logger.LogInfo("Starting embedded Neo4j server...");
-                    // await StartEmbeddedServerAsync();
+                    // Logic related to embedded server (if any beyond Neo4jRuntimeService) would go here.
+                    // For now, Neo4jRuntimeService handles startup.
+                    _logger.LogInfo("Embedded mode is true. Neo4jRuntimeService is expected to handle server startup.");
                 }
-
-                // Test connection
-                var status = await GetStatusAsync();
-                if (status.ContainsKey("Error"))
+                else
                 {
-                    throw new Exception($"Failed to connect to Neo4j: {status["Error"]}");
+                    _logger.LogInfo("Embedded mode is false. Will connect to external Neo4j instance.");
                 }
-
-                _isInitialized = true;
-                _logger.LogInfo("Neo4j service initialized successfully");
+                
+                // Initial connectivity test is removed from here to prevent recursion.
+                // It should be done externally after InitializeAsync completes, e.g., in Program.cs or by first query.
             }
             catch (Exception ex)
             {
@@ -455,41 +448,40 @@ namespace SwAIvyn.Services.Graph
         {
             try
             {
-                var status = new Dictionary<string, object>();
-
-                // If Neo4j is not embedded, return a default status
-                if (!_isEmbedded)
+                var status = new Dictionary<string, object>
                 {
-                    try
-                    {
-                        var query = "RETURN 1 AS ok";
-                        var result = await ExecuteQueryAsync(query);
-                        status["Connected"] = true;
-                        status["Mode"] = "Remote";
-                        status["Uri"] = _neo4jUri;
-                    }
-                    catch (Exception ex)
-                    {
-                        status["Connected"] = false;
-                        status["Error"] = ex.Message;
-                    }
-                    return status;
-                }
+                    ["Mode"] = _isEmbedded ? "Embedded" : "Remote",
+                    ["Uri"] = _neo4jUri,
+                    ["Connected"] = false // Assume not connected until proven
+                };
 
                 try
                 {
-                    var query = "CALL dbms.cluster.overview()";
-                    var result = await ExecuteQueryAsync(query);
-                    status["Connected"] = true;
-                    status["Mode"] = "Embedded";
-                    status["Uri"] = _neo4jUri;
+                    // A simple query to check connectivity.
+                    // Using "CALL dbms.components()" as it's generally available and gives basic info.
+                    // Using "RETURN 1" is even simpler for just a ping.
+                    var query = "RETURN 1 AS connection_check"; 
+                    var result = await ExecuteQueryAsync(query); // ExecuteQueryAsync calls InitializeAsync if not initialized.
+
+                    if (result != null && result.Count > 0 && result[0].ContainsKey("connection_check"))
+                    {
+                        status["Connected"] = true;
+                        _online = true; // Update internal online status
+                        _logger.LogInfo($"Successfully connected to Neo4j ({status["Mode"]}) at {_neo4jUri}.");
+                    }
+                    else
+                    {
+                        status["Error"] = "Connection check query returned no result or unexpected result.";
+                        _online = false;
+                         _logger.LogWarning($"Neo4j ({status["Mode"]}) at {_neo4jUri} connection check failed or returned unexpected result.");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    status["Connected"] = false;
                     status["Error"] = ex.Message;
+                    _online = false;
+                    _logger.LogError($"Failed to connect to Neo4j ({status["Mode"]}) at {_neo4jUri}: {ex.Message}", ex);
                 }
-
                 return status;
             }
             catch (Exception ex)
@@ -506,33 +498,36 @@ namespace SwAIvyn.Services.Graph
         /// <inheritdoc/>
         public async Task<bool> HealthCheckAsync()
         {
-            // If Neo4j is not embedded, we don't need to check its health
-            if (!_isEmbedded)
-            {
-                return true;
-            }
-
+            // Health check should always try to ping the configured Neo4j instance.
             return await PingAsync();
         }
 
         /// <inheritdoc/>
         public async Task<bool> PingAsync()
         {
+            string originalNeo4jUri = _neo4jUri; // Store original URI
             try
             {
-                // If Neo4j is not embedded, we don't need to check its health
-                if (!_isEmbedded)
-                {
-                    return true;
+                // Ensure _neo4jUri is up-to-date from configuration for each ping
+                // This allows dynamic changes to appsettings to be picked up by new pings,
+                // though _configurationService might cache. More robust would be re-fetching if ISettingsProvider used.
+                _neo4jUri = _configurationService.GetNeo4jUri();
+                if(originalNeo4jUri != _neo4jUri) {
+                     _logger.LogInfo($"Neo4j URI changed from {originalNeo4jUri} to {_neo4jUri}. Re-authenticating HTTP client.");
+                     var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_neo4jUser}:{_neo4jPassword}"));
+                    _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
                 }
+
 
                 // Try a simple query to check Neo4j connection
                 var query = "RETURN 1 AS ok";
-                await ExecuteQueryAsync(query);
-                _online = true;
+                // Pass a special flag or use a different method for ping to avoid InitializeAsync loop if it's part of health check
+                var result = await ExecuteQueryAsync(query, null); 
+                _online = (result != null && result.Count > 0 && result[0].ContainsKey("ok"));
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning($"Ping failed for Neo4j at {_neo4jUri}: {ex.Message}");
                 _online = false;
             }
             return _online;
@@ -542,30 +537,27 @@ namespace SwAIvyn.Services.Graph
         public bool IsOnline => _online;
 
         /// <summary>
-        /// Checks the connection to Neo4j and updates the online status
+        /// Checks the connection to Neo4j and updates the online status. Called by a timer.
         /// </summary>
         private async Task CheckConnectionAsync()
         {
-            try
+            _logger.LogInfo($"Timer: Pinging Neo4j at {_neo4jUri} (IsEmbedded: {_isEmbedded})");
+            bool currentStatus = await PingAsync();
+            if (currentStatus)
             {
-                // Only check if Neo4j is embedded
-                if (!_isEmbedded)
+                if (!_online) // If it was previously offline
                 {
-                    return;
+                    _logger.LogInfo($"Neo4j connection to {_neo4jUri} RESTORED.");
                 }
-
-                // Try to ping Neo4j
-                await PingAsync();
-
-                // If we get here, Neo4j is online
-                if (_online)
-                {
-                    _logger.LogInfo("Neo4j connection restored");
-                }
+                _online = true;
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError($"Failed to check Neo4j connection: {ex.Message}");
+                if (_online) // If it was previously online
+                {
+                    _logger.LogWarning($"Neo4j connection to {_neo4jUri} LOST.");
+                }
+                _online = false;
             }
         }
 
