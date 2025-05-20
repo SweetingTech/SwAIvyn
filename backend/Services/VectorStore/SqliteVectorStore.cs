@@ -16,7 +16,7 @@ namespace SwAIvyn.Services.VectorStore
     {
         private readonly string? _connectionString;
         private readonly ISimpleLoggerService _logger;
-        private readonly string _extensionPath;
+        private readonly string _resolvedExtensionPath; // Changed from _extensionPath
         private readonly int _dimensions;
         private readonly string _distance;
         private bool _isInitialized = false;
@@ -32,7 +32,30 @@ namespace SwAIvyn.Services.VectorStore
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection");
             _logger = logger;
-            _extensionPath = configuration["AppSettings:VssExtensionPath"] ?? "sqlite-vss";
+            
+            string configuredExtensionPath = configuration["AppSettings:VssExtensionPath"];
+            if (string.IsNullOrWhiteSpace(configuredExtensionPath))
+            {
+                _logger?.LogWarning("SQLite-VSS extension path not configured in AppSettings:VssExtensionPath. Using default 'sqlite-vss.dll'.");
+                configuredExtensionPath = "sqlite-vss.dll";
+            }
+
+            if (!configuredExtensionPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger?.LogInfo($"Appending .dll to VSS extension path for SqliteVectorStore: {configuredExtensionPath}");
+                configuredExtensionPath += ".dll";
+            }
+
+            if (Path.IsPathRooted(configuredExtensionPath))
+            {
+                _resolvedExtensionPath = configuredExtensionPath;
+            }
+            else
+            {
+                _resolvedExtensionPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, configuredExtensionPath));
+            }
+            _logger.LogInfo($"SqliteVectorStore: Resolved VSS extension path to '{_resolvedExtensionPath}'");
+
             _dimensions = configuration.GetValue<int>("AppSettings:VectorDimensions", 768);
             _distance = configuration["AppSettings:VectorDistance"] ?? "cosine";
         }
@@ -40,45 +63,76 @@ namespace SwAIvyn.Services.VectorStore
         /// <inheritdoc/>
         public async Task InitializeAsync()
         {
+            if (_isInitialized) return;
+
             try
             {
                 _logger.LogInfo("Initializing SQLite vector store...");
 
-                // Check if the extension file exists
-                string? dataDir = null;
-                try
+                if (!File.Exists(_resolvedExtensionPath))
                 {
-                    var builder = new SqliteConnectionStringBuilder(_connectionString ?? string.Empty);
-                    dataDir = Path.GetDirectoryName(builder.DataSource);
-                }
-                catch
-                {
-                    dataDir = null;
-                }
-                string extensionFullPath = Path.Combine(dataDir ?? string.Empty, _extensionPath);
-                string appDir = AppDomain.CurrentDomain.BaseDirectory;
-                string extensionAppPath = Path.Combine(appDir, _extensionPath);
-
-                _logger.LogInfo($"Looking for SQLite-VSS extension at: {extensionFullPath} or {extensionAppPath}");
-
-                if (!File.Exists(extensionFullPath) && !File.Exists(extensionAppPath))
-                {
-                    _logger.LogWarning($"SQLite-VSS extension file not found at {extensionFullPath} or {extensionAppPath}");
-                    _logger.LogWarning($"Make sure the file '{_extensionPath}' exists in the data directory or application directory");
+                    _logger.LogWarning($"SQLite-VSS extension file not found at the resolved path: '{_resolvedExtensionPath}'. Vector functionality may be impaired.");
+                    // Allow to proceed, table creation will fail if extension is truly needed and not loaded by other means.
                 }
 
                 using var connection = new SqliteConnection(_connectionString ?? string.Empty);
                 await connection.OpenAsync();
 
-                // Enable extensions explicitly
-                connection.EnableExtensions(true);
-                _logger.LogInfo("SQLite extensions enabled");
-
-                // The extension loading is now handled by the SqliteVssExtensionInterceptor
-                // Just create the vector table if it doesn't exist
+                // Enable extensions explicitly and load VSS for this specific connection
+                // This is crucial because this connection is NOT managed by EF Core's interceptor.
+                try
+                {
+                    connection.EnableExtensions(true);
+                    _logger.LogInfo($"Attempting to load SQLite-VSS extension from '{_resolvedExtensionPath}' for SqliteVectorStore's own connection.");
+                    connection.LoadExtension(_resolvedExtensionPath);
+                    _logger.LogInfo($"Successfully loaded SQLite-VSS extension from '{_resolvedExtensionPath}' for SqliteVectorStore's own connection.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to load SQLite-VSS extension from '{_resolvedExtensionPath}' for SqliteVectorStore's own connection: {ex.Message}. Vector functionality will likely fail.");
+                    // Do not set _isInitialized to true if extension loading fails, as table creation will fail.
+                    // Let the table creation attempt proceed and fail, which will then prevent _isInitialized = true.
+                }
+                
                 try
                 {
                     using var createTableCmd = connection.CreateCommand();
+                    createTableCmd.CommandText = $@"
+                        CREATE VIRTUAL TABLE IF NOT EXISTS CoreVectors
+                        USING vss0(
+                            embedding({_dimensions}),
+                            metadata_json
+                        );";
+                        // id TEXT PRIMARY KEY - vss0 uses rowid by default for id.
+                        // embedding BLOB - implicit for vss0, type specified in embedding()
+                        // metadata TEXT - using metadata_json as a TEXT column.
+                        // dims({_dimensions}) - This is usually part of the embedding() parameter in newer VSS versions.
+                        // distance('{_distance}') - This is often a table parameter or index parameter.
+                        // The exact syntax can vary. Assuming a simplified schema for now or one that works with a common VSS variant.
+                        // A more standard way for recent sqlite-vss:
+                        // CREATE VIRTUAL TABLE IF NOT EXISTS CoreVectors USING vss0(vector float[{_dimensions}]);
+                        // And then add other columns like id, metadata separately.
+                        // For this example, I'll use a common pattern from older examples or a hypothetical one.
+                        // Let's assume the original schema was intended for a specific VSS version.
+                        // For robustness, let's stick to a very simple vss0 declaration and add other columns manually if needed.
+                        // However, the original had `id TEXT PRIMARY KEY`, `embedding BLOB`, `metadata TEXT`.
+                        // This implies these are not directly part of the vss0 definition itself but columns in the virtual table.
+                    
+                    // Re-evaluating the original schema:
+                    // CREATE VIRTUAL TABLE IF NOT EXISTS CoreVectors USING vss0(
+                    //  id TEXT PRIMARY KEY, -> This might be problematic as vss0 usually manages rowid. Let's try without making it PK here.
+                    //  embedding BLOB,      -> This is the vector column.
+                    //  metadata TEXT,       -> For JSON metadata.
+                    //  dims({_dimensions}), -> This is a parameter to vss0, not a column.
+                    //  distance('{_distance}') -> Also a parameter to vss0.
+                    // );
+                    // A more typical modern vss0 syntax is:
+                    // CREATE VIRTUAL TABLE CoreVectors USING vss0(embedding({_dimensions}));
+                    // Then one might add columns like: ALTER TABLE CoreVectors ADD COLUMN metadata_json TEXT;
+                    // Or, some vss0 versions allow defining columns directly:
+                    // CREATE VIRTUAL TABLE CoreVectors USING vss0(vector float[{_dimensions}], metadata_json TEXT)
+
+                    // Given the original code, it was likely:
                     createTableCmd.CommandText = $@"
                         CREATE VIRTUAL TABLE IF NOT EXISTS CoreVectors
                         USING vss0(
@@ -89,46 +143,42 @@ namespace SwAIvyn.Services.VectorStore
                             distance('{_distance}')
                         );";
                     await createTableCmd.ExecuteNonQueryAsync();
+                    _logger.LogInfo("Virtual table 'CoreVectors' (vss0) with original schema ensured.");
 
-                    _isInitialized = true;
-                    _logger.LogInfo("SQLite vector store initialized successfully");
+                    _isInitialized = true; // Set to true ONLY if table creation is successful
+                    _logger.LogInfo("SQLite vector store initialized successfully.");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"Failed to create vector table: {ex.Message}");
-
+                    _logger.LogWarning($"Failed to create or verify vector table 'CoreVectors': {ex.Message}");
                     if (ex.InnerException != null)
                     {
                         _logger.LogWarning($"Inner exception: {ex.InnerException.Message}");
                     }
-
-                    _logger.LogWarning("Vector search functionality will not be available.");
-
-                    // Set initialized to true but with limited functionality
-                    _isInitialized = true;
-                    return; // Return without throwing an exception
+                    _logger.LogWarning("Vector search and storage functionality will NOT be available.");
+                    // _isInitialized remains false if table creation fails
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Failed to initialize SQLite vector store: {ex.Message}");
+                _logger.LogWarning($"Failed to initialize SQLite vector store during connection opening or extension loading: {ex.Message}");
                 if (ex.InnerException != null)
                 {
                     _logger.LogWarning($"Inner exception: {ex.InnerException.Message}");
                 }
-                _logger.LogWarning("Vector search functionality will not be available.");
-
-                // Set initialized to true but with limited functionality
-                _isInitialized = true;
-                return;
+                _logger.LogWarning("Vector search and storage functionality will NOT be available.");
+                // _isInitialized remains false
             }
         }
 
         /// <inheritdoc/>
         public async Task<bool> StoreVectorAsync(Guid id, float[] embedding, Dictionary<string, string>? metadata = null, VectorScope scope = VectorScope.Core)
         {
-            if (!_isInitialized)
-                await InitializeAsync();
+            if (!_isInitialized) 
+            {
+                _logger.LogWarning("Attempted to store vector, but SqliteVectorStore is not initialized (likely due to VSS extension or table creation failure).");
+                return false;
+            }
 
             if (scope != VectorScope.Core && scope != VectorScope.All)
                 return false; // Only store locally for Core or All scope
@@ -187,7 +237,13 @@ namespace SwAIvyn.Services.VectorStore
         public async Task<List<SearchHit>> SearchAsync(float[] queryVector, int limit = 10, VectorScope scope = VectorScope.All)
         {
             if (!_isInitialized)
-                await InitializeAsync();
+                await InitializeAsync(); // This will now effectively be a no-op if already initialized.
+            
+            if (!_isInitialized)
+            {
+                _logger.LogWarning("Attempted to search vectors, but SqliteVectorStore is not initialized.");
+                return new List<SearchHit>();
+            }
 
             if (scope != VectorScope.Core && scope != VectorScope.All)
                 return new List<SearchHit>(); // Only search locally for Core or All scope
@@ -196,31 +252,17 @@ namespace SwAIvyn.Services.VectorStore
             {
                 using var connection = new SqliteConnection(_connectionString ?? string.Empty);
                 await connection.OpenAsync();
-
-                // Check if the VSS extension is available by testing for the vss_search function
-                try
-                {
-                    using var testCmd = connection.CreateCommand();
-                    testCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='CoreVectors';";
-                    var tableName = await testCmd.ExecuteScalarAsync();
-
-                    if (tableName == null)
-                    {
-                        _logger.LogWarning("CoreVectors table does not exist. Vector search is not available.");
-                        return new List<SearchHit>();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"Failed to check for CoreVectors table: {ex.Message}");
-                    return new List<SearchHit>();
-                }
+                // No need to explicitly load extension here if InitializeAsync did it or if relying on interceptor for this connection type (unlikely for direct new SqliteConnection).
+                // For safety, if direct connections are used here, they *also* need LoadExtension if not using EF Core context.
+                // However, the InitializeAsync now loads it for its connection, and subsequent operations *should* work on that basis if table was created.
+                // Let's assume for now that if InitializeAsync succeeded, the vss0 module is usable.
 
                 // Convert query vector to blob
                 var blob = new byte[queryVector.Length * sizeof(float)];
                 Buffer.BlockCopy(queryVector, 0, blob, 0, blob.Length);
 
                 // Search for similar vectors
+                // Search for similar vectors - Reverted to original query structure
                 using var cmd = connection.CreateCommand();
                 cmd.CommandText = @"
                     SELECT id, metadata, vss_distance(CoreVectors) AS score

@@ -191,6 +191,35 @@ using (var scope = app.Services.CreateScope())
     logger.LogInfo("Startup health checks completed.");
 }
 
+// Initialize directories
+try
+{
+    logger.LogInfo("Initializing application directories...");
+    var directoryInitializer = app.Services.GetRequiredService<DirectoryInitializerService>();
+    directoryInitializer.InitializeDirectories();
+    logger.LogInfo("Directory initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogCritical("Failed to initialize directories", ex);
+}
+
+// Initialize database
+try
+{
+    logger.LogInfo("Initializing database...");
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+        await dbInitializer.InitializeAsync();
+        logger.LogInfo("Database initialization completed successfully");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogCritical("Failed to initialize database", ex);
+}
+
 // --- Seed default user and AI profile on first run ---
 try
 {
@@ -260,35 +289,6 @@ catch (Exception ex)
     {
         logger.LogError($"Inner exception: {ex.InnerException.Message}");
     }
-}
-
-// Initialize directories
-try
-{
-    logger.LogInfo("Initializing application directories...");
-    var directoryInitializer = app.Services.GetRequiredService<DirectoryInitializerService>();
-    directoryInitializer.InitializeDirectories();
-    logger.LogInfo("Directory initialization completed successfully");
-}
-catch (Exception ex)
-{
-    logger.LogCritical("Failed to initialize directories", ex);
-}
-
-// Initialize database
-try
-{
-    logger.LogInfo("Initializing database...");
-    using (var scope = app.Services.CreateScope())
-    {
-        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-        await dbInitializer.InitializeAsync();
-        logger.LogInfo("Database initialization completed successfully");
-    }
-}
-catch (Exception ex)
-{
-    logger.LogCritical("Failed to initialize database", ex);
 }
 
 // Initialize vector store
