@@ -148,5 +148,5 @@ Thumbs.db
 SwAIvyn.lnk
 *.lnk
 
-# Keep the real icon file
-# app-icon.ico
+# Ignore sqlite-vss folder
+sqlite-vss/
