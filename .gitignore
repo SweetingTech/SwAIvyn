@@ -150,4 +150,5 @@ SwAIvyn.lnk
 
 # Ignore sqlite-vss folder
 sqlite-vss/
+sqlite-vss/sqlite-source
 node_modules/
