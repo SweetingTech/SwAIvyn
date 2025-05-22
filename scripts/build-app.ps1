@@ -3,17 +3,14 @@ param (
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [switch]$SkipFrontend = $false,
-    [string]$OutputDir = "dist"
+    [string]$OutputDir = "."  # Changed to root directory
 )
 
 $ErrorActionPreference = "Stop"
 $rootDir = Split-Path -Parent $PSScriptRoot
 $distDir = Join-Path $rootDir $OutputDir
 
-# Create the output directory if it doesn't exist
-if (-not (Test-Path $distDir)) {
-    New-Item -ItemType Directory -Path $distDir | Out-Null
-}
+# The output directory is the root directory, which should already exist
 
 # Build the frontend
 if (-not $SkipFrontend) {
@@ -101,12 +98,6 @@ if ($buildResult -ne 0) {
     exit 1
 }
 
-# Create a shortcut to the executable
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$rootDir\SwAIvyn.lnk")
-$Shortcut.TargetPath = "$distDir\SwAIvyn.exe"
-$Shortcut.Save()
-
 Write-Host "Build completed successfully!" -ForegroundColor Green
 Write-Host "Executable is located at: $distDir\SwAIvyn.exe" -ForegroundColor Green
-Write-Host "A shortcut has been created at: $rootDir\SwAIvyn.lnk" -ForegroundColor Green
+Write-Host "You can double-click SwAIvyn.exe in the root directory to run the application." -ForegroundColor Green
