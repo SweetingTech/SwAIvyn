@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Enable native library loading to support SQLite extensions -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.6" />
+    <!-- Make sure we're using the right SQLitePCLRaw provider that supports extensions -->
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Make sure the DLLs are copied to the output directory -->
+    <None Update="sqlite-vss.dll;sqlite-vector.dll;faiss.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

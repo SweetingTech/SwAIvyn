@@ -362,7 +362,7 @@ namespace SwAIvyn.Services.VectorStore
                 // Get extension info
                 status["Dimensions"] = _dimensions;
                 status["Distance"] = _distance;
-                status["ExtensionPath"] = _extensionPath;
+                status["ExtensionPath"] = _resolvedExtensionPath;
 
                 return status;
             }
