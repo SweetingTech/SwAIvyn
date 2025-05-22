@@ -161,9 +161,20 @@ SwAIvyn is built as a single-executable application that includes:
 
 - ASP.NET Core backend with SignalR for real-time communication
 - React frontend served via embedded static files
-- SQLite for persistent storage
+- SQLite for persistent storage with VSS (Vector Similarity Search) extension
 - Embedded vector and graph databases for AI memory
 - Background services for email, backup, and federation
+
+### SQLite VSS Integration
+
+The application uses SQLite VSS for efficient vector similarity search:
+
+- Pre-built DLL file located in the `assets` directory
+- Test project in `TestSqliteVssProject` for verifying VSS functionality
+- PowerShell build scripts for customized builds
+- Ensure `VectorServerAvailable` is set to `true` in `appsettings.json`
+
+When deploying to a new system, copy the `sqlite-vss.dll` file to `assets` directory before building.
 
 ## 📄 License
 
