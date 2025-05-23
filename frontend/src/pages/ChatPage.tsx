@@ -35,11 +35,29 @@ const ChatPage = () => {
   // Demo user ID (replace with actual value from auth context)
   const [userId, setUserId] = useState<string>('');
 
+  // State for active character context
+  const [activeCharacter, setActiveCharacter] = useState<any>(null);
+
   // State for demo mode
   const isDemoMode = userId === 'demo-user-id';
 
   // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(true);
+
+  // Check for active character from localStorage
+  useEffect(() => {
+    const storedCharacter = localStorage.getItem('activeCharacter');
+    if (storedCharacter) {
+      try {
+        const character = JSON.parse(storedCharacter);
+        setActiveCharacter(character);
+        // Clear the stored character after loading
+        localStorage.removeItem('activeCharacter');
+      } catch (error) {
+        console.error('Error parsing stored character:', error);
+      }
+    }
+  }, []);
 
   // Load the most recent conversation or start a new one
   useEffect(() => {
@@ -50,17 +68,26 @@ const ChatPage = () => {
 
         try {
           // Fetch the default user ID from backend
+          console.log('Fetching user ID from /api/user/default...');
           const response = await fetch('/api/user/default');
+          console.log('User API response status:', response.status);
+
           if (response.ok) {
             const data = await response.json();
+            console.log('User API response data:', data);
 
             // Validate that we have a proper user ID (should be a GUID)
-            if (data.id && typeof data.id === 'string' && data.id.length >= 32) {
+            if (data && data.id && typeof data.id === 'string' && data.id.length >= 30) {
               validUserId = data.id;
+              console.log('Valid user ID found:', validUserId);
+            } else {
+              console.warn('Invalid user ID format:', data);
             }
+          } else {
+            console.warn('User API response not ok:', response.status, response.statusText);
           }
         } catch (userError) {
-          console.warn('Error fetching user ID:', userError);
+          console.error('Error fetching user ID:', userError);
         }
 
         // If we don't have a valid user ID, use demo mode
@@ -276,6 +303,22 @@ const ChatPage = () => {
           id: newConversation.id,
           title: newConversation.title
         });
+
+        // Set character context if we have an active character
+        if (activeCharacter && activeCharacter.systemPrompt) {
+          try {
+            await conversationService.setCharacterContext(
+              conversationId,
+              userId,
+              activeCharacter.id || null,
+              activeCharacter.systemPrompt
+            );
+            console.log(`Set character context for conversation: ${activeCharacter.name}`);
+          } catch (error) {
+            console.error('Error setting character context:', error);
+          }
+        }
+
         isFirstMessage.current = false;
       }
 
@@ -351,7 +394,15 @@ const ChatPage = () => {
         {/* Main Chat Area */}
         <div className="flex-grow flex flex-col overflow-hidden">
           <div className="px-4 py-2 bg-white border-b flex justify-between items-center">
-            <h1 className="text-xl font-semibold text-gray-800">{currentConversation.title}</h1>
+            <div className="flex flex-col">
+              <h1 className="text-xl font-semibold text-gray-800">{currentConversation.title}</h1>
+              {activeCharacter && (
+                <div className="text-sm text-blue-600 flex items-center">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                  Chatting with {activeCharacter.name}
+                </div>
+              )}
+            </div>
             <button
               onClick={handleNewConversation}
               className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using SwAIvyn.Data;
 using SwAIvyn.Services;
 using System;
 using System.ComponentModel.DataAnnotations;
@@ -16,6 +18,7 @@ namespace SwAIvyn.Controllers
         private readonly IConversationService _conversationService;
         private readonly IAiChatService _aiChatService;
         private readonly ISimpleLoggerService _logger;
+        private readonly ApplicationDbContext _dbContext;
 
         /// <summary>
         /// Initializes a new instance of the ConversationController
@@ -23,14 +26,17 @@ namespace SwAIvyn.Controllers
         /// <param name="conversationService">Conversation service</param>
         /// <param name="aiChatService">AI chat service</param>
         /// <param name="logger">Logger service</param>
+        /// <param name="dbContext">Database context</param>
         public ConversationController(
             IConversationService conversationService,
             IAiChatService aiChatService,
-            ISimpleLoggerService logger)
+            ISimpleLoggerService logger,
+            ApplicationDbContext dbContext)
         {
             _conversationService = conversationService;
             _aiChatService = aiChatService;
             _logger = logger;
+            _dbContext = dbContext;
         }
 
         /// <summary>
@@ -249,6 +255,12 @@ namespace SwAIvyn.Controllers
         {
             try
             {
+                // Load character system prompt if characterId is provided
+                if (!string.IsNullOrEmpty(request.CharacterId))
+                {
+                    await LoadCharacterIntoConversationAsync(request.ConversationId, request.CharacterId, request.UserId);
+                }
+
                 // Generate and store the AI response
                 var aiResponse = await _aiChatService.GenerateAndStoreResponseAsync(
                     request.ConversationId, request.UserId, request.Message);
@@ -264,6 +276,106 @@ namespace SwAIvyn.Controllers
                 _logger.LogError($"Error processing chat message for conversation {request.ConversationId}", ex);
                 return StatusCode(500, "An error occurred while processing the chat message");
             }
+        }
+
+        /// <summary>
+        /// Sets the character context for a conversation
+        /// </summary>
+        /// <param name="request">Character context request</param>
+        /// <returns>Success response</returns>
+        [HttpPost("character-context")]
+        public async Task<IActionResult> SetCharacterContext([FromBody] SetCharacterContextRequest request)
+        {
+            try
+            {
+                await _conversationService.SetCharacterContextAsync(
+                    request.ConversationId, request.UserId, request.CharacterId, request.SystemPrompt);
+
+                return Ok(new { success = true });
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error setting character context for conversation {request.ConversationId}", ex);
+                return StatusCode(500, "An error occurred while setting character context");
+            }
+        }
+
+        /// <summary>
+        /// Loads a character's system prompt into a conversation
+        /// </summary>
+        /// <param name="conversationId">Conversation ID</param>
+        /// <param name="characterId">Character ID</param>
+        /// <param name="userId">User ID</param>
+        /// <returns>Task</returns>
+        private async Task LoadCharacterIntoConversationAsync(Guid conversationId, string characterId, Guid userId)
+        {
+            try
+            {
+                // Parse character ID
+                if (!Guid.TryParse(characterId, out Guid charGuid))
+                {
+                    _logger.LogWarning($"Invalid character ID format: {characterId}");
+                    return;
+                }
+
+                // Get character from database
+                var character = await _dbContext.Avatars
+                    .FirstOrDefaultAsync(a => a.Id == charGuid && a.UserId == userId);
+
+                if (character == null)
+                {
+                    _logger.LogWarning($"Character not found: {characterId} for user {userId}");
+                    return;
+                }
+
+                // Use pre-generated system prompt from character data
+                string systemPrompt = character.SystemPrompt;
+
+                // If no pre-generated prompt exists, generate one as fallback
+                if (string.IsNullOrEmpty(systemPrompt))
+                {
+                    systemPrompt = GenerateSystemPromptFromCharacter(character);
+                    _logger.LogWarning($"Character {character.Name} has no pre-generated system prompt, using fallback generation");
+                }
+
+                // Update conversation with character context
+                await _conversationService.SetCharacterContextAsync(conversationId, userId, charGuid, systemPrompt);
+
+                _logger.LogInfo($"Loaded character {character.Name} into conversation {conversationId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error loading character {characterId} into conversation {conversationId}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Generates a system prompt from character data
+        /// </summary>
+        /// <param name="character">Character data</param>
+        /// <returns>System prompt string</returns>
+        private string GenerateSystemPromptFromCharacter(SwAIvyn.Data.Entities.AvatarInfo character)
+        {
+            var prompt = $@"You are roleplaying as {character.Name}.
+
+Personality: {character.Personality}
+
+Description: {character.Description}
+
+{(!string.IsNullOrEmpty(character.Scenario) ? $"Scenario: {character.Scenario}" : "")}
+
+{(!string.IsNullOrEmpty(character.FirstMessage) ? $"Start the conversation with: {character.FirstMessage}" : "")}
+
+{(!string.IsNullOrEmpty(character.MessageExample) ? $"Example dialogue: {character.MessageExample}" : "")}
+
+You must respond as this character at all times. Stay in character and respond according to their personality and background.";
+
+            return prompt.Trim();
         }
     }
 
@@ -365,5 +477,39 @@ namespace SwAIvyn.Controllers
         /// </summary>
         [Required]
         public string Message { get; set; }
+
+        /// <summary>
+        /// Gets or sets the character ID (optional)
+        /// </summary>
+        public string? CharacterId { get; set; }
+    }
+
+    /// <summary>
+    /// Request to set character context for a conversation
+    /// </summary>
+    public class SetCharacterContextRequest
+    {
+        /// <summary>
+        /// Gets or sets the conversation ID
+        /// </summary>
+        [Required]
+        public Guid ConversationId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the user ID
+        /// </summary>
+        [Required]
+        public Guid UserId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the character ID (optional)
+        /// </summary>
+        public Guid? CharacterId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the system prompt for the character
+        /// </summary>
+        [Required]
+        public string SystemPrompt { get; set; }
     }
 }

@@ -186,6 +186,35 @@ const conversationService = {
   },
 
   /**
+   * Sets character context for a conversation
+   * @param conversationId Conversation ID
+   * @param userId User ID
+   * @param characterId Character ID (optional)
+   * @param systemPrompt Character system prompt
+   * @returns Success status
+   */
+  async setCharacterContext(conversationId: string, userId: string, characterId: string | null, systemPrompt: string): Promise<boolean> {
+    try {
+      // Skip API call if userId or conversationId is not valid
+      if (!userId || userId === 'demo-user-id' || !conversationId || conversationId.startsWith('temp-')) {
+        console.warn('Invalid IDs for character context, skipping');
+        return false;
+      }
+
+      const response = await apiService.post('/api/conversation/character-context', {
+        conversationId,
+        userId,
+        characterId,
+        systemPrompt
+      });
+      return response.status === 200;
+    } catch (error) {
+      console.error('Error setting character context:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Appends a message to a conversation
    * @param conversationId Conversation ID
    * @param userId User ID

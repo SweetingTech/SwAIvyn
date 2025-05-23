@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   User, Network, Save, Speech, Database,
   Palette, Image as ImageIcon, Upload,
-  Volume2, ServerCog
+  Volume2, ServerCog, Plus, Edit, Trash2
 } from 'lucide-react';
 import { Tooltip } from '../components/Tooltip';
 import chatService from '../services/chatService';
+import CharacterEditor from './CharacterEditor';
+import yaml from 'js-yaml';
 
 const tabs = [
   { id: 'account', label: 'Account', icon: <User size={16} /> },
@@ -472,91 +474,300 @@ interface Avatar {
   thumbnailPath: string;
 }
 
+interface Character {
+  id: string;
+  userId: string;
+  name: string;
+  yamlProfile: string;
+  createdAt: string;
+  lastModified: string;
+}
+
 const CharacterSettings = () => {
   const [cardFile, setCardFile] = useState<File|null>(null);
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [activeAvatar, setActiveAvatar] = useState('');
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [showEditor, setShowEditor] = useState(false);
+  const [editingCharacter, setEditingCharacter] = useState<string | undefined>(undefined);
+  const [userId] = useState('dc42bfd4-a6d3-4706-8932-c221bf771a0f'); // TODO: Get from auth context
 
   useEffect(() => {
     setAvatars([{ id: '1', type: '2D', thumbnailPath: '/default-avatar.png' }]);
+    loadCharacters();
   }, []);
+
+  const loadCharacters = async () => {
+    try {
+      const response = await fetch(`/api/character/user/${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setCharacters(data);
+      }
+    } catch (error) {
+      console.error('Error loading characters:', error);
+    }
+  };
+
+  const handleCreateCharacter = () => {
+    setEditingCharacter(undefined);
+    setShowEditor(true);
+  };
+
+  const handleEditCharacter = (characterId: string) => {
+    setEditingCharacter(characterId);
+    setShowEditor(true);
+  };
+
+  const handleDeleteCharacter = async (characterId: string) => {
+    if (confirm('Are you sure you want to delete this character?')) {
+      try {
+        const response = await fetch(`/api/character/${characterId}`, {
+          method: 'DELETE'
+        });
+        if (response.ok) {
+          loadCharacters();
+        }
+      } catch (error) {
+        console.error('Error deleting character:', error);
+      }
+    }
+  };
+
+  const handleSaveCharacter = () => {
+    setShowEditor(false);
+    setEditingCharacter(undefined);
+    loadCharacters();
+  };
+
+  // Character Modal Overlay
+  const CharacterModal = () => {
+    if (!showEditor) return null;
+
+    // Handle escape key to close modal
+    React.useEffect(() => {
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          setShowEditor(false);
+        }
+      };
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }, []);
+
+    return (
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        onClick={(e) => {
+          // Close modal when clicking backdrop
+          if (e.target === e.currentTarget) {
+            setShowEditor(false);
+          }
+        }}
+      >
+        <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between p-6 border-b bg-gray-50">
+            <h2 className="text-xl font-medium text-gray-800">
+              {editingCharacter ? 'Edit Character' : 'Create Character'}
+            </h2>
+            <button
+              onClick={() => setShowEditor(false)}
+              className="p-2 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Modal Content */}
+          <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
+            <CharacterEditor
+              userId={userId}
+              characterId={editingCharacter}
+              onSave={handleSaveCharacter}
+              onCancel={() => setShowEditor(false)}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-medium text-gray-800 mb-4">Character & Avatar</h2>
+        <h2 className="text-xl font-medium text-gray-800 mb-4">Character Management</h2>
         <p className="text-sm text-gray-600 mb-6">
-          Import a character card or customize your AI's avatar
+          Create and manage AI character profiles using YAML format
         </p>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Upload Character Card (JSON)
-        </label>
-        <div className="flex items-center">
-          <input
-            type="file"
-            accept=".json"
-            onChange={e => setCardFile(e.target.files?.[0]||null)}
-            className="mr-2"
-          />
-          <button
-            disabled={!cardFile}
-            onClick={() => {}}
-            className="btn btn-ghost border text-sm flex items-center"
-          >
-            <Upload size={14} className="mr-1" />
-            Import
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Avatars
-        </label>
-        <div className="flex space-x-4 mb-4">
-          {avatars.map(a => (
-            <div
-              key={a.id}
-              onClick={() => setActiveAvatar(a.id)}
-              className={`cursor-pointer p-1 border rounded-lg ${
-                a.id === activeAvatar ? 'border-primary-500' : 'border-gray-200'
-              }`}
-            >
-              {a.type === '2D' ? (
-                <img
-                  src={a.thumbnailPath}
-                  alt="Avatar"
-                  className="w-16 h-16 object-cover rounded"
-                />
-              ) : (
-                <div className="w-16 h-16 bg-gray-100 flex items-center justify-center text-xs rounded">
-                  3D Placeholder
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <input
-          type="file"
-          accept="image/*"
-          className="block w-full text-sm text-gray-500
-            file:mr-4 file:py-2 file:px-4
-            file:rounded-full file:border-0
-            file:text-sm file:font-semibold
-            file:bg-primary-50 file:text-primary-700
-            hover:file:bg-primary-100"
-        />
-      </div>
-
-      <div className="pt-4 flex justify-end">
-        <button className="btn btn-primary">
-          <ImageIcon size={16} className="mr-1.5" />
-          Save Character Settings
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-medium">Your Characters</h3>
+        <button
+          onClick={handleCreateCharacter}
+          className="btn btn-primary flex items-center"
+        >
+          <Plus size={16} className="mr-1.5" />
+          Create Character
         </button>
       </div>
+
+      <div className="grid gap-4">
+        {characters.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <p>No characters created yet.</p>
+            <p className="text-sm">Click "Create Character" to get started.</p>
+          </div>
+        ) : (
+          characters.map(character => {
+            // Extract character name from YAML
+            let characterName = 'Unnamed Character';
+            try {
+              const parsed = yaml.load(character.yamlProfile) as any;
+              characterName = parsed?.name || 'Unnamed Character';
+            } catch (error) {
+              // Use fallback name if YAML parsing fails
+            }
+
+            return (
+              <div key={character.id} className="border rounded-lg p-4 bg-white hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start">
+                  <div className="flex-grow">
+                    <h4 className="font-medium text-gray-800">{characterName}</h4>
+                    <p className="text-sm text-gray-500">
+                      Created: {new Date(character.createdAt).toLocaleDateString()}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Modified: {new Date(character.lastModified).toLocaleDateString()}
+                    </p>
+                  </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      // Generate system prompt from YAML
+                      let systemPrompt = '';
+                      try {
+                        const parsed = yaml.load(character.yamlProfile) as any;
+                        if (parsed) {
+                          systemPrompt = `You are roleplaying as the AI character below. Remain fully in character.
+
+Name: ${parsed.name || 'Unknown Character'}
+Description: ${parsed.description || ''}
+Personality: ${parsed.personality || ''}
+Scenario: ${parsed.scenario || ''}
+System Prompt: ${parsed.system_prompt || ''}
+
+Respond using the character's voice and personality at all times.`;
+                        }
+                      } catch (error) {
+                        console.error('Error parsing YAML for chat:', error);
+                      }
+
+                      // Store character context for chat
+                      localStorage.setItem('activeCharacter', JSON.stringify({
+                        id: character.id,
+                        name: characterName,
+                        systemPrompt: systemPrompt
+                      }));
+                      // Navigate to chat
+                      window.location.href = '/chat';
+                    }}
+                    className="btn btn-ghost border text-green-600 hover:bg-green-50 text-sm flex items-center"
+                  >
+                    💬 Chat
+                  </button>
+                  <button
+                    onClick={() => handleEditCharacter(character.id)}
+                    className="btn btn-ghost border text-sm flex items-center"
+                  >
+                    <Edit size={14} className="mr-1" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteCharacter(character.id)}
+                    className="btn btn-ghost border border-red-300 text-red-600 text-sm flex items-center hover:bg-red-50"
+                  >
+                    <Trash2 size={14} className="mr-1" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+            );
+          })
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-lg font-medium mb-4">Import Character Card</h3>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Upload Character Card (JSON)
+          </label>
+          <div className="flex items-center">
+            <input
+              type="file"
+              accept=".json"
+              onChange={e => setCardFile(e.target.files?.[0]||null)}
+              className="mr-2"
+            />
+            <button
+              disabled={!cardFile}
+              onClick={() => {}}
+              className="btn btn-ghost border text-sm flex items-center"
+            >
+              <Upload size={14} className="mr-1" />
+              Import
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-lg font-medium mb-4">Avatar Settings</h3>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Avatars
+          </label>
+          <div className="flex space-x-4 mb-4">
+            {avatars.map(a => (
+              <div
+                key={a.id}
+                onClick={() => setActiveAvatar(a.id)}
+                className={`cursor-pointer p-1 border rounded-lg ${
+                  a.id === activeAvatar ? 'border-primary-500' : 'border-gray-200'
+                }`}
+              >
+                {a.type === '2D' ? (
+                  <img
+                    src={a.thumbnailPath}
+                    alt="Avatar"
+                    className="w-16 h-16 object-cover rounded"
+                  />
+                ) : (
+                  <div className="w-16 h-16 bg-gray-100 flex items-center justify-center text-xs rounded">
+                    3D Placeholder
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            className="block w-full text-sm text-gray-500
+              file:mr-4 file:py-2 file:px-4
+              file:rounded-full file:border-0
+              file:text-sm file:font-semibold
+              file:bg-primary-50 file:text-primary-700
+              hover:file:bg-primary-100"
+          />
+        </div>
+      </div>
+
+      {/* Character Modal */}
+      <CharacterModal />
     </div>
   );
 };

@@ -81,6 +81,27 @@ namespace SwAIvyn.Services
         /// <param name="userId">User ID (null for global settings)</param>
         /// <returns>Neo4j HTTP port</returns>
         Task<int> GetNeo4jHttpPortAsync(Guid? userId);
+
+        /// <summary>
+        /// Initializes default settings for a user
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>Success indicator</returns>
+        Task<bool> InitializeDefaultSettingsAsync(Guid userId);
+
+        /// <summary>
+        /// Gets the default LLM engine for a user
+        /// </summary>
+        /// <param name="userId">User ID (null for global settings)</param>
+        /// <returns>Default LLM engine</returns>
+        Task<string> GetDefaultLlmEngineAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the default LLM model for a user
+        /// </summary>
+        /// <param name="userId">User ID (null for global settings)</param>
+        /// <returns>Default LLM model</returns>
+        Task<string> GetDefaultLlmModelAsync(Guid? userId);
     }
 
     /// <summary>
@@ -176,6 +197,19 @@ namespace SwAIvyn.Services
         {
             try
             {
+                // If no userId provided, get the first available user
+                if (userId == null || userId == Guid.Empty)
+                {
+                    var firstUser = await _dbContext.Users.FirstOrDefaultAsync();
+                    if (firstUser == null)
+                    {
+                        _logger.LogError($"Cannot save setting '{key}': No users exist in the database");
+                        return false;
+                    }
+                    userId = firstUser.Id;
+                    _logger.LogInfo($"Using first available user ID {userId} for setting '{key}'");
+                }
+
                 var setting = await _dbContext.Settings
                     .Where(s => s.UserId == userId && s.Key == key)
                     .FirstOrDefaultAsync();
@@ -185,7 +219,7 @@ namespace SwAIvyn.Services
                     setting = new Settings
                     {
                         Id = Guid.NewGuid(),
-                        UserId = userId ?? Guid.Empty,
+                        UserId = userId.Value,
                         Key = key,
                         Value = value,
                         LastModified = DateTime.UtcNow
@@ -256,6 +290,63 @@ namespace SwAIvyn.Services
         {
             var portStr = await GetSettingAsync(userId, NEO4J_HTTP_PORT_KEY, "7474");
             return int.TryParse(portStr, out int port) ? port : 7474;
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> InitializeDefaultSettingsAsync(Guid userId)
+        {
+            try
+            {
+                _logger.LogInfo($"Initializing default settings for user {userId}");
+
+                var defaultSettings = new Dictionary<string, string>
+                {
+                    { "DefaultLlmEngine", "ollama" },
+                    { "DefaultLlmModel", "" },
+                    { OLLAMA_API_URL_KEY, "http://localhost:11434" },
+                    { LM_STUDIO_API_URL_KEY, "http://localhost:1234" },
+                    { NEO4J_URI_KEY, "http://localhost:7474" },
+                    { NEO4J_BOLT_PORT_KEY, "7687" },
+                    { NEO4J_HTTP_PORT_KEY, "7474" },
+                    { "Theme", "dark" },
+                    { "Language", "en" },
+                    { "AutoSave", "true" },
+                    { "ShowWelcomeMessage", "true" }
+                };
+
+                foreach (var setting in defaultSettings)
+                {
+                    // Only set if the setting doesn't already exist
+                    var existingSetting = await _dbContext.Settings
+                        .Where(s => s.UserId == userId && s.Key == setting.Key)
+                        .FirstOrDefaultAsync();
+
+                    if (existingSetting == null)
+                    {
+                        await SetSettingAsync(userId, setting.Key, setting.Value);
+                    }
+                }
+
+                _logger.LogInfo($"Default settings initialized for user {userId}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error initializing default settings for user {userId}", ex);
+                return false;
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetDefaultLlmEngineAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, "DefaultLlmEngine", "ollama");
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetDefaultLlmModelAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, "DefaultLlmModel", "");
         }
     }
 }

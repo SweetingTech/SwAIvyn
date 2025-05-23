@@ -39,6 +39,14 @@ namespace SwAIvyn.Services
         Task<Conversation> GetConversationAsync(Guid conversationId);
 
         /// <summary>
+        /// Gets a conversation by ID for a specific user
+        /// </summary>
+        /// <param name="conversationId">Conversation ID</param>
+        /// <param name="userId">User ID</param>
+        /// <returns>The conversation or null if not found</returns>
+        Task<Conversation> GetConversationAsync(Guid conversationId, Guid userId);
+
+        /// <summary>
         /// Updates a conversation's folder
         /// </summary>
         /// <param name="conversationId">Conversation ID</param>
@@ -84,6 +92,16 @@ namespace SwAIvyn.Services
         /// <param name="userId">User ID</param>
         /// <returns>The most recent conversation or null if none exists</returns>
         Task<Conversation> GetLastOpenConversationAsync(Guid userId);
+
+        /// <summary>
+        /// Sets the character context for a conversation
+        /// </summary>
+        /// <param name="conversationId">Conversation ID</param>
+        /// <param name="userId">User ID</param>
+        /// <param name="characterId">Character ID (optional)</param>
+        /// <param name="systemPrompt">Character system prompt</param>
+        /// <returns>True if successful</returns>
+        Task<bool> SetCharacterContextAsync(Guid conversationId, Guid userId, Guid? characterId, string systemPrompt);
     }
 
     /// <summary>
@@ -123,7 +141,11 @@ namespace SwAIvyn.Services
                     FolderId = folderId,
                     Title = title,
                     CreatedUtc = DateTime.UtcNow,
-                    LastOpenUtc = DateTime.UtcNow
+                    UpdatedUtc = DateTime.UtcNow,
+                    LastOpenUtc = DateTime.UtcNow,
+                    Summary = "",
+                    Status = "Active",
+                    Tags = ""
                 };
 
                 _dbContext.Conversations.Add(conversation);
@@ -156,6 +178,13 @@ namespace SwAIvyn.Services
         public async Task<Conversation> GetConversationAsync(Guid conversationId)
         {
             return await _dbContext.Conversations.FindAsync(conversationId);
+        }
+
+        /// <inheritdoc/>
+        public async Task<Conversation> GetConversationAsync(Guid conversationId, Guid userId)
+        {
+            return await _dbContext.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
         }
 
         /// <inheritdoc/>
@@ -247,9 +276,14 @@ namespace SwAIvyn.Services
             {
                 Id = Guid.NewGuid(),
                 ConversationId = conversationId,
+                MessageId = Guid.NewGuid(),
+                Content = content,
+                ContentType = "text",
                 Role = role,
                 FilePath = Path.Combine("sessions", conversationId.ToString(), fileName),
-                CreatedUtc = timestamp
+                CreatedUtc = timestamp,
+                Embedding = "",
+                Metadata = "{}"
             };
 
             _dbContext.ChatIndices.Add(chatIndex);
@@ -269,6 +303,35 @@ namespace SwAIvyn.Services
                 .Where(c => c.UserId == userId)
                 .OrderByDescending(c => c.LastOpenUtc)
                 .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> SetCharacterContextAsync(Guid conversationId, Guid userId, Guid? characterId, string systemPrompt)
+        {
+            try
+            {
+                var conversation = await _dbContext.Conversations
+                    .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+
+                if (conversation == null)
+                {
+                    throw new ArgumentException($"Conversation not found: {conversationId}");
+                }
+
+                conversation.CharacterId = characterId;
+                conversation.CharacterSystemPrompt = systemPrompt;
+                conversation.UpdatedUtc = DateTime.UtcNow;
+
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInfo($"Set character context for conversation {conversationId}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to set character context for conversation {conversationId}", ex);
+                throw;
+            }
         }
     }
 }
