@@ -18,6 +18,7 @@ using System.Diagnostics;
 using SQLitePCL;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
+using YamlDotNet.Serialization;
 
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
@@ -97,7 +98,7 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
     connectionString = csBuilder.ToString();
     var loggerForDbFactory = sp.GetRequiredService<ISimpleLoggerService>();  // Assuming ISimpleLoggerService is registered as Singleton or Scoped
     loggerForDbFactory.LogInfo($"Using resolved connection string for ApplicationDbContext (Factory): {connectionString}");
-    
+
     options
         .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
         .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
@@ -141,6 +142,12 @@ builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 // Add LLM and AI chat services
 builder.Services.AddScoped<ILlmConnectorService, LlmConnectorService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
+
+// Add character card loader service
+builder.Services.AddScoped<CharacterCardLoaderService>();
+
+// Add default character service
+builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
@@ -278,6 +285,69 @@ try
             db.SaveChanges();
             logger.LogInfo("Seeded default AI profile.");
         }
+
+        // Initialize default settings for the user
+        var settingsService = scope.ServiceProvider.GetRequiredService<ISettingsService>();
+        await settingsService.InitializeDefaultSettingsAsync(defaultUserId);
+
+        // Load character cards from filesystem
+        logger.LogInfo("Loading character cards from filesystem...");
+        var characterCardLoader = scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>();
+        await characterCardLoader.LoadCharacterCardsAsync();
+        logger.LogInfo("Character card loading completed");
+
+        // Ensure GLaDOS default character is loaded
+        logger.LogInfo("Ensuring GLaDOS default character is loaded...");
+        var defaultCharacterService = scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>();
+        await defaultCharacterService.EnsureDefaultCharacterAsync();
+        logger.LogInfo("GLaDOS default character loaded successfully");
+
+        // Create a welcome conversation if no conversations exist
+        if (!db.Conversations.Any())
+        {
+            logger.LogInfo("No conversations found. Creating welcome conversation...");
+
+            var welcomeConversation = new SwAIvyn.Data.Entities.Conversation
+            {
+                Id = Guid.NewGuid(),
+                UserId = defaultUserId,
+                Title = "Welcome to SwAIvyn! 🎉",
+                Summary = "Getting started guide and tutorial",
+                Status = "active",
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow,
+                LastOpenUtc = DateTime.UtcNow,
+                Tags = "welcome,tutorial,getting-started"
+            };
+
+            db.Conversations.Add(welcomeConversation);
+            db.SaveChanges();
+
+            // Add welcome messages to the conversation
+            var welcomeMessages = new[]
+            {
+                new { Role = "assistant", Content = "# Welcome to SwAIvyn! 🎉\n\nHello! I'm your AI assistant, and I'm excited to help you get started with SwAIvyn. This is a powerful AI chat application that lets you:\n\n✨ **Chat with multiple AI engines** (Ollama, LM Studio)\n📁 **Organize conversations** in folders\n🧠 **Store memories** for context\n🎭 **Create AI personas** with different personalities\n📊 **Search through your chat history**\n\nLet me show you around!" },
+                new { Role = "assistant", Content = "## 🔧 Getting Started\n\n**1. Choose your AI Engine:**\n- Go to Settings to configure Ollama or LM Studio\n- Default is Ollama (http://localhost:11434)\n- You can switch between engines anytime\n\n**2. Your settings are automatically saved:**\n- When you change the AI engine, it persists across sessions\n- All your preferences are stored locally\n- Your conversations are saved automatically\n\n**3. Try these features:**\n- Create folders to organize conversations\n- Ask me anything - I'll remember our context\n- Use the search to find old conversations" },
+                new { Role = "assistant", Content = "## 🎯 Quick Tips\n\n**Settings Persistence:**\n- ✅ All settings save automatically\n- ✅ Your AI engine choice is remembered\n- ✅ Conversations persist between sessions\n- ✅ No data is lost when you refresh or restart\n\n**Current Configuration:**\n- 🤖 Default AI Engine: Ollama\n- 💾 Database: SQLite with WAL mode\n- 📍 Data Location: `../data/swai-vyn.db`\n- 🔍 Vector Search: Available (when SQLite-VSS loads)\n\n**Ready to start?** Try asking me a question, or feel free to delete this conversation once you're comfortable with the app!" }
+            };
+
+            foreach (var message in welcomeMessages)
+            {
+                var chatIndex = new SwAIvyn.Data.Entities.ChatIndex
+                {
+                    Id = Guid.NewGuid(),
+                    ConversationId = welcomeConversation.Id,
+                    Role = message.Role,
+                    FilePath = $"welcome_{Guid.NewGuid()}.json",
+                    CreatedUtc = DateTime.UtcNow
+                };
+
+                db.ChatIndices.Add(chatIndex);
+            }
+
+            db.SaveChanges();
+            logger.LogInfo("Created welcome conversation with tutorial messages.");
+        }
     }
 }
 catch (Exception ex)
@@ -398,13 +468,14 @@ app.UseRouting();
 app.UseCors("CorsPolicy");
 app.UseAuthorization();
 
-// Fallback to index.html for SPA routes
-app.MapFallbackToFile("index.html");
-
+// Map API controllers first
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<VoiceHub>("/hubs/voice");
 app.MapHub<NotificationHub>("/hubs/notification");
+
+// Fallback to index.html for SPA routes (temporarily disabled for testing)
+// app.MapFallbackToFile("index.html");
 
 // Add health endpoint for Neo4j
 app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>
@@ -449,10 +520,12 @@ if (!Directory.Exists(logDir))
 if (!app.Environment.IsDevelopment())
 {
     var hostUrl = app.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
-    var hostTask = app.StartAsync();
+
+    // Start the application in the background
+    var hostTask = app.RunAsync();
 
     // Wait a moment for the server to start
-    Thread.Sleep(1000);
+    Thread.Sleep(2000);
 
     // Open the browser
     try
