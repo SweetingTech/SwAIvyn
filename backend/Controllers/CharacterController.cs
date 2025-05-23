@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
 using SwAIvyn.Data.Entities;
+using SwAIvyn.Services;
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -17,10 +18,41 @@ namespace SwAIvyn.Controllers
     public class CharacterController : ControllerBase
     {
         private readonly ApplicationDbContext _dbContext;
+        private readonly ILogger<CharacterController> _logger;
 
-        public CharacterController(ApplicationDbContext dbContext)
+        public CharacterController(ApplicationDbContext dbContext, ILogger<CharacterController> logger)
         {
             _dbContext = dbContext;
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Test endpoint to verify controller is working
+        /// </summary>
+        /// <returns>Test response</returns>
+        [HttpGet("test")]
+        public IActionResult Test()
+        {
+            return Ok(new { message = "Character controller is working", timestamp = DateTime.UtcNow });
+        }
+
+        /// <summary>
+        /// Gets count of characters in database
+        /// </summary>
+        /// <returns>Character count</returns>
+        [HttpGet("count")]
+        public async Task<IActionResult> GetCharacterCount()
+        {
+            try
+            {
+                var count = await _dbContext.Avatars.CountAsync();
+                return Ok(new { count = count, message = $"Found {count} characters in database" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting character count", ex);
+                return StatusCode(500, $"An error occurred while getting character count: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -28,7 +60,7 @@ namespace SwAIvyn.Controllers
         /// </summary>
         /// <param name="userId">User ID</param>
         /// <returns>List of character profiles</returns>
-        [HttpGet("{userId}")]
+        [HttpGet("user/{userId}")]
         public async Task<IActionResult> GetCharacters(Guid userId)
         {
             var characters = await _dbContext.Avatars
@@ -109,6 +141,284 @@ namespace SwAIvyn.Controllers
 
             return NoContent();
         }
+
+        /// <summary>
+        /// Uploads and creates a character from a JSON character card
+        /// </summary>
+        /// <param name="request">Character card upload request</param>
+        /// <returns>The created character</returns>
+        [HttpPost("upload-card")]
+        public async Task<IActionResult> UploadCharacterCard([FromBody] UploadCharacterCardRequest request)
+        {
+            try
+            {
+                var characterCard = System.Text.Json.JsonSerializer.Deserialize<CharacterCard>(request.CharacterCardJson);
+
+                var character = new SwAIvyn.Data.Entities.AvatarInfo
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = request.UserId,
+                    Name = characterCard.Name ?? "Unnamed Character",
+                    Description = characterCard.Description ?? "",
+                    Personality = characterCard.Personality ?? "",
+                    Scenario = characterCard.Scenario ?? "",
+                    FirstMessage = characterCard.FirstMessage ?? "",
+                    MessageExample = characterCard.MessageExample ?? "",
+                    SystemPrompt = characterCard.Data?.SystemPrompt ?? "",
+                    PostHistoryInstructions = characterCard.Data?.PostHistoryInstructions ?? "",
+                    AlternateGreetings = System.Text.Json.JsonSerializer.Serialize(characterCard.Data?.AlternateGreetings ?? new string[0]),
+                    Tags = System.Text.Json.JsonSerializer.Serialize(characterCard.Tags ?? new string[0]),
+                    Creator = characterCard.Data?.Creator ?? "",
+                    CreatorNotes = characterCard.Data?.CreatorNotes ?? characterCard.CreatorComment ?? "",
+                    CharacterVersion = characterCard.Data?.CharacterVersion ?? "1.0",
+                    Talkativeness = float.TryParse(characterCard.Talkativeness, out float talk) ? talk : 0.5f,
+                    IsFavorite = characterCard.Fav,
+                    Extensions = System.Text.Json.JsonSerializer.Serialize(characterCard.Data?.Extensions ?? new object()),
+                    ImagePath = "default-avatar.png", // Will be updated when image is uploaded
+                    VoiceSettings = "default",
+                    CreatedAt = DateTime.UtcNow,
+                    LastModified = DateTime.UtcNow
+                };
+
+                // Generate system prompt if not provided
+                if (string.IsNullOrEmpty(character.SystemPrompt))
+                {
+                    character.SystemPrompt = GenerateSystemPromptFromCharacterData(character);
+                }
+
+                _dbContext.Avatars.Add(character);
+                await _dbContext.SaveChangesAsync();
+
+                return Ok(character);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error processing character card: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Exports a character as a JSON character card
+        /// </summary>
+        /// <param name="id">Character ID</param>
+        /// <returns>Character card JSON</returns>
+        [HttpGet("{id}/export")]
+        public async Task<IActionResult> ExportCharacterCard(Guid id)
+        {
+            try
+            {
+                var character = await _dbContext.Avatars.FindAsync(id);
+                if (character == null)
+                    return NotFound();
+
+                var characterCard = new CharacterCard
+                {
+                    Name = character.Name,
+                    Description = character.Description,
+                    Personality = character.Personality,
+                    Scenario = character.Scenario,
+                    FirstMessage = character.FirstMessage,
+                    MessageExample = character.MessageExample,
+                    CreatorComment = character.CreatorNotes,
+                    Avatar = "none",
+                    Chat = "",
+                    Talkativeness = character.Talkativeness.ToString(),
+                    Fav = character.IsFavorite,
+                    Tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(character.Tags) ?? new string[0],
+                    Spec = "chara_card_v3",
+                    SpecVersion = "3.0",
+                    Data = new CharacterCardData
+                    {
+                        Name = character.Name,
+                        Description = character.Description,
+                        Personality = character.Personality,
+                        Scenario = character.Scenario,
+                        FirstMessage = character.FirstMessage,
+                        MessageExample = character.MessageExample,
+                        CreatorNotes = character.CreatorNotes,
+                        SystemPrompt = character.SystemPrompt,
+                        PostHistoryInstructions = character.PostHistoryInstructions,
+                        Tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(character.Tags) ?? new string[0],
+                        Creator = character.Creator,
+                        CharacterVersion = character.CharacterVersion,
+                        AlternateGreetings = System.Text.Json.JsonSerializer.Deserialize<string[]>(character.AlternateGreetings) ?? new string[0],
+                        Extensions = System.Text.Json.JsonSerializer.Deserialize<object>(character.Extensions) ?? new object(),
+                        GroupOnlyGreetings = new string[0]
+                    },
+                    CreateDate = character.CreatedAt.ToString("yyyy-MM-dd @HH'h' mm'm' ss's' ffffff'ms'")
+                };
+
+                return Ok(characterCard);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error exporting character card: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Creates or updates a character from YAML profile
+        /// </summary>
+        /// <param name="request">YAML character request</param>
+        /// <returns>The created/updated character</returns>
+        [HttpPost("yaml")]
+        public async Task<IActionResult> CreateCharacterFromYaml([FromBody] YamlCharacterRequest request)
+        {
+            try
+            {
+                // Parse YAML to extract character data
+                var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                    .IgnoreUnmatchedProperties()
+                    .Build();
+
+                var yamlData = deserializer.Deserialize<Dictionary<string, object>>(request.YamlProfile);
+
+                var character = new SwAIvyn.Data.Entities.AvatarInfo
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = request.UserId,
+                    YamlProfile = request.YamlProfile,
+                    Name = yamlData.ContainsKey("name") ? yamlData["name"]?.ToString() ?? "YAML Character" : "YAML Character",
+                    Description = yamlData.ContainsKey("description") ? yamlData["description"]?.ToString() ?? "" : "",
+                    Personality = yamlData.ContainsKey("personality") ? yamlData["personality"]?.ToString() ?? "" : "",
+                    Scenario = yamlData.ContainsKey("scenario") ? yamlData["scenario"]?.ToString() ?? "" : "",
+                    FirstMessage = yamlData.ContainsKey("first_message") ? yamlData["first_message"]?.ToString() ?? "" : "",
+                    MessageExample = yamlData.ContainsKey("mes_example") ? yamlData["mes_example"]?.ToString() ?? "" : "",
+                    ImagePath = "default-avatar.png",
+                    VoiceSettings = "default",
+                    CreatedAt = DateTime.UtcNow,
+                    LastModified = DateTime.UtcNow
+                };
+
+                // Generate system prompt from character data
+                character.SystemPrompt = GenerateSystemPromptFromCharacterData(character);
+
+                _dbContext.Avatars.Add(character);
+                await _dbContext.SaveChangesAsync();
+
+                return Ok(character);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error creating character from YAML: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Updates a character's YAML profile
+        /// </summary>
+        /// <param name="id">Character ID</param>
+        /// <param name="request">YAML character request</param>
+        /// <returns>The updated character</returns>
+        [HttpPut("{id}/yaml")]
+        public async Task<IActionResult> UpdateCharacterYaml(Guid id, [FromBody] YamlCharacterRequest request)
+        {
+            try
+            {
+                var character = await _dbContext.Avatars.FindAsync(id);
+                if (character == null)
+                    return NotFound();
+
+                // Parse YAML to extract character data
+                var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                    .IgnoreUnmatchedProperties()
+                    .Build();
+
+                var yamlData = deserializer.Deserialize<Dictionary<string, object>>(request.YamlProfile);
+
+                // Update character fields from YAML
+                character.YamlProfile = request.YamlProfile;
+                character.Name = yamlData.ContainsKey("name") ? yamlData["name"]?.ToString() ?? character.Name : character.Name;
+                character.Description = yamlData.ContainsKey("description") ? yamlData["description"]?.ToString() ?? "" : character.Description;
+                character.Personality = yamlData.ContainsKey("personality") ? yamlData["personality"]?.ToString() ?? "" : character.Personality;
+                character.Scenario = yamlData.ContainsKey("scenario") ? yamlData["scenario"]?.ToString() ?? "" : character.Scenario;
+                character.FirstMessage = yamlData.ContainsKey("first_message") ? yamlData["first_message"]?.ToString() ?? "" : character.FirstMessage;
+                character.MessageExample = yamlData.ContainsKey("mes_example") ? yamlData["mes_example"]?.ToString() ?? "" : character.MessageExample;
+                character.LastModified = DateTime.UtcNow;
+
+                // Regenerate system prompt from updated character data
+                character.SystemPrompt = GenerateSystemPromptFromCharacterData(character);
+
+                await _dbContext.SaveChangesAsync();
+
+                return Ok(character);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error updating character YAML: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Manually loads character cards from filesystem (GET version for testing)
+        /// </summary>
+        /// <returns>Success response</returns>
+        [HttpGet("load-from-filesystem")]
+        public async Task<IActionResult> LoadCharacterCardsFromFilesystemGet()
+        {
+            try
+            {
+                var characterCardLoader = HttpContext.RequestServices.GetRequiredService<CharacterCardLoaderService>();
+                await characterCardLoader.LoadCharacterCardsAsync();
+
+                return Ok(new { success = true, message = "Character cards loaded successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error loading character cards from filesystem", ex);
+                return StatusCode(500, $"An error occurred while loading character cards: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Manually loads character cards from filesystem
+        /// </summary>
+        /// <returns>Success response</returns>
+        [HttpPost("load-from-filesystem")]
+        public async Task<IActionResult> LoadCharacterCardsFromFilesystem()
+        {
+            try
+            {
+                var characterCardLoader = HttpContext.RequestServices.GetRequiredService<CharacterCardLoaderService>();
+                await characterCardLoader.LoadCharacterCardsAsync();
+
+                return Ok(new { success = true, message = "Character cards loaded successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error loading character cards from filesystem", ex);
+                return StatusCode(500, $"An error occurred while loading character cards: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Generates a system prompt from character data
+        /// </summary>
+        /// <param name="character">Character data</param>
+        /// <returns>System prompt string</returns>
+        private string GenerateSystemPromptFromCharacterData(SwAIvyn.Data.Entities.AvatarInfo character)
+        {
+            var prompt = $"You are roleplaying as the AI character below. Remain fully in character at all times.\n\n";
+
+            if (!string.IsNullOrEmpty(character.Name))
+                prompt += $"Name: {character.Name}\n";
+
+            if (!string.IsNullOrEmpty(character.Description))
+                prompt += $"Description: {character.Description}\n";
+
+            if (!string.IsNullOrEmpty(character.Personality))
+                prompt += $"Personality: {character.Personality}\n";
+
+            if (!string.IsNullOrEmpty(character.Scenario))
+                prompt += $"Scenario: {character.Scenario}\n";
+
+            if (!string.IsNullOrEmpty(character.CreatorNotes))
+                prompt += $"Creator Notes: {character.CreatorNotes}\n";
+
+            prompt += "\nRespond using the character's voice and personality at all times. Stay in character and never break the roleplay.";
+
+            return prompt;
+        }
     }
 
     /// <summary>
@@ -132,5 +442,68 @@ namespace SwAIvyn.Controllers
         public string ImagePath { get; set; }
         public string Personality { get; set; }
         public string VoiceSettings { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for uploading a character card
+    /// </summary>
+    public class UploadCharacterCardRequest
+    {
+        public Guid UserId { get; set; }
+        public string CharacterCardJson { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for YAML character profiles
+    /// </summary>
+    public class YamlCharacterRequest
+    {
+        public Guid UserId { get; set; }
+        public string YamlProfile { get; set; }
+    }
+
+    /// <summary>
+    /// Character card data structure matching the standard format
+    /// </summary>
+    public class CharacterCard
+    {
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public string Personality { get; set; }
+        public string Scenario { get; set; }
+        public string FirstMessage { get; set; }
+        public string MessageExample { get; set; }
+        public string CreatorComment { get; set; }
+        public string Avatar { get; set; }
+        public string Chat { get; set; }
+        public string Talkativeness { get; set; }
+        public bool Fav { get; set; }
+        public string[] Tags { get; set; }
+        public string Spec { get; set; }
+        public string SpecVersion { get; set; }
+        public CharacterCardData Data { get; set; }
+        public string CreateDate { get; set; }
+    }
+
+    /// <summary>
+    /// Extended character card data
+    /// </summary>
+    public class CharacterCardData
+    {
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public string Personality { get; set; }
+        public string Scenario { get; set; }
+        public string FirstMessage { get; set; }
+        public string MessageExample { get; set; }
+        public string SystemPrompt { get; set; }
+        public string PostHistoryInstructions { get; set; }
+        public string[] AlternateGreetings { get; set; }
+        public string[] Tags { get; set; }
+        public string Creator { get; set; }
+        public string CreatorNotes { get; set; }
+        public string CharacterVersion { get; set; }
+        public string[] GroupOnlyGreetings { get; set; }
+        public object Extensions { get; set; }
     }
 }
