@@ -9,9 +9,10 @@ const chatService = {
    * @param conversationId The ID of the conversation
    * @param userId The ID of the user
    * @param message The message to send
+   * @param characterId Optional character ID to use for this message
    * @returns The AI's response
    */
-  async sendMessage(conversationId: string, userId: string, message: string): Promise<string> {
+  async sendMessage(conversationId: string, userId: string, message: string, characterId?: string | null): Promise<string> {
     try {
       // Skip API call if userId or conversationId is not valid
       if (!userId || userId === 'demo-user-id' || !conversationId || conversationId.startsWith('temp-')) {
@@ -20,11 +21,18 @@ const chatService = {
         return `I'm sorry, but I'm currently in demo mode and can't process your request: "${message}". Please ensure you have a valid user account to use the full functionality.`;
       }
 
-      const response = await apiService.post('/api/conversation/chat', {
+      const requestBody: any = {
         conversationId,
         userId,
         message
-      });
+      };
+
+      // Add characterId if provided
+      if (characterId) {
+        requestBody.characterId = characterId;
+      }
+
+      const response = await apiService.post('/api/conversation/chat', requestBody);
       return response.data.response;
     } catch (error) {
       console.error('Error sending message:', error);

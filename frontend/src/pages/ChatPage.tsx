@@ -8,6 +8,7 @@ import BrainExplorer from '../components/BrainExplorer';
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import ChatSidebar from '../components/chat/ChatSidebar';
+import CharacterSelector from '../components/chat/CharacterSelector';
 
 /**
  * ChatPage component manages the chat interface including message display,
@@ -35,8 +36,8 @@ const ChatPage = () => {
   // Demo user ID (replace with actual value from auth context)
   const [userId, setUserId] = useState<string>('');
 
-  // State for active character context
-  const [activeCharacter, setActiveCharacter] = useState<any>(null);
+  // State for selected character
+  const [selectedCharacter, setSelectedCharacter] = useState<any>(null);
 
   // State for demo mode
   const isDemoMode = userId === 'demo-user-id';
@@ -44,20 +45,26 @@ const ChatPage = () => {
   // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(true);
 
-  // Check for active character from localStorage
+  // Load selected character from localStorage on mount
   useEffect(() => {
-    const storedCharacter = localStorage.getItem('activeCharacter');
-    if (storedCharacter) {
-      try {
-        const character = JSON.parse(storedCharacter);
-        setActiveCharacter(character);
-        // Clear the stored character after loading
-        localStorage.removeItem('activeCharacter');
-      } catch (error) {
-        console.error('Error parsing stored character:', error);
-      }
+    const storedCharacterId = localStorage.getItem('selectedCharacterId');
+    if (storedCharacterId && storedCharacterId !== 'null') {
+      // Character will be loaded when CharacterSelector loads the characters list
+      // We just store the ID for now
     }
   }, []);
+
+  // Handle character selection
+  const handleCharacterSelect = (character: any) => {
+    setSelectedCharacter(character);
+
+    // Persist selection to localStorage
+    if (character) {
+      localStorage.setItem('selectedCharacterId', character.id);
+    } else {
+      localStorage.removeItem('selectedCharacterId');
+    }
+  };
 
   // Load the most recent conversation or start a new one
   useEffect(() => {
@@ -304,16 +311,16 @@ const ChatPage = () => {
           title: newConversation.title
         });
 
-        // Set character context if we have an active character
-        if (activeCharacter && activeCharacter.systemPrompt) {
+        // Set character context if we have a selected character
+        if (selectedCharacter && selectedCharacter.systemPrompt) {
           try {
             await conversationService.setCharacterContext(
               conversationId,
               userId,
-              activeCharacter.id || null,
-              activeCharacter.systemPrompt
+              selectedCharacter.id || null,
+              selectedCharacter.systemPrompt
             );
-            console.log(`Set character context for conversation: ${activeCharacter.name}`);
+            console.log(`Set character context for conversation: ${selectedCharacter.name}`);
           } catch (error) {
             console.error('Error setting character context:', error);
           }
@@ -334,8 +341,13 @@ const ChatPage = () => {
         userMessage.text
       );
 
-      // Send message to API and get AI response
-      const aiResponse = await chatService.sendMessage(conversationId, userId, inputText);
+      // Send message to API and get AI response (include character ID if selected)
+      const aiResponse = await chatService.sendMessage(
+        conversationId,
+        userId,
+        inputText,
+        selectedCharacter?.id || null
+      );
 
       // Create AI message object
       const aiMessage: Message = {
@@ -393,24 +405,34 @@ const ChatPage = () => {
 
         {/* Main Chat Area */}
         <div className="flex-grow flex flex-col overflow-hidden">
-          <div className="px-4 py-2 bg-white border-b flex justify-between items-center">
-            <div className="flex flex-col">
+          <div className="px-4 py-2 bg-white border-b">
+            <div className="flex justify-between items-center mb-2">
               <h1 className="text-xl font-semibold text-gray-800">{currentConversation.title}</h1>
-              {activeCharacter && (
+              <button
+                onClick={handleNewConversation}
+                className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
+                title="New Chat"
+                disabled={isDemoMode}
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+
+            {/* Character Selector */}
+            <div className="flex items-center justify-between">
+              <CharacterSelector
+                userId={userId}
+                selectedCharacterId={selectedCharacter?.id || null}
+                onCharacterSelect={handleCharacterSelect}
+                disabled={isDemoMode}
+              />
+              {selectedCharacter && (
                 <div className="text-sm text-blue-600 flex items-center">
                   <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-                  Chatting with {activeCharacter.name}
+                  Active: {selectedCharacter.name}
                 </div>
               )}
             </div>
-            <button
-              onClick={handleNewConversation}
-              className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-              title="New Chat"
-              disabled={isDemoMode}
-            >
-              <Plus size={20} />
-            </button>
           </div>
 
           <div className="flex-grow overflow-y-auto p-4 space-y-4">

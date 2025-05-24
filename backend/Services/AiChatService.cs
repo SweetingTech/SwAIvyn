@@ -102,15 +102,31 @@ namespace SwAIvyn.Services
                 string model = settings["model"];
                 _logger.LogInfo($"🚀 LLM settings - Engine: {engine}, Model: {model}");
 
-                // Get GLaDOS system prompt using DefaultCharacterService
-                _logger.LogInfo("🚀 Getting GLaDOS system prompt from DefaultCharacterService");
-                string systemPrompt = await _defaultCharacterService.GetDefaultSystemPromptAsync();
-                _logger.LogInfo($"✅ GLaDOS system prompt retrieved - Length: {systemPrompt?.Length ?? 0}");
+                // Get conversation to check for character context
+                var conversation = await _dbContext.Conversations
+                    .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+
+                string systemPrompt = null;
+
+                // Check if conversation has a specific character assigned
+                if (conversation != null && !string.IsNullOrEmpty(conversation.CharacterSystemPrompt))
+                {
+                    _logger.LogInfo("🚀 Using character from conversation context");
+                    systemPrompt = conversation.CharacterSystemPrompt;
+                    _logger.LogInfo($"✅ Character system prompt retrieved from conversation - Length: {systemPrompt.Length}");
+                }
+                else
+                {
+                    // Fall back to default GLaDOS character
+                    _logger.LogInfo("🚀 No character in conversation, falling back to GLaDOS default");
+                    systemPrompt = await _defaultCharacterService.GetDefaultSystemPromptAsync();
+                    _logger.LogInfo($"✅ GLaDOS default system prompt retrieved - Length: {systemPrompt?.Length ?? 0}");
+                }
 
                 // Prepare structured messages for the LLM
                 var messages = new List<Dictionary<string, string>>();
 
-                // Add system prompt (GLaDOS personality)
+                // Add system prompt (character personality)
                 if (!string.IsNullOrEmpty(systemPrompt))
                 {
                     messages.Add(new Dictionary<string, string>
@@ -118,7 +134,11 @@ namespace SwAIvyn.Services
                         { "role", "system" },
                         { "content", systemPrompt }
                     });
-                    _logger.LogInfo("✅ Using GLaDOS system prompt for response");
+                    _logger.LogInfo("✅ Using character system prompt for response");
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ No system prompt available - using no character context");
                 }
 
                 // Add user message
@@ -129,7 +149,7 @@ namespace SwAIvyn.Services
                 });
 
                 _logger.LogInfo($"📤 Sending {messages.Count} structured messages to LLM");
-                
+
                 // Generate the AI response using structured messages
                 string aiResponse = await _llmConnector.GenerateResponseAsync(messages, engine, model, userId);
                 _logger.LogInfo($"✅ AI response generated - Length: {aiResponse?.Length ?? 0}");

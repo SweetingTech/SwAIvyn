@@ -664,12 +664,8 @@ Respond using the character's voice and personality at all times.`;
                         console.error('Error parsing YAML for chat:', error);
                       }
 
-                      // Store character context for chat
-                      localStorage.setItem('activeCharacter', JSON.stringify({
-                        id: character.id,
-                        name: characterName,
-                        systemPrompt: systemPrompt
-                      }));
+                      // Store character selection for chat
+                      localStorage.setItem('selectedCharacterId', character.id);
                       // Navigate to chat
                       window.location.href = '/chat';
                     }}
