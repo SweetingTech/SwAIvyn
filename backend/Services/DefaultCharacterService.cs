@@ -101,13 +101,24 @@ namespace SwAIvyn.Services
             {
                 _logger.LogError(ex, "Error ensuring default character GLaDOS");
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Gets the default character (GLaDOS)
         /// </summary>
         public async Task<AvatarInfo?> GetDefaultCharacterAsync()
         {
+            // First try to find GLaDOS by name
+            var glados = await _dbContext.Avatars
+                .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
+
+            if (glados != null)
+            {
+                return glados;
+            }
+
+            // If GLaDOS doesn't exist, ensure it's created first
+            await EnsureDefaultCharacterAsync();
+
+            // Try again to find GLaDOS
             return await _dbContext.Avatars
                 .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
         }

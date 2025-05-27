@@ -29,7 +29,7 @@ const conversationService = {
   async getConversations(userId: string): Promise<Conversation[]> {
     try {
       const response = await apiService.get(`/api/conversation/user/${userId}`);
-      return response.data;
+      return response;
     } catch (error) {
       console.error('Error getting conversations:', error);
       throw error;
@@ -44,7 +44,7 @@ const conversationService = {
   async getConversation(id: string): Promise<Conversation> {
     try {
       const response = await apiService.get(`/api/conversation/${id}`);
-      return response.data;
+      return response;
     } catch (error) {
       console.error(`Error getting conversation ${id}:`, error);
       throw error;
@@ -79,7 +79,7 @@ const conversationService = {
         title,
         folderId
       });
-      return response.data;
+      return response;
     } catch (error) {
       console.error('Error creating conversation:', error);
       // Return a mock conversation with a temporary ID on error
@@ -105,7 +105,7 @@ const conversationService = {
       const response = await apiService.put(`/api/conversation/${id}/title`, {
         title
       });
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error(`Error updating conversation title ${id}:`, error);
       throw error;
@@ -123,7 +123,7 @@ const conversationService = {
       const response = await apiService.put(`/api/conversation/${id}/folder`, {
         folderId
       });
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error(`Error updating conversation folder ${id}:`, error);
       throw error;
@@ -138,7 +138,7 @@ const conversationService = {
   async deleteConversation(id: string): Promise<boolean> {
     try {
       const response = await apiService.delete(`/api/conversation/${id}`);
-      return response.status === 204;
+      return response === null; // DELETE returns null on success
     } catch (error) {
       console.error(`Error deleting conversation ${id}:`, error);
       throw error;
@@ -159,8 +159,8 @@ const conversationService = {
 
     try {
       const response = await apiService.get(`/api/conversation/recent/${userId}`);
-      return response.data;
-    } catch (error) {
+      return response;
+    } catch (error: any) {
       // If no recent conversation, return null instead of throwing
       if (error.response && error.response.status === 404) {
         return null;
@@ -178,7 +178,7 @@ const conversationService = {
   async getMessages(conversationId: string): Promise<Message[]> {
     try {
       const response = await apiService.get(`/api/conversation/${conversationId}/messages`);
-      return response.data;
+      return response;
     } catch (error) {
       console.error(`Error getting messages for conversation ${conversationId}:`, error);
       throw error;
@@ -207,7 +207,7 @@ const conversationService = {
         characterId,
         systemPrompt
       });
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error('Error setting character context:', error);
       throw error;
@@ -221,8 +221,7 @@ const conversationService = {
    * @param role Message role (user, assistant, system)
    * @param content Message content
    * @returns The created message
-   */
-  async appendMessage(conversationId: string, userId: string, role: string, content: string): Promise<Message> {
+   */  async appendMessage(conversationId: string, userId: string, role: string, content: string): Promise<Message> {
     try {
       // Skip API call if userId or conversationId is not valid
       if (!userId || userId === 'demo-user-id' || !conversationId || conversationId.startsWith('temp-')) {
@@ -238,12 +237,12 @@ const conversationService = {
       }
 
       const response = await apiService.post('/api/conversation/message', {
-        conversationId,
-        userId,
+        conversationId: conversationId, // Keep as string, the backend will convert
+        userId: userId, // Keep as string, the backend will convert
         role,
         content
       });
-      return response.data;
+      return response;
     } catch (error) {
       console.error(`Error appending message to conversation ${conversationId}:`, error);
       // Return a mock message on error
@@ -265,7 +264,7 @@ const conversationService = {
   async updateLastOpenTime(id: string): Promise<boolean> {
     try {
       const response = await apiService.put(`/api/conversation/${id}/open`, {});
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error(`Error updating last open time for conversation ${id}:`, error);
       throw error;

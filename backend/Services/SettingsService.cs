@@ -62,6 +62,13 @@ namespace SwAIvyn.Services
         Task<string> GetLmStudioApiUrlAsync(Guid? userId);
 
         /// <summary>
+        /// Gets the streaming enabled setting for a user
+        /// </summary>
+        /// <param name="userId">User ID (null for global settings)</param>
+        /// <returns>True if streaming is enabled, false otherwise</returns>
+        Task<bool> GetEnableStreamingAsync(Guid? userId);
+
+        /// <summary>
         /// Gets the Neo4j URI from settings or configuration
         /// </summary>
         /// <param name="userId">User ID (null for global settings)</param>
@@ -273,6 +280,13 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
+        public async Task<bool> GetEnableStreamingAsync(Guid? userId)
+        {
+            var value = await GetSettingAsync(userId, "EnableStreaming", "true");
+            return bool.TryParse(value, out bool result) ? result : true; // Default to true
+        }
+
+        /// <inheritdoc/>
         public async Task<string> GetNeo4jUriAsync(Guid? userId)
         {
             return await GetSettingAsync(userId, NEO4J_URI_KEY, "http://localhost:7474");
@@ -308,6 +322,7 @@ namespace SwAIvyn.Services
                     { NEO4J_URI_KEY, "http://localhost:7474" },
                     { NEO4J_BOLT_PORT_KEY, "7687" },
                     { NEO4J_HTTP_PORT_KEY, "7474" },
+                    { "EnableStreaming", "true" },
                     { "Theme", "dark" },
                     { "Language", "en" },
                     { "AutoSave", "true" },

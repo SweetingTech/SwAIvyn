@@ -28,6 +28,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container
 builder.Services.AddControllers();
 
+// Configure API behavior to show model validation errors
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+        new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(context.ModelState);
+});
+
 // Register the SQLite-VSS extension interceptor
 builder.Services.AddSingleton<SqliteVssExtensionInterceptor>(sp =>
     new SqliteVssExtensionInterceptor(
@@ -106,6 +113,9 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
 
 // Add database initializer service
 builder.Services.AddScoped<IDatabaseInitializer, DatabaseInitializerService>();
+
+// Add direct database service for Users table creation
+builder.Services.AddScoped<IDirectDatabaseService, DirectDatabaseService>();
 
 // Add directory initializer service
 builder.Services.AddSingleton<DirectoryInitializerService>();
@@ -220,6 +230,12 @@ try
         var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
         await dbInitializer.InitializeAsync();
         logger.LogInfo("Database initialization completed successfully");
+
+        // Create Users table and default user if needed
+        logger.LogInfo("Ensuring Users table and default user exist...");
+        var directDatabaseService = scope.ServiceProvider.GetRequiredService<IDirectDatabaseService>();
+        await directDatabaseService.CreateUsersTableAndDefaultUserAsync();
+        logger.LogInfo("Users table and default user initialization completed successfully");
     }
 }
 catch (Exception ex)
@@ -230,25 +246,25 @@ catch (Exception ex)
 // --- Seed default user and AI profile on first run ---
 try
 {
-    using (var scope = app.Services.CreateScope())
-    {
+    using (var scope = app.Services.CreateScope())    {
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        // Check if we need to create a default user
+        // Ensure there is exactly one default user for this single-user application
         Guid defaultUserId;
-        if (!db.Users.Any())
-        {
-            logger.LogInfo("No users found. Creating default admin user...");
+        var existingUsers = db.Users.ToList();
 
-            // Create a default admin user
+        if (existingUsers.Count == 0)
+        {
+            // No users exist, create the default user
+            logger.LogInfo("No users found. Creating default user for single-user application...");
+
             var defaultUser = new SwAIvyn.Data.Entities.AppUser
             {
                 Id = Guid.NewGuid(),
-                Username = "admin",
-                // Simple hash of "admin" password - in production you'd use a proper password hasher
-                PasswordHash = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-                PINCode = "1234",
-                RecoveryPhrase = "default recovery phrase for admin account",
+                Username = "Default User",
+                PasswordHash = "", // No password needed for single-user app
+                PINCode = "",
+                RecoveryPhrase = "",
                 CreatedAt = DateTime.UtcNow,
                 LastLogin = DateTime.UtcNow
             };
@@ -256,21 +272,28 @@ try
             db.Users.Add(defaultUser);
             db.SaveChanges();
             defaultUserId = defaultUser.Id;
-            logger.LogInfo($"Created default admin user with ID: {defaultUserId}");
+            logger.LogInfo($"Created default user: {defaultUserId}");
+        }
+        else if (existingUsers.Count == 1)
+        {
+            // Exactly one user exists, use it
+            defaultUserId = existingUsers[0].Id;
+            logger.LogInfo($"Using existing single user: {defaultUserId}");
         }
         else
         {
-            // Get the first user's ID
-            defaultUserId = db.Users.First().Id;
-            logger.LogInfo($"Using existing user with ID: {defaultUserId} for default AI profile");
+            // Multiple users exist, consolidate to first one and log warning
+            logger.LogWarning($"Multiple users found ({existingUsers.Count}). This is a single-user application. Using first user: {existingUsers[0].Id}");
+            defaultUserId = existingUsers[0].Id;
+
+            // Optionally, you could migrate data from other users to the first one here
+            // For now, just use the first user
         }
 
         // If no AI character profiles exist, create a default one linked to our user
         if (!db.Avatars.Any())
         {
-            logger.LogInfo("No AI profiles found. Creating default AI profile...");
-
-            db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
+            logger.LogInfo("No AI profiles found. Creating default AI profile...");            db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
             {
                 Id = Guid.NewGuid(),
                 UserId = defaultUserId, // Use our confirmed user ID
@@ -278,6 +301,21 @@ try
                 ImagePath = "",
                 Personality = "Friendly and helpful AI assistant.",
                 VoiceSettings = "default",
+                Description = "A helpful AI assistant ready to chat with you.",
+                Scenario = "General conversation",
+                FirstMessage = "Hello! I'm your AI assistant. How can I help you today?",
+                MessageExample = "",
+                SystemPrompt = "You are a helpful, harmless, and honest AI assistant.",
+                PostHistoryInstructions = "",
+                AlternateGreetings = "[]",
+                Tags = "[]",
+                Creator = "SwAIvyn",
+                CreatorNotes = "Default AI assistant character",
+                CharacterVersion = "1.0",
+                Talkativeness = 0.5f,
+                IsFavorite = false,
+                Extensions = "{}",
+                YamlProfile = "",
                 CreatedAt = DateTime.UtcNow,
                 LastModified = DateTime.UtcNow
             });
@@ -474,8 +512,8 @@ app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<VoiceHub>("/hubs/voice");
 app.MapHub<NotificationHub>("/hubs/notification");
 
-// Fallback to index.html for SPA routes (temporarily disabled for testing)
-// app.MapFallbackToFile("index.html");
+// Fallback to index.html for SPA routes - CRITICAL for React Router to work
+app.MapFallbackToFile("index.html");
 
 // Add health endpoint for Neo4j
 app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>

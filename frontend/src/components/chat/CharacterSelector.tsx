@@ -37,20 +37,61 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   // Load characters when component mounts or userId changes
   useEffect(() => {
     console.log('CharacterSelector mounted with userId:', userId);
-    if (userId && userId !== 'demo-user-id') {
+    if (userId) {
       loadCharacters();
     }
   }, [userId]);
 
   // Auto-select character from localStorage when characters are loaded
   useEffect(() => {
-    if (characters.length > 0 && !selectedCharacterId) {
-      const storedCharacterId = localStorage.getItem('selectedCharacterId');
-      if (storedCharacterId && storedCharacterId !== 'null') {
-        const storedCharacter = characters.find(c => c.id === storedCharacterId);
-        if (storedCharacter) {
-          onCharacterSelect(storedCharacter);
+    console.log('useEffect triggered - characters:', characters, 'selectedCharacterId:', selectedCharacterId);
+
+    // Enhanced safety checks for characters array
+    if (!characters) {
+      console.log('Characters is null/undefined, skipping auto-select');
+      return;
+    }
+
+    if (!Array.isArray(characters)) {
+      console.error('Characters is not an array in useEffect:', typeof characters, characters);
+      // Force reset to empty array if it's not an array
+      setCharacters([]);
+      return;
+    }
+
+    if (characters.length === 0) {
+      console.log('Characters array is empty, skipping auto-select');
+      return;
+    }
+
+    if (selectedCharacterId) {
+      console.log('Character already selected, skipping auto-select');
+      return;
+    }
+
+    const storedCharacterId = localStorage.getItem('selectedCharacterId');
+    console.log('Stored character ID from localStorage:', storedCharacterId);
+
+    if (storedCharacterId && storedCharacterId !== 'null') {
+      // Quadruple-check that characters is still an array before calling find
+      if (Array.isArray(characters) && characters.length > 0) {
+        console.log('Searching for stored character in array of length:', characters.length);
+        try {
+          const storedCharacter = characters.find(c => c && c.id === storedCharacterId);
+          console.log('Found stored character:', storedCharacter);
+
+          if (storedCharacter) {
+            console.log('Auto-selecting character:', storedCharacter.name);
+            onCharacterSelect(storedCharacter);
+          } else {
+            console.log('Stored character not found in current characters list');
+          }
+        } catch (findError) {
+          console.error('Error in find operation during auto-select:', findError);
+          console.error('Characters state at error time:', characters);
         }
+      } else {
+        console.error('Characters became non-array or empty before find call:', typeof characters, characters);
       }
     }
   }, [characters, selectedCharacterId, onCharacterSelect]);
@@ -59,40 +100,111 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const response = await apiService.get(`/api/character/user/${userId}`);
+      console.log('Loading characters for userId:', userId);
 
-      // Handle different response formats
-      let charactersData = [];
-      if (Array.isArray(response)) {
-        charactersData = response;
-      } else if (response && Array.isArray(response.data)) {
-        charactersData = response.data;
-      } else if (response && response.characters && Array.isArray(response.characters)) {
-        charactersData = response.characters;
+      // Add check for demo user ID to prevent API call
+      if (userId === 'demo-user-id') {
+        console.log('Demo user detected, using empty characters array');
+        setCharacters([]);
+        return;
       }
 
-      console.log('Characters loaded:', charactersData);
-      setCharacters(charactersData);
+      // Skip API calls completely for invalid user IDs
+      if (!userId || userId === 'null' || userId === 'undefined') {
+        console.warn('Invalid userId, skipping character loading:', userId);
+        setCharacters([]);
+        return;
+      }
+
+      const response = await apiService.get(`/api/character/user/${userId}`);
+      console.log('Raw API response type:', typeof response, 'isArray:', Array.isArray(response));
+      console.log('Raw API response:', response);
+
+      // Initialize with empty array as default
+      let charactersData: Character[] = [];
+
+      // Handle null/undefined response
+      if (response === null || response === undefined) {
+        console.warn('API response is null/undefined, using empty array');
+        charactersData = [];
+      }
+      // Handle direct array response (this should be the normal case now)
+      else if (Array.isArray(response)) {
+        console.log('Response is a direct array with length:', response.length);
+        charactersData = response;
+      }
+      // Handle unexpected response types
+      else {
+        console.error('Unexpected response type:', typeof response);
+        console.error('Response value:', response);
+        charactersData = [];
+      }
+
+      // Final validation that we have an array
+      if (!Array.isArray(charactersData)) {
+        console.error('CRITICAL: charactersData is not an array after processing!');
+        console.error('Type:', typeof charactersData, 'Value:', charactersData);
+        charactersData = [];
+      }
+
+      // Validate each character object has required properties
+      const validatedCharacters = charactersData.filter(char => {
+        if (!char || typeof char !== 'object') {
+          console.warn('Invalid character object:', char);
+          return false;
+        }
+        if (!char.id || typeof char.id !== 'string') {
+          console.warn('Character missing valid id:', char);
+          return false;
+        }
+        return true;
+      });
+
+      console.log(`Final characters data: ${validatedCharacters.length} valid characters out of ${charactersData.length} total`);
+
+      // Ensure we ALWAYS set an array, never anything else
+      const finalCharacters = Array.isArray(validatedCharacters) ? validatedCharacters : [];
+      console.log('Setting characters state to array with length:', finalCharacters.length);
+      setCharacters(finalCharacters);
+
     } catch (err) {
       console.error('Error loading characters:', err);
       setError('Failed to load characters');
+      // Always set empty array on error
       setCharacters([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const selectedCharacter = Array.isArray(characters) ? characters.find(c => c.id === selectedCharacterId) : null;
+  // Calculate selected character with additional safety checks
+  const selectedCharacter = (() => {
+    if (!selectedCharacterId) {
+      return null;
+    }
+
+    if (!characters) {
+      console.warn('Characters is null/undefined when calculating selectedCharacter');
+      return null;
+    }
+
+    if (!Array.isArray(characters)) {
+      console.error('Characters is not an array when calculating selectedCharacter:', typeof characters, characters);
+      return null;
+    }
+
+    try {
+      return characters.find(c => c && c.id === selectedCharacterId) || null;
+    } catch (error) {
+      console.error('Error in find operation for selectedCharacter:', error);
+      return null;
+    }
+  })();
 
   const handleCharacterSelect = (character: Character | null) => {
     onCharacterSelect(character);
     setIsOpen(false);
   };
-
-  // Don't render in demo mode
-  if (userId === 'demo-user-id') {
-    return null;
-  }
 
   return (
     <div className="relative">

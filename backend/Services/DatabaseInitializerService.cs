@@ -82,13 +82,11 @@ namespace SwAIvyn.Services
                 
                 // The connection string will be made absolute in Program.cs,
                 // so the database will be created in the correct location.
-                // We just need to ensure _dataDirectory itself exists.
-
-                // Create database if it doesn't exist
+                // We just need to ensure _dataDirectory itself exists.                // Create database if it doesn't exist and run migrations
                 using (var context = await _dbContextFactory.CreateDbContextAsync())
                 {
-                    _logger.LogInfo("Ensuring database is created...");
-                    await context.Database.EnsureCreatedAsync();
+                    _logger.LogInfo("Running database migrations...");
+                    await context.Database.MigrateAsync();
                     
                     // Enable WAL mode for better concurrency
                     _logger.LogInfo("Enabling WAL mode...");

@@ -87,6 +87,13 @@ namespace SwAIvyn.Services
         Task<ChatIndex> AppendMessageAsync(Guid conversationId, Guid userId, string role, string content);
 
         /// <summary>
+        /// Gets all messages for a conversation
+        /// </summary>
+        /// <param name="conversationId">Conversation ID</param>
+        /// <returns>List of messages</returns>
+        Task<List<ChatIndex>> GetMessagesAsync(Guid conversationId);
+
+        /// <summary>
         /// Gets the most recently opened conversation for a user
         /// </summary>
         /// <param name="userId">User ID</param>
@@ -291,9 +298,16 @@ namespace SwAIvyn.Services
 
             // Update the conversation's last open time
             conversation.LastOpenUtc = timestamp;
-            await _dbContext.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();            return chatIndex;
+        }
 
-            return chatIndex;
+        /// <inheritdoc/>
+        public async Task<List<ChatIndex>> GetMessagesAsync(Guid conversationId)
+        {
+            return await _dbContext.ChatIndices
+                .Where(c => c.ConversationId == conversationId)
+                .OrderBy(c => c.CreatedUtc)
+                .ToListAsync();
         }
 
         /// <inheritdoc/>

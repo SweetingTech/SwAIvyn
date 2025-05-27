@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Camera, Mic, Plus } from 'lucide-react';
+import { Send, Paperclip, Camera, Mic, Plus, AlertCircle } from 'lucide-react';
+
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
-import { Message } from '../types/chat';
-import BrainExplorer from '../components/BrainExplorer';
-import chatService from '../services/chatService';
-import conversationService from '../services/conversationService';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import CharacterSelector from '../components/chat/CharacterSelector';
+import BrainExplorer from '../components/BrainExplorer';
+
+import chatService from '../services/chatService';
+import conversationService from '../services/conversationService';
+import { Message } from '../types/chat';
 
 /**
  * ChatPage component manages the chat interface including message display,
@@ -65,17 +67,16 @@ const ChatPage = () => {
       localStorage.removeItem('selectedCharacterId');
     }
   };
-
   // Load the most recent conversation or start a new one
   useEffect(() => {
     const loadUserAndConversation = async () => {
       try {
-        // IMPORTANT: Start with demo mode by default to avoid any API calls with invalid ID
+        // Fetch the default user from backend (single-user application)
         let validUserId = null;
+        let username = 'Default User';
 
         try {
-          // Fetch the default user ID from backend
-          console.log('Fetching user ID from /api/user/default...');
+          console.log('Fetching user from /api/user/default...');
           const response = await fetch('/api/user/default');
           console.log('User API response status:', response.status);
 
@@ -86,7 +87,8 @@ const ChatPage = () => {
             // Validate that we have a proper user ID (should be a GUID)
             if (data && data.id && typeof data.id === 'string' && data.id.length >= 30) {
               validUserId = data.id;
-              console.log('Valid user ID found:', validUserId);
+              username = data.username || 'Default User';
+              console.log('Valid user found:', { id: validUserId, username });
             } else {
               console.warn('Invalid user ID format:', data);
             }
@@ -94,18 +96,17 @@ const ChatPage = () => {
             console.warn('User API response not ok:', response.status, response.statusText);
           }
         } catch (userError) {
-          console.error('Error fetching user ID:', userError);
+          console.error('Error fetching user:', userError);
         }
 
         // If we don't have a valid user ID, use demo mode
         if (!validUserId) {
-          console.warn('No valid user ID available, using demo mode');
+          console.warn('No valid user available, using demo mode');
           setUserId('demo-user-id');
-          // Start with a new conversation in demo mode
           setMessages([{
             id: '1',
             sender: 'ai',
-            text: 'Hello! I\'m currently in demo mode. Some features may be limited.',
+            text: 'Hello! I\'m currently in demo mode. The backend may be unavailable.',
             timestamp: new Date().toISOString()
           }]);
           isFirstMessage.current = true;
@@ -144,7 +145,7 @@ const ChatPage = () => {
             setMessages([{
               id: '1',
               sender: 'ai',
-              text: 'Hello! How can I help you today?',
+              text: `Hello ${username}! How can I help you today?`,
               timestamp: new Date().toISOString()
             }]);
             isFirstMessage.current = true;
@@ -155,7 +156,7 @@ const ChatPage = () => {
           setMessages([{
             id: '1',
             sender: 'ai',
-            text: 'Hello! How can I help you today?',
+            text: `Hello ${username}! How can I help you today?`,
             timestamp: new Date().toISOString()
           }]);
           isFirstMessage.current = true;
@@ -167,7 +168,7 @@ const ChatPage = () => {
         setMessages([{
           id: '1',
           sender: 'ai',
-          text: 'Hello! I\'m currently in demo mode due to a connection issue. Some features may be limited.',
+          text: 'Hello! I\'m currently in demo mode due to a connection issue.',
           timestamp: new Date().toISOString()
         }]);
         isFirstMessage.current = true;

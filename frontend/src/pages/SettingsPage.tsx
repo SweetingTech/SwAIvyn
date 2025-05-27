@@ -195,71 +195,158 @@ const AccountSettings = () => {
 };
 
 const ModelSettings = () => {
-  const [selectedEngine, setEngine] = useState('ollama');
-  const [selectedModel, setModel] = useState('');
+  const [selectedEngine, setSelectedEngine] = useState('ollama');
+  const [selectedModel, setSelectedModel] = useState('');
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
   const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
+  const [enableStreaming, setEnableStreaming] = useState(true);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  // Load current settings on component mount
+  // User ID state
+  const [userId, setUserId] = useState<string>('');
+
+  // Load user ID first, then settings
   useEffect(() => {
-    const loadSettings = async () => {
+    const loadUserAndSettings = async () => {
       try {
-        setLoading(true);
-        // Get current LLM settings
-        const settings = await chatService.getLlmSettings();
-        setEngine(settings.engine || 'ollama');
-        setModel(settings.model || '');
+        // Fetch the default user from backend (same as ChatPage.tsx)
+        let validUserId = null;
 
-        // Get connection settings from API
         try {
-          const connectionResponse = await fetch('/api/settings/connections');
-          if (connectionResponse.ok) {
-            const connectionSettings = await connectionResponse.json();
-            setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
-            setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
-          } else {
-            // Use default values if API call fails
-            setOllamaApiUrl('http://localhost:11434');
-            setLmStudioApiUrl('http://localhost:1234');
-          }
-        } catch (connectionError) {
-          console.error('Error loading connection settings:', connectionError);
-          // Use default values if API call fails
-          setOllamaApiUrl('http://localhost:11434');
-          setLmStudioApiUrl('http://localhost:1234');
-        }
+          console.log('Fetching user from /api/user/default...');
+          const response = await fetch('/api/user/default');
+          console.log('User API response status:', response.status);
 
-        // Get available models from API
-        try {
-          if (settings.engine === 'ollama') {
-            const modelsResponse = await fetch('/api/llm/ollama/models');
-            if (modelsResponse.ok) {
-              const models = await modelsResponse.json();
-              setOllamaModels(models);
+          if (response.ok) {
+            const data = await response.json();
+            console.log('User API response data:', data);
+
+            // Validate that we have a proper user ID (should be a GUID)
+            if (data && data.id && typeof data.id === 'string' && data.id.length >= 30) {
+              validUserId = data.id;
+              console.log('Valid user found:', { id: validUserId });
             } else {
-              // Use dummy data if API call fails
-              setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi']);
+              console.warn('Invalid user ID format:', data);
             }
+          } else {
+            console.warn('User API response not ok:', response.status, response.statusText);
           }
-        } catch (modelsError) {
-          console.error('Error loading models:', modelsError);
-          // Use dummy data if API call fails
-          setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi']);
+        } catch (userError) {
+          console.error('Error fetching user:', userError);
         }
+
+        // If we don't have a valid user ID, use demo mode
+        if (!validUserId) {
+          console.warn('No valid user available, using demo mode');
+          setUserId('demo-user-id');
+          return;
+        }
+
+        // We have a valid user ID
+        setUserId(validUserId);
+
+        // Now load settings with the user ID
+        await loadSettings(validUserId);
       } catch (error) {
-        console.error('Error loading LLM settings:', error);
-        setSaveError('Failed to load settings. Please try again.');
-      } finally {
-        setLoading(false);
+        console.error('Error loading user and settings:', error);
+        setSaveError('Failed to load user information. Please try again.');
       }
     };
 
-    loadSettings();
+    loadUserAndSettings();
   }, []);
+
+  // Handle engine changes - load models when engine changes
+  useEffect(() => {
+    const loadModelsForEngine = async () => {
+      if (!userId || loading) return;
+
+      try {
+        if (selectedEngine === 'ollama') {
+          console.log('🔄 Loading Ollama models...');
+          const modelsResponse = await fetch('/api/llm/ollama/models');
+          if (modelsResponse.ok) {
+            const models = await modelsResponse.json();
+            setOllamaModels(models);
+            console.log('✅ Loaded Ollama models:', models);
+          } else {
+            // Use dummy data if API call fails
+            setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi4:latest']);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading models for engine:', error);
+        if (selectedEngine === 'ollama') {
+          setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi4:latest']);
+        }
+      }
+    };
+
+    loadModelsForEngine();
+  }, [selectedEngine, userId, loading]);
+
+  // Load current settings function
+  const loadSettings = async (userIdToUse: string) => {
+    try {
+      setLoading(true);
+      // Get current LLM settings with user ID
+      const settings = await chatService.getLlmSettings(userIdToUse);
+      console.log('🔄 Loaded settings:', settings);
+
+      setSelectedEngine(settings.engine || 'ollama');
+      setSelectedModel(settings.model || '');
+      console.log('✅ Set engine to:', settings.engine || 'ollama');
+      console.log('✅ Set model to:', settings.model || '');
+
+      // Get connection settings from API with user ID
+      try {
+        const connectionResponse = await fetch(`/api/settings/connections?userId=${userIdToUse}`);
+        if (connectionResponse.ok) {
+          const connectionSettings = await connectionResponse.json();
+          setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
+          setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
+          setEnableStreaming(connectionSettings.enableStreaming !== false); // Default to true
+        } else {
+          // Use default values if API call fails
+          setOllamaApiUrl('http://localhost:11434');
+          setLmStudioApiUrl('http://localhost:1234');
+          setEnableStreaming(true);
+        }
+      } catch (connectionError) {
+        console.error('Error loading connection settings:', connectionError);
+        // Use default values if API call fails
+        setOllamaApiUrl('http://localhost:11434');
+        setLmStudioApiUrl('http://localhost:1234');
+        setEnableStreaming(true);
+      }
+
+      // Get available models from API
+      try {
+        if (settings.engine === 'ollama') {
+          const modelsResponse = await fetch('/api/llm/ollama/models');
+          if (modelsResponse.ok) {
+            const models = await modelsResponse.json();
+            setOllamaModels(models);
+          } else {
+            // Use dummy data if API call fails
+            setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi4:latest']);
+          }
+        }
+      } catch (modelsError) {
+        console.error('Error loading models:', modelsError);
+        // Use dummy data if API call fails
+        setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi4:latest']);
+      }
+    } catch (error) {
+      console.error('Error loading LLM settings:', error);
+      setSaveError('Failed to load settings. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Save settings
   const saveSettings = async () => {
@@ -268,10 +355,16 @@ const ModelSettings = () => {
       setSaveSuccess(false);
       setSaveError('');
 
-      // Save LLM settings
-      await chatService.updateLlmSettings(selectedEngine, selectedModel);
+      // Skip saving if no valid user ID
+      if (!userId || userId === 'demo-user-id') {
+        setSaveError('Cannot save settings: No valid user ID available');
+        return;
+      }
 
-      // Save connection settings to API
+      // Save LLM settings with user ID
+      await chatService.updateLlmSettings(selectedEngine, selectedModel, userId);
+
+      // Save connection settings to API with user ID
       try {
         await fetch('/api/settings/connections', {
           method: 'PUT',
@@ -279,8 +372,10 @@ const ModelSettings = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            userId: userId, // Pass the actual user ID
             ollamaApiUrl: ollamaApiUrl,
-            lmStudioApiUrl: lmStudioApiUrl
+            lmStudioApiUrl: lmStudioApiUrl,
+            enableStreaming: enableStreaming
           })
         });
         console.log('Connection settings saved successfully');
@@ -307,6 +402,8 @@ const ModelSettings = () => {
         <div className="text-sm text-gray-500">Loading settings...</div>
       )}
 
+
+
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
@@ -318,7 +415,7 @@ const ModelSettings = () => {
           <select
             className="w-full border rounded px-3 py-2"
             value={selectedEngine}
-            onChange={e => setEngine(e.target.value)}
+            onChange={e => setSelectedEngine(e.target.value)}
             disabled={loading}
           >
             <option value="ollama">Ollama</option>
@@ -381,7 +478,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={e => setModel(e.target.value)}
+                onChange={e => setSelectedModel(e.target.value)}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -440,6 +537,29 @@ const ModelSettings = () => {
             </div>
           </div>
         )}
+
+        {/* Streaming Option */}
+        <div>
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={enableStreaming}
+              onChange={e => setEnableStreaming(e.target.checked)}
+              className="rounded border-gray-300"
+              disabled={loading}
+            />
+            <span className="text-sm font-medium text-gray-700">Enable Streaming</span>
+            <Tooltip text="When enabled, responses will stream in real-time as they're generated. When disabled, you'll receive the complete response at once.">
+              <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+            </Tooltip>
+          </label>
+          <p className="text-xs text-gray-500 mt-1">
+            {enableStreaming
+              ? "Responses will appear word-by-word as they're generated"
+              : "You'll receive the complete response all at once"
+            }
+          </p>
+        </div>
       </div>
 
       <div className="pt-4 flex justify-between items-center">

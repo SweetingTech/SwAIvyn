@@ -34,12 +34,20 @@
   <ItemGroup>
     <Folder Include="wwwroot\" />
   </ItemGroup>
-
   <ItemGroup>
     <None Include="..\assets\sqlite-vss.dll">
       <Link>sqlite-vss.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- Post-build event to copy executable to root directory -->
+  <Target Name="CopyToRoot" AfterTargets="Build">
+    <ItemGroup>
+      <FilesToCopy Include="$(OutputPath)*.exe;$(OutputPath)*.dll;$(OutputPath)*.pdb;$(OutputPath)*.json;$(OutputPath)sqlite-vss.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FilesToCopy)" DestinationFolder="$(ProjectDir)..\" OverwriteReadOnlyFiles="true" />
+    <Message Text="Copied build output to root directory" Importance="high" />
+  </Target>
 
 </Project>

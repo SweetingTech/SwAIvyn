@@ -143,7 +143,8 @@ namespace SwAIvyn.Controllers
                     LmStudioApiUrl = await _settingsService.GetLmStudioApiUrlAsync(userId),
                     Neo4jUri = await _settingsService.GetNeo4jUriAsync(userId),
                     Neo4jBoltPort = await _settingsService.GetNeo4jBoltPortAsync(userId),
-                    Neo4jHttpPort = await _settingsService.GetNeo4jHttpPortAsync(userId)
+                    Neo4jHttpPort = await _settingsService.GetNeo4jHttpPortAsync(userId),
+                    EnableStreaming = await _settingsService.GetEnableStreamingAsync(userId)
                 };
                 return Ok(settings);
             }
@@ -189,6 +190,11 @@ namespace SwAIvyn.Controllers
                 if (request.Neo4jHttpPort.HasValue)
                 {
                     settings["Neo4jHttpPort"] = request.Neo4jHttpPort.Value.ToString();
+                }
+
+                if (request.EnableStreaming.HasValue)
+                {
+                    settings["EnableStreaming"] = request.EnableStreaming.Value.ToString();
                 }
 
                 var success = await _settingsService.SetSettingsAsync(request.UserId, settings);
@@ -317,6 +323,11 @@ namespace SwAIvyn.Controllers
         /// Neo4j HTTP port
         /// </summary>
         public int Neo4jHttpPort { get; set; }
+
+        /// <summary>
+        /// Enable streaming responses
+        /// </summary>
+        public bool EnableStreaming { get; set; }
     }
 
     /// <summary>
@@ -353,6 +364,11 @@ namespace SwAIvyn.Controllers
         /// Neo4j HTTP port
         /// </summary>
         public int? Neo4jHttpPort { get; set; }
+
+        /// <summary>
+        /// Enable streaming responses
+        /// </summary>
+        public bool? EnableStreaming { get; set; }
     }
 
     /// <summary>

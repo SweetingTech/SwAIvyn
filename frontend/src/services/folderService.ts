@@ -27,7 +27,7 @@ const folderService = {
       }
 
       const response = await apiService.get(`/api/folder/user/${userId}`);
-      return response.data;
+      return response;
     } catch (error) {
       console.error('Error getting folders:', error);
       // Return empty array on error instead of throwing
@@ -64,7 +64,7 @@ const folderService = {
         name,
         parentId
       });
-      return response.data;
+      return response;
     } catch (error) {
       console.error('Error creating folder:', error);
       throw error;
@@ -82,7 +82,7 @@ const folderService = {
       const response = await apiService.put(`/api/folder/${id}/name`, {
         name
       });
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error(`Error updating folder name ${id}:`, error);
       throw error;
@@ -100,7 +100,7 @@ const folderService = {
       const response = await apiService.put(`/api/folder/${id}/parent`, {
         parentId
       });
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error(`Error updating folder parent ${id}:`, error);
       throw error;
@@ -115,7 +115,7 @@ const folderService = {
   async deleteFolder(id: string): Promise<boolean> {
     try {
       const response = await apiService.delete(`/api/folder/${id}`);
-      return response.status === 204;
+      return response === null; // DELETE returns null on success
     } catch (error) {
       console.error(`Error deleting folder ${id}:`, error);
       throw error;
@@ -130,7 +130,7 @@ const folderService = {
   async getRootFolder(userId: string): Promise<Folder> {
     try {
       const response = await apiService.get(`/api/folder/root/${userId}`);
-      return response.data;
+      return response;
     } catch (error) {
       console.error(`Error getting root folder for user ${userId}:`, error);
       throw error;

@@ -25,15 +25,16 @@ const chatService = {
         conversationId,
         userId,
         message
-      };
-
-      // Add characterId if provided
+      };      // Add characterId if provided, or "default" for GLaDOS
       if (characterId) {
         requestBody.characterId = characterId;
+      } else {
+        // When no character is selected, explicitly request the default character (GLaDOS)
+        requestBody.characterId = "default";
       }
 
       const response = await apiService.post('/api/conversation/chat', requestBody);
-      return response.data.response;
+      return response.response;
     } catch (error) {
       console.error('Error sending message:', error);
       // Return a friendly error message instead of throwing
@@ -50,7 +51,7 @@ const chatService = {
     try {
       const url = userId ? `/api/settings/llm?userId=${userId}` : '/api/settings/llm';
       const response = await apiService.get(url);
-      return response.data;
+      return response;
     } catch (error) {
       console.error('Error getting LLM settings:', error);
       throw error;
@@ -71,7 +72,7 @@ const chatService = {
         model,
         userId
       });
-      return response.status === 200;
+      return response && response.success;
     } catch (error) {
       console.error('Error updating LLM settings:', error);
       throw error;

@@ -37,16 +37,17 @@ const apiService = {
     // Skip actual API call for demo-user-id requests
     if (isDemoUserRequest(url)) {
       console.warn(`DEMO MODE: Skipping GET request to ${url}`);
-      return createMockResponse();
+      return createMockResponse().data;
     }
 
     try {
-      return await axios.get(url, config);
+      const response = await axios.get(url, config);
+      return response.data;
     } catch (error) {
       console.error(`GET request failed for ${url}:`, error);
 
       // Return mock response on error instead of throwing
-      return createMockResponse();
+      return createMockResponse().data;
     }
   },
 
@@ -65,78 +66,55 @@ const apiService = {
       // For conversation creation, return a mock conversation
       if (url === '/api/conversation') {
         return {
-          data: {
-            id: `temp-${Date.now()}`,
-            userId: data.userId || 'demo-user-id',
-            title: data.title || 'Demo Chat',
-            folderId: data.folderId || null,
-            createdAt: new Date().toISOString(),
-            lastUpdated: new Date().toISOString()
-          },
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config: {}
+          id: `temp-${Date.now()}`,
+          userId: data.userId || 'demo-user-id',
+          title: data.title || 'Demo Chat',
+          folderId: data.folderId || null,
+          createdAt: new Date().toISOString(),
+          lastUpdated: new Date().toISOString()
         };
       }
 
       // For chat messages, return a mock response
       if (url === '/api/conversation/chat') {
         return {
-          data: {
-            response: `I'm in demo mode and can't process your request: "${data.message}". Please ensure you have a valid user account.`
-          },
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config: {}
+          response: `I'm in demo mode and can't process your request: "${data.message}". Please ensure you have a valid user account.`
         };
       }
 
       // For message append, return a mock message
       if (url === '/api/conversation/message') {
         return {
-          data: {
-            id: `temp-${Date.now()}`,
-            conversationId: data.conversationId || 'temp-id',
-            role: data.role || 'user',
-            content: data.content || '',
-            timestamp: new Date().toISOString()
-          },
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config: {}
+          id: `temp-${Date.now()}`,
+          conversationId: data.conversationId || 'temp-id',
+          role: data.role || 'user',
+          content: data.content || '',
+          timestamp: new Date().toISOString()
         };
       }
 
-      return createMockResponse();
+      return createMockResponse().data;
     }
 
     try {
-      return await axios.post(url, data, config);
+      const response = await axios.post(url, data, config);
+      return response.data;
     } catch (error) {
       console.error(`POST request failed for ${url}:`, error);
 
       // Return mock response on error instead of throwing
       if (url === '/api/conversation') {
         return {
-          data: {
-            id: `temp-${Date.now()}`,
-            userId: data.userId || 'demo-user-id',
-            title: data.title || 'Error Chat',
-            folderId: data.folderId || null,
-            createdAt: new Date().toISOString(),
-            lastUpdated: new Date().toISOString()
-          },
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config: {}
+          id: `temp-${Date.now()}`,
+          userId: data.userId || 'demo-user-id',
+          title: data.title || 'Error Chat',
+          folderId: data.folderId || null,
+          createdAt: new Date().toISOString(),
+          lastUpdated: new Date().toISOString()
         };
       }
 
-      return createMockResponse();
+      return createMockResponse().data;
     }
   },
 
@@ -151,28 +129,17 @@ const apiService = {
     // Skip actual API call for demo-user-id requests
     if (isDemoUserRequest(url) || (data && typeof data === 'object' && 'userId' in data && data.userId === 'demo-user-id')) {
       console.warn(`DEMO MODE: Skipping PUT request to ${url}`);
-      return {
-        data: { success: true },
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        config: {}
-      };
+      return { success: true };
     }
 
     try {
-      return await axios.put(url, data, config);
+      const response = await axios.put(url, data, config);
+      return response.data;
     } catch (error) {
       console.error(`PUT request failed for ${url}:`, error);
 
       // Return mock success response on error instead of throwing
-      return {
-        data: { success: true },
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        config: {}
-      };
+      return { success: true };
     }
   },
 
@@ -186,28 +153,17 @@ const apiService = {
     // Skip actual API call for demo-user-id requests
     if (isDemoUserRequest(url)) {
       console.warn(`DEMO MODE: Skipping DELETE request to ${url}`);
-      return {
-        data: null,
-        status: 204,
-        statusText: 'No Content',
-        headers: {},
-        config: {}
-      };
+      return null;
     }
 
     try {
-      return await axios.delete(url, config);
+      const response = await axios.delete(url, config);
+      return response.data;
     } catch (error) {
       console.error(`DELETE request failed for ${url}:`, error);
 
       // Return mock success response on error instead of throwing
-      return {
-        data: null,
-        status: 204,
-        statusText: 'No Content',
-        headers: {},
-        config: {}
-      };
+      return null;
     }
   }
 };
