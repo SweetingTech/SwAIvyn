@@ -12,11 +12,26 @@ interface Memory {
   userId: string;
 }
 
+interface MemoryItemFromAPI {
+  id: string;
+  userId: string;
+  content: string;
+  category: string;
+  isShared: boolean;
+  createdAt: string;
+  lastAccessed: string;
+}
+
 const MemoryPage = () => {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newMemoryContent, setNewMemoryContent] = useState('');
+  const [newMemoryCategory, setNewMemoryCategory] = useState('Personal');
+  const [newMemoryShared, setNewMemoryShared] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     loadMemories();
@@ -30,10 +45,20 @@ const MemoryPage = () => {
       const userId = '00000000-0000-0000-0000-000000000001';
 
       // Load memories from API
-      const response = await fetch(`/api/memory/user/${userId}`);
+      const response = await fetch(`/api/memory/${userId}`);
       if (response.ok) {
-        const data = await response.json();
-        setMemories(data || []);
+        const data: MemoryItemFromAPI[] = await response.json();
+        // Map API response to frontend format
+        const mappedMemories: Memory[] = (data || []).map(item => ({
+          id: item.id,
+          title: item.content, // Use content as title
+          category: item.category || 'Personal',
+          content: item.content,
+          date: item.createdAt,
+          shared: item.isShared,
+          userId: item.userId
+        }));
+        setMemories(mappedMemories);
       } else {
         // No memories found or API error
         setMemories([]);
@@ -43,6 +68,69 @@ const MemoryPage = () => {
       setMemories([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createMemory = async () => {
+    if (!newMemoryContent.trim()) return;
+
+    try {
+      setCreating(true);
+      const userId = '00000000-0000-0000-0000-000000000001';
+
+      const response = await fetch('/api/memory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userId,
+          content: newMemoryContent,
+          category: newMemoryCategory,
+          isShared: newMemoryShared
+        }),
+      });
+
+      if (response.ok) {
+        const createdMemory: MemoryItemFromAPI = await response.json();
+        const mappedMemory: Memory = {
+          id: createdMemory.id,
+          title: createdMemory.content,
+          category: createdMemory.category || 'Personal',
+          content: createdMemory.content,
+          date: createdMemory.createdAt,
+          shared: createdMemory.isShared,
+          userId: createdMemory.userId
+        };
+
+        setMemories(prev => [mappedMemory, ...prev]);
+        setShowAddModal(false);
+        setNewMemoryContent('');
+        setNewMemoryCategory('Personal');
+        setNewMemoryShared(false);
+      } else {
+        console.error('Failed to create memory');
+      }
+    } catch (error) {
+      console.error('Error creating memory:', error);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const deleteMemory = async (id: string) => {
+    try {
+      const response = await fetch(`/api/memory/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setMemories(prev => prev.filter(m => m.id !== id));
+      } else {
+        console.error('Failed to delete memory');
+      }
+    } catch (error) {
+      console.error('Error deleting memory:', error);
     }
   };
 
@@ -69,7 +157,10 @@ const MemoryPage = () => {
             <h1 className="text-2xl font-medium text-gray-800">Memory</h1>
             <p className="text-gray-600">View and manage your AI's memories</p>
           </div>
-          <button className="btn btn-primary mt-2 sm:mt-0">
+          <button
+            className="btn btn-primary mt-2 sm:mt-0"
+            onClick={() => setShowAddModal(true)}
+          >
             <Plus size={16} className="mr-1.5" />
             Add Memory
           </button>
@@ -135,7 +226,10 @@ const MemoryPage = () => {
                     ? 'Try adjusting your search or filter criteria.'
                     : 'Start a conversation with your AI to create memories automatically.'}
                 </p>
-                <button className="btn btn-primary">
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setShowAddModal(true)}
+                >
                   <Plus size={16} className="mr-1.5" />
                   Add Memory
                 </button>
@@ -144,17 +238,86 @@ const MemoryPage = () => {
               filteredMemories.map((memory) => (
                 <MemoryItem
                   key={memory.id}
-                  title={memory.title}
-                  category={memory.category}
+                  memory={memory}
                   icon={getIconForCategory(memory.category)}
                   date={formatDate(memory.date)}
-                  shared={memory.shared}
+                  onDelete={deleteMemory}
                 />
               ))
             )}
           </div>
         </div>
       </div>
+
+      {/* Add Memory Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-semibold mb-4">Add New Memory</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Content
+                </label>
+                <textarea
+                  value={newMemoryContent}
+                  onChange={(e) => setNewMemoryContent(e.target.value)}
+                  placeholder="Enter memory content..."
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                  rows={4}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category
+                </label>
+                <select
+                  value={newMemoryCategory}
+                  onChange={(e) => setNewMemoryCategory(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                >
+                  <option value="Personal">Personal</option>
+                  <option value="Facts">Facts</option>
+                  <option value="Events">Events</option>
+                  <option value="Shared">Shared</option>
+                </select>
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="shared"
+                  checked={newMemoryShared}
+                  onChange={(e) => setNewMemoryShared(e.target.checked)}
+                  className="mr-2"
+                />
+                <label htmlFor="shared" className="text-sm text-gray-700">
+                  Share this memory
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 mt-6">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="btn btn-ghost"
+                disabled={creating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createMemory}
+                className="btn btn-primary"
+                disabled={creating || !newMemoryContent.trim()}
+              >
+                {creating ? 'Creating...' : 'Create Memory'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 
@@ -192,14 +355,13 @@ const MemoryPage = () => {
 };
 
 interface MemoryItemProps {
-  title: string;
-  category: string;
+  memory: Memory;
   icon: React.ReactNode;
   date: string;
-  shared: boolean;
+  onDelete: (id: string) => void;
 }
 
-const MemoryItem = ({ title, category, icon, date, shared }: MemoryItemProps) => {
+const MemoryItem = ({ memory, icon, date, onDelete }: MemoryItemProps) => {
   return (
     <div className="p-4 hover:bg-gray-50 transition-colors duration-150">
       <div className="flex items-start">
@@ -207,9 +369,9 @@ const MemoryItem = ({ title, category, icon, date, shared }: MemoryItemProps) =>
         <div className="flex-grow">
           <div className="flex items-center">
             <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-              {category}
+              {memory.category}
             </span>
-            {shared && (
+            {memory.shared && (
               <span className="ml-2 text-xs font-medium text-secondary-600 bg-secondary-50 px-2 py-0.5 rounded flex items-center">
                 <Globe size={12} className="mr-1" />
                 Shared
@@ -217,12 +379,17 @@ const MemoryItem = ({ title, category, icon, date, shared }: MemoryItemProps) =>
             )}
             <span className="ml-auto text-xs text-gray-500">{date}</span>
           </div>
-          <p className="mt-1 text-gray-800">{title}</p>
+          <p className="mt-1 text-gray-800">{memory.title}</p>
           <div className="mt-2 flex space-x-2">
             <button className="text-xs text-gray-500 hover:text-gray-700">Edit</button>
-            <button className="text-xs text-gray-500 hover:text-gray-700">Delete</button>
+            <button
+              className="text-xs text-red-500 hover:text-red-700"
+              onClick={() => onDelete(memory.id)}
+            >
+              Delete
+            </button>
             <button className="text-xs text-gray-500 hover:text-gray-700">
-              {shared ? 'Make Private' : 'Share'}
+              {memory.shared ? 'Make Private' : 'Share'}
             </button>
           </div>
         </div>
