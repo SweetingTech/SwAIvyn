@@ -74,20 +74,27 @@ dotnet publish "SwAIvyn.csproj" `
     -p:PublishTrimmed=false `
     -p:EnableCompressionInSingleFile=true
 
-# Copy sqlite-vss.dll to the output directory from root if it exists
-$rootDll = Join-Path $rootDir "sqlite-vss.dll"
-if (Test-Path $rootDll) {
-    Copy-Item $rootDll -Destination (Join-Path $distDir "sqlite-vss.dll") -Force
-}
-# Also copy from data if present (in case user updates there)
-$dataDll = Join-Path $rootDir "data\sqlite-vss.dll"
-if (Test-Path $dataDll) {
-    Copy-Item $dataDll -Destination (Join-Path $distDir "sqlite-vss.dll") -Force
-}
-# Also copy from assets if present
-$assetsDll = Join-Path $rootDir "assets\sqlite-vss.dll"
-if (Test-Path $assetsDll) {
-    Copy-Item $assetsDll -Destination (Join-Path $distDir "sqlite-vss.dll") -Force
+# Copy SQLite-VSS and its dependencies from build_files directory
+$buildFilesDir = Join-Path $rootDir "build_files"
+$dllFiles = @("sqlite-vss.dll", "faiss.dll", "libopenblas.dll")
+
+Write-Host "Copying DLL files from build_files directory..." -ForegroundColor Cyan
+
+foreach ($dllFile in $dllFiles) {
+    $sourceDll = Join-Path $buildFilesDir $dllFile
+    $destDll = Join-Path $distDir $dllFile
+
+    if (Test-Path $sourceDll) {
+        # Only copy if source and destination are different
+        if ($sourceDll -ne $destDll) {
+            Copy-Item $sourceDll -Destination $destDll -Force
+            Write-Host "✓ Copied $dllFile from build_files" -ForegroundColor Green
+        } else {
+            Write-Host "✓ $dllFile already in correct location" -ForegroundColor Green
+        }
+    } else {
+        Write-Warning "⚠ $dllFile not found in build_files directory"
+    }
 }
 
 $buildResult = $LASTEXITCODE

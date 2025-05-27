@@ -36,13 +36,14 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options 
 });
 
 // Register the SQLite-VSS extension interceptor
-builder.Services.AddSingleton<SqliteVssExtensionInterceptor>(sp =>
-    new SqliteVssExtensionInterceptor(
-        sp.GetRequiredService<IConfiguration>()
-          .GetValue<string>("AppSettings:VssExtensionPath", "sqlite-vss.dll"),
-        sp.GetRequiredService<ISimpleLoggerService>()
-    )
-);
+// TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
+// builder.Services.AddSingleton<SqliteVssExtensionInterceptor>(sp =>
+//     new SqliteVssExtensionInterceptor(
+//         sp.GetRequiredService<IConfiguration>()
+//           .GetValue<string>("AppSettings:VssExtensionPath", "sqlite-vss.dll"),
+//         sp.GetRequiredService<ISimpleLoggerService>()
+//     )
+// );
 
 // Register DbContext with WAL mode and connection pooling
 builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
@@ -75,8 +76,9 @@ builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
     loggerForDb.LogInfo($"Using resolved connection string for ApplicationDbContext: {connectionString}");
 
     options
-        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
-        .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
+        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+        // TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
+        // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 });
 
 // Add DbContextFactory for background services
@@ -107,8 +109,9 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
     loggerForDbFactory.LogInfo($"Using resolved connection string for ApplicationDbContext (Factory): {connectionString}");
 
     options
-        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared")
-        .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
+        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+        // TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
+        // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 }, ServiceLifetime.Scoped);
 
 // Add database initializer service
@@ -141,7 +144,9 @@ builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
 
 // Add vector store and brain services
 builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
-builder.Services.AddSingleton<IVectorStore, SqliteVectorStore>();
+// Use Weaviate instead of SQLite-VSS for vector storage
+builder.Services.AddHttpClient<WeaviateVectorStore>();
+builder.Services.AddSingleton<IVectorStore, WeaviateVectorStore>();
 builder.Services.AddScoped<IBrainService, BrainService>();
 
 // Add Neo4j and BrainGraph services

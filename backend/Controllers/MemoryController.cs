@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
 using SwAIvyn.Data.Entities;
+using SwAIvyn.Services;
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -17,10 +18,12 @@ namespace SwAIvyn.Controllers
     public class MemoryController : ControllerBase
     {
         private readonly ApplicationDbContext _dbContext;
+        private readonly IBrainService _brainService;
 
-        public MemoryController(ApplicationDbContext dbContext)
+        public MemoryController(ApplicationDbContext dbContext, IBrainService brainService)
         {
             _dbContext = dbContext;
+            _brainService = brainService;
         }
 
         /// <summary>
@@ -57,8 +60,28 @@ namespace SwAIvyn.Controllers
                 LastAccessed = DateTime.UtcNow
             };
 
+            // Save to database
             _dbContext.Memories.Add(memory);
             await _dbContext.SaveChangesAsync();
+
+            // Add to vector store for semantic search
+            try
+            {
+                var metadata = new Dictionary<string, string>
+                {
+                    { "category", memory.Category },
+                    { "userId", memory.UserId.ToString() },
+                    { "isShared", memory.IsShared.ToString() },
+                    { "createdAt", memory.CreatedAt.ToString("O") }
+                };
+
+                await _brainService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't fail the request - memory is still saved to database
+                Console.WriteLine($"Warning: Failed to add memory to vector store: {ex.Message}");
+            }
 
             return Ok(memory);
         }
@@ -102,10 +125,70 @@ namespace SwAIvyn.Controllers
                 return NotFound();
             }
 
+            // Remove from database
             _dbContext.Memories.Remove(memory);
             await _dbContext.SaveChangesAsync();
 
+            // Remove from vector store
+            try
+            {
+                await _brainService.DeleteMemoryAsync(id);
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't fail the request - memory is already deleted from database
+                Console.WriteLine($"Warning: Failed to delete memory from vector store: {ex.Message}");
+            }
+
             return NoContent();
+        }
+
+        /// <summary>
+        /// Rebuilds the vector store by adding all existing memories to it.
+        /// This is useful for migrating existing memories to the vector store.
+        /// </summary>
+        /// <param name="userId">User ID to rebuild memories for</param>
+        /// <returns>Number of memories processed</returns>
+        [HttpPost("rebuild-vectors/{userId}")]
+        public async Task<IActionResult> RebuildVectors(Guid userId)
+        {
+            try
+            {
+                var memories = await _dbContext.Memories
+                    .Where(m => m.UserId == userId)
+                    .ToListAsync();
+
+                int processed = 0;
+                int errors = 0;
+
+                foreach (var memory in memories)
+                {
+                    try
+                    {
+                        var metadata = new Dictionary<string, string>
+                        {
+                            { "category", memory.Category },
+                            { "userId", memory.UserId.ToString() },
+                            { "isShared", memory.IsShared.ToString() },
+                            { "createdAt", memory.CreatedAt.ToString("O") }
+                        };
+
+                        await _brainService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                        processed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to add memory {memory.Id} to vector store: {ex.Message}");
+                        errors++;
+                    }
+                }
+
+                return Ok(new { processed, errors, total = memories.Count });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error rebuilding vectors: {ex.Message}");
+            }
         }
     }
 

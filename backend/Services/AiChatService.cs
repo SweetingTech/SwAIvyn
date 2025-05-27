@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,7 @@ namespace SwAIvyn.Services
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _dbContext;
         private readonly IDefaultCharacterService _defaultCharacterService;
+        private readonly IBrainService _brainService;
 
         // Setting keys
         private const string DEFAULT_LLM_ENGINE_KEY = "DefaultLlmEngine";
@@ -66,6 +68,7 @@ namespace SwAIvyn.Services
         /// <param name="configuration">Configuration</param>
         /// <param name="dbContext">Database context</param>
         /// <param name="defaultCharacterService">Default character service</param>
+        /// <param name="brainService">Brain service for memory search</param>
         public AiChatService(
             ILlmConnectorService llmConnector,
             IConversationService conversationService,
@@ -73,7 +76,8 @@ namespace SwAIvyn.Services
             ISimpleLoggerService logger,
             IConfiguration configuration,
             ApplicationDbContext dbContext,
-            IDefaultCharacterService defaultCharacterService)
+            IDefaultCharacterService defaultCharacterService,
+            IBrainService brainService)
         {
             _llmConnector = llmConnector;
             _conversationService = conversationService;
@@ -82,6 +86,7 @@ namespace SwAIvyn.Services
             _configuration = configuration;
             _dbContext = dbContext;
             _defaultCharacterService = defaultCharacterService;
+            _brainService = brainService;
         }
 
         /// <inheritdoc/>
@@ -141,11 +146,58 @@ namespace SwAIvyn.Services
                     _logger.LogWarning("⚠️ No system prompt available - using no character context");
                 }
 
-                // Add user message
+                // Search for relevant memories
+                string memoryContext = "";
+                try
+                {
+                    _logger.LogInfo("🧠 Searching for relevant memories...");
+                    var memoryHits = await _brainService.SearchAsync(userMessage, limit: 5);
+
+                    if (memoryHits.Any())
+                    {
+                        _logger.LogInfo($"✅ Found {memoryHits.Count} relevant memories");
+                        var memoryTexts = new List<string>();
+
+                        foreach (var hit in memoryHits)
+                        {
+                            if (hit.Metadata != null && hit.Metadata.ContainsKey("userId"))
+                            {
+                                // Only include memories from the same user
+                                if (hit.Metadata["userId"] == userId.ToString())
+                                {
+                                    // Get the actual memory content from the database using the ID
+                                    var memory = await _dbContext.Memories.FindAsync(hit.Id);
+                                    if (memory != null)
+                                    {
+                                        memoryTexts.Add($"- {memory.Content}");
+                                    }
+                                }
+                            }
+                        }
+
+                        if (memoryTexts.Any())
+                        {
+                            memoryContext = $"\n\nRelevant memories from previous conversations:\n{string.Join("\n", memoryTexts)}\n\nUse this information to provide more informed and personalized responses.";
+                            _logger.LogInfo($"✅ Including {memoryTexts.Count} user memories in context");
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInfo("ℹ️ No relevant memories found");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"⚠️ Failed to search memories: {ex.Message}");
+                    // Continue without memories - don't fail the entire request
+                }
+
+                // Add user message with memory context
+                var userContent = userMessage + memoryContext;
                 messages.Add(new Dictionary<string, string>
                 {
                     { "role", "user" },
-                    { "content", userMessage }
+                    { "content", userContent }
                 });
 
                 _logger.LogInfo($"📤 Sending {messages.Count} structured messages to LLM");
