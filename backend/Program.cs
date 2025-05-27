@@ -501,7 +501,19 @@ app.UseGlobalExceptionHandler();
 
 app.UseHttpsRedirection();
 app.UseDefaultFiles(); // Add this to serve index.html by default
-app.UseStaticFiles();
+
+// Configure static files with cache-busting headers for development
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        // Add cache-busting headers to prevent browser caching during development
+        ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
+        ctx.Context.Response.Headers.Append("Pragma", "no-cache");
+        ctx.Context.Response.Headers.Append("Expires", "0");
+    }
+});
+
 app.UseRouting();
 app.UseCors("CorsPolicy");
 app.UseAuthorization();

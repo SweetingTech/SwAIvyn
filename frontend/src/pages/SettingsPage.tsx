@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   User, Network, Save, Speech, Database,
   Palette, Image as ImageIcon, Upload,
-  Volume2, ServerCog, Plus, Edit, Trash2
+  Volume2, ServerCog, Plus, Edit, Trash2, Bot
 } from 'lucide-react';
 import { Tooltip } from '../components/Tooltip';
 import chatService from '../services/chatService';
@@ -17,6 +17,7 @@ const tabs = [
   { id: 'voice', label: 'Voice', icon: <Volume2 size={16} /> },
   { id: 'character', label: 'Character', icon: <ImageIcon size={16} /> },
   { id: 'agents', label: 'Connections', icon: <ServerCog size={16} /> },
+  { id: 'agentstack', label: 'Agent Stack', icon: <Bot size={16} /> },
   { id: 'appearance', label: 'Appearance', icon: <Palette size={16} /> },
   { id: 'network', label: 'Network', icon: <Network size={16} /> }
 ];
@@ -81,6 +82,7 @@ const SettingsPage = () => {
               {activeTab === 'voice' && <VoiceSettings />}
               {activeTab === 'character' && <CharacterSettings />}
               {activeTab === 'agents' && <AgentsSettings />}
+              {activeTab === 'agentstack' && <AgentStackSettings />}
               {activeTab === 'appearance' && <AppearanceSettings />}
               {activeTab === 'network' && <NetworkSettings />}
             </div>
@@ -95,6 +97,79 @@ const AccountSettings = () => {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]|null>(null);
   const [pin, setPin] = useState('');
   const [pinSet, setPinSet] = useState(false);
+  const [userInfo, setUserInfo] = useState({
+    username: '',
+    email: '',
+    createdAt: '',
+    lastLogin: ''
+  });
+  const [loading, setLoading] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => {
+    loadUserInfo();
+  }, []);
+
+  const loadUserInfo = async () => {
+    try {
+      setLoading(true);
+      // Use the default and only user ID for this application
+      const defaultUserId = '00000000-0000-0000-0000-000000000001';
+      const response = await fetch(`/api/user/${defaultUserId}`);
+      if (response.ok) {
+        const userData = await response.json();
+        setUserInfo({
+          username: userData.username || 'Default User',
+          email: userData.email || 'user@example.com',
+          createdAt: userData.createdAt || new Date().toISOString(),
+          lastLogin: userData.lastLogin || new Date().toISOString()
+        });
+      } else {
+        // Fallback data
+        setUserInfo({
+          username: 'Default User',
+          email: 'user@example.com',
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user info:', error);
+      setUserInfo({
+        username: 'Error Loading',
+        email: 'error@example.com',
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Unknown';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-32">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -105,18 +180,42 @@ const AccountSettings = () => {
         </p>
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-            Username
-          </label>
-          <input
-            id="username"
-            type="text"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-          />
+      {/* Success/Error Messages */}
+      {saveSuccess && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
+          Account settings updated successfully!
         </div>
+      )}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+          {saveError}
+        </div>
+      )}
 
+      {/* User Information */}
+      <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
+        <h3 className="text-lg font-medium text-gray-900 mb-3">Account Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Username</label>
+            <p className="text-sm text-gray-900 mt-1">{userInfo.username}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Email</label>
+            <p className="text-sm text-gray-900 mt-1">{userInfo.email}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Account Created</label>
+            <p className="text-sm text-gray-900 mt-1">{formatDate(userInfo.createdAt)}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Last Login</label>
+            <p className="text-sm text-gray-900 mt-1">{formatDate(userInfo.lastLogin)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
         <div>
           <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
             Password
@@ -210,54 +309,51 @@ const ModelSettings = () => {
 
   // Load user ID first, then settings
   useEffect(() => {
+    console.log('🚀 SettingsPage useEffect starting...');
+
     const loadUserAndSettings = async () => {
       try {
+        console.log('🔄 Starting loadUserAndSettings...');
         // Fetch the default user from backend (same as ChatPage.tsx)
         let validUserId = null;
 
-        try {
-          console.log('Fetching user from /api/user/default...');
-          const response = await fetch('/api/user/default');
-          console.log('User API response status:', response.status);
+        // Use the default and only user ID for this application
+        validUserId = '00000000-0000-0000-0000-000000000001';
+        console.log('✅ Using default user ID:', validUserId);
 
-          if (response.ok) {
-            const data = await response.json();
-            console.log('User API response data:', data);
-
-            // Validate that we have a proper user ID (should be a GUID)
-            if (data && data.id && typeof data.id === 'string' && data.id.length >= 30) {
-              validUserId = data.id;
-              console.log('Valid user found:', { id: validUserId });
-            } else {
-              console.warn('Invalid user ID format:', data);
-            }
-          } else {
-            console.warn('User API response not ok:', response.status, response.statusText);
-          }
-        } catch (userError) {
-          console.error('Error fetching user:', userError);
-        }
-
-        // If we don't have a valid user ID, use demo mode
+        // If we don't have a valid user ID, use demo mode but don't load settings yet
         if (!validUserId) {
-          console.warn('No valid user available, using demo mode');
+          console.warn('⚠️ No valid user available, using demo mode');
           setUserId('demo-user-id');
+          // Don't load settings without a valid user ID
           return;
         }
 
         // We have a valid user ID
+        console.log('✅ Setting userId to:', validUserId);
         setUserId(validUserId);
 
         // Now load settings with the user ID
+        console.log('🔄 About to load settings with userId:', validUserId);
         await loadSettings(validUserId);
       } catch (error) {
-        console.error('Error loading user and settings:', error);
+        console.error('❌ Error loading user and settings:', error);
         setSaveError('Failed to load user information. Please try again.');
       }
     };
 
     loadUserAndSettings();
   }, []);
+
+  // Debug useEffect to track selectedEngine changes
+  useEffect(() => {
+    console.log('🔍 selectedEngine state changed to:', selectedEngine);
+  }, [selectedEngine]);
+
+  // Debug useEffect to track selectedModel changes
+  useEffect(() => {
+    console.log('🔍 selectedModel state changed to:', selectedModel);
+  }, [selectedModel]);
 
   // Handle engine changes - load models when engine changes
   useEffect(() => {
@@ -292,31 +388,67 @@ const ModelSettings = () => {
   const loadSettings = async (userIdToUse: string) => {
     try {
       setLoading(true);
+      console.log('🔄 Starting to load settings for user:', userIdToUse);
+
+      // Validate user ID before making API calls
+      if (!userIdToUse || userIdToUse.length < 30) {
+        console.error('❌ Invalid user ID provided to loadSettings:', userIdToUse);
+        setSaveError('Invalid user ID. Please refresh the page.');
+        return;
+      }
+
       // Get current LLM settings with user ID
       const settings = await chatService.getLlmSettings(userIdToUse);
-      console.log('🔄 Loaded settings:', settings);
+      console.log('🔄 Raw settings from API:', settings);
+      console.log('🔄 Settings type:', typeof settings);
+      console.log('🔄 Settings.engine:', settings.engine);
+      console.log('🔄 Settings.model:', settings.model);
 
-      setSelectedEngine(settings.engine || 'ollama');
-      setSelectedModel(settings.model || '');
-      console.log('✅ Set engine to:', settings.engine || 'ollama');
-      console.log('✅ Set model to:', settings.model || '');
+      const engineToSet = settings.engine || 'ollama';
+      const modelToSet = settings.model || '';
+
+      console.log('🔄 About to set engine to:', engineToSet);
+      console.log('🔄 About to set model to:', modelToSet);
+
+      setSelectedEngine(engineToSet);
+      setSelectedModel(modelToSet);
+
+      console.log('✅ Called setSelectedEngine with:', engineToSet);
+      console.log('✅ Called setSelectedModel with:', modelToSet);
+
+      // Add a small delay to check if state updates
+      setTimeout(() => {
+        console.log('🔍 State check after 100ms - selectedEngine:', selectedEngine);
+        console.log('🔍 State check after 100ms - selectedModel:', selectedModel);
+      }, 100);
 
       // Get connection settings from API with user ID
       try {
-        const connectionResponse = await fetch(`/api/settings/connections?userId=${userIdToUse}`);
-        if (connectionResponse.ok) {
-          const connectionSettings = await connectionResponse.json();
-          setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
-          setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
-          setEnableStreaming(connectionSettings.enableStreaming !== false); // Default to true
-        } else {
-          // Use default values if API call fails
+        // Validate user ID before making connection settings API call
+        if (!userIdToUse || userIdToUse.length < 30) {
+          console.warn('⚠️ Invalid user ID for connection settings, using defaults');
           setOllamaApiUrl('http://localhost:11434');
           setLmStudioApiUrl('http://localhost:1234');
           setEnableStreaming(true);
+        } else {
+          console.log('🔄 Loading connection settings for user:', userIdToUse);
+          const connectionResponse = await fetch(`/api/settings/connections?userId=${userIdToUse}`);
+          if (connectionResponse.ok) {
+            const connectionSettings = await connectionResponse.json();
+            console.log('🔄 Connection settings loaded:', connectionSettings);
+            setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
+            setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
+            setEnableStreaming(connectionSettings.enableStreaming !== false); // Default to true
+          } else {
+            console.warn('⚠️ Connection settings API call failed:', connectionResponse.status);
+            // Use default values if API call fails
+            setOllamaApiUrl('http://localhost:11434');
+            setLmStudioApiUrl('http://localhost:1234');
+            setEnableStreaming(true);
+          }
         }
       } catch (connectionError) {
-        console.error('Error loading connection settings:', connectionError);
+        console.error('❌ Error loading connection settings:', connectionError);
         // Use default values if API call fails
         setOllamaApiUrl('http://localhost:11434');
         setLmStudioApiUrl('http://localhost:1234');
@@ -372,10 +504,11 @@ const ModelSettings = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            userId: userId, // Pass the actual user ID
-            ollamaApiUrl: ollamaApiUrl,
-            lmStudioApiUrl: lmStudioApiUrl,
-            enableStreaming: enableStreaming
+            UserId: userId, // Pass the actual user ID (capital U to match backend)
+            OllamaApiUrl: ollamaApiUrl || '', // Capital O and A to match backend, ensure not null
+            LmStudioApiUrl: lmStudioApiUrl || '', // Capital L, S, A, U to match backend, ensure not null
+            Neo4jUri: '', // Include Neo4jUri as empty string (required by backend model)
+            EnableStreaming: enableStreaming // Capital E and S to match backend
           })
         });
         console.log('Connection settings saved successfully');
@@ -412,10 +545,17 @@ const ModelSettings = () => {
               <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
             </Tooltip>
           </label>
+          {/* Debug info */}
+          <div className="text-xs text-gray-500 mb-1">
+            Debug: selectedEngine = "{selectedEngine}" | loading = {loading.toString()}
+          </div>
           <select
             className="w-full border rounded px-3 py-2"
             value={selectedEngine}
-            onChange={e => setSelectedEngine(e.target.value)}
+            onChange={e => {
+              console.log('🔄 Engine dropdown changed to:', e.target.value);
+              setSelectedEngine(e.target.value);
+            }}
             disabled={loading}
           >
             <option value="ollama">Ollama</option>
@@ -610,16 +750,40 @@ const CharacterSettings = () => {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [showEditor, setShowEditor] = useState(false);
   const [editingCharacter, setEditingCharacter] = useState<string | undefined>(undefined);
-  const [userId] = useState('dc42bfd4-a6d3-4706-8932-c221bf771a0f'); // TODO: Get from auth context
+  const [userId, setUserId] = useState('demo-user-id');
 
   useEffect(() => {
     setAvatars([{ id: '1', type: '2D', thumbnailPath: '/default-avatar.png' }]);
-    loadCharacters();
+    loadUserAndCharacters();
   }, []);
 
-  const loadCharacters = async () => {
+  const loadUserAndCharacters = async () => {
     try {
-      const response = await fetch(`/api/character/user/${userId}`);
+      // Use the default and only user ID for this application
+      const userIdToUse = '00000000-0000-0000-0000-000000000001';
+      setUserId(userIdToUse);
+
+      // Load characters with the user ID
+      await loadCharacters(userIdToUse);
+    } catch (error) {
+      console.error('Error loading user and characters:', error);
+    }
+  };
+
+  const loadCharacters = async (userIdToUse?: string) => {
+    try {
+      // Always use the hardcoded default user ID
+      const idToUse = userIdToUse || '00000000-0000-0000-0000-000000000001';
+      console.log('🔍 CharacterSettings: Loading characters with userId:', idToUse);
+
+      // Skip API call if userId is invalid
+      if (!idToUse || idToUse.length !== 36) {
+        console.warn('🔍 CharacterSettings: Invalid userId, skipping character loading:', idToUse);
+        setCharacters([]);
+        return;
+      }
+
+      const response = await fetch(`/api/character/user/${idToUse}`);
       if (response.ok) {
         const data = await response.json();
         setCharacters(data);
@@ -1010,7 +1174,336 @@ const InvocationSettings = () => {
   );
 };
 
+const AgentStackSettings = () => {
+  const [agentStackUrl, setAgentStackUrl] = useState('http://localhost:8080');
+  const [agentStackApiKey, setAgentStackApiKey] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => {
+    loadAgentStackSettings();
+  }, []);
+
+  const loadAgentStackSettings = async () => {
+    try {
+      setLoading(true);
+
+      // Use the default and only user ID for this application
+      const userId = '00000000-0000-0000-0000-000000000001';
+
+      // Load agent stack settings from API
+      const settingsResponse = await fetch(`/api/settings?userId=${userId}`);
+      if (settingsResponse.ok) {
+        const settings = await settingsResponse.json();
+        setAgentStackUrl(settings.AgentStackUrl || 'http://localhost:8080');
+        setAgentStackApiKey(settings.AgentStackApiKey || '');
+      }
+    } catch (error) {
+      console.error('Error loading agent stack settings:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const testConnection = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${agentStackUrl}/health`);
+      if (response.ok) {
+        setConnected(true);
+        alert('Connection successful!');
+      } else {
+        setConnected(false);
+        alert('Connection failed. Please check the URL and try again.');
+      }
+    } catch (error) {
+      setConnected(false);
+      alert('Connection failed. Please check the URL and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveAgentStackSettings = async () => {
+    try {
+      setLoading(true);
+      setSaveSuccess(false);
+      setSaveError('');
+
+      // Use the default and only user ID for this application
+      const userId = '00000000-0000-0000-0000-000000000001';
+
+      // Save settings to API
+      const settingsToSave = {
+        AgentStackUrl: agentStackUrl,
+        AgentStackApiKey: agentStackApiKey
+      };
+
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          UserId: userId,
+          Settings: settingsToSave
+        })
+      });
+
+      if (response.ok) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        setSaveError('Failed to save settings. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving agent stack settings:', error);
+      setSaveError('Failed to save settings. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-medium text-gray-800 mb-4">Agent Stack Connection</h2>
+        <p className="text-sm text-gray-600 mb-6">
+          Connect to an external agent stack for advanced API access, MCP support, and agent functionality
+        </p>
+      </div>
+
+      {/* Success/Error Messages */}
+      {saveSuccess && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
+          Agent stack settings saved successfully!
+        </div>
+      )}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+          {saveError}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {/* Agent Stack URL */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Agent Stack URL
+          </label>
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={agentStackUrl}
+              onChange={(e) => setAgentStackUrl(e.target.value)}
+              placeholder="http://localhost:8080"
+              className="flex-grow border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              disabled={loading}
+            />
+            <button
+              onClick={testConnection}
+              className="btn btn-primary"
+              disabled={loading}
+            >
+              Test Connection
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            URL of the external agent stack server
+          </p>
+        </div>
+
+        {/* API Key */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            API Key (Optional)
+          </label>
+          <input
+            type="password"
+            value={agentStackApiKey}
+            onChange={(e) => setAgentStackApiKey(e.target.value)}
+            placeholder="Enter API key if required"
+            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            disabled={loading}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            API key for authentication (if required by the agent stack)
+          </p>
+        </div>
+
+        {/* Connection Status */}
+        <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-sm font-medium text-gray-700">
+              Status: {connected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            {connected
+              ? 'Successfully connected to the agent stack'
+              : 'Not connected to the agent stack'
+            }
+          </p>
+        </div>
+
+        {/* Features Info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+          <h4 className="text-sm font-medium text-blue-900 mb-2">Agent Stack Features</h4>
+          <ul className="text-xs text-blue-700 space-y-1">
+            <li>• External API integrations</li>
+            <li>• Model Context Protocol (MCP) support</li>
+            <li>• Advanced agent orchestration</li>
+            <li>• Custom tool and function calling</li>
+            <li>• Multi-agent workflows</li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="pt-4 flex justify-end">
+        <button
+          className="btn btn-primary flex items-center"
+          onClick={saveAgentStackSettings}
+          disabled={loading}
+        >
+          {loading ? <span className="loader mr-2"></span> : <Save size={16} className="mr-1.5" />}
+          {loading ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const AppearanceSettings = () => {
+  const [theme, setTheme] = useState('dark');
+  const [language, setLanguage] = useState('en');
+  const [accentColor, setAccentColor] = useState('#8B5CF6');
+  const [fontSize, setFontSize] = useState('medium');
+  const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Simple fallback translations for now
+  const t = (key: string) => {
+    const translations: Record<string, string> = {
+      'appearance.title': 'Appearance Settings',
+      'appearance.subtitle': 'Customize the look and feel of your AI assistant',
+      'appearance.theme': 'Theme',
+      'appearance.light': 'Light',
+      'appearance.dark': 'Dark',
+      'appearance.system': 'System',
+      'appearance.language': 'Language',
+      'appearance.selectLanguage': 'Select your preferred language for the interface',
+      'appearance.accentColor': 'Accent Color',
+      'appearance.fontSize': 'Font Size',
+      'appearance.adjustFontSize': 'Adjust the size of text throughout the application',
+      'appearance.small': 'Small',
+      'appearance.medium': 'Medium',
+      'appearance.large': 'Large',
+      'common.save': 'Save',
+      'settings.saveChanges': 'Save Changes',
+      'settings.saving': 'Saving...',
+      'settings.settingsSaved': 'Appearance settings saved successfully!',
+      'settings.failedToSave': 'Failed to save settings. Please try again.'
+    };
+    return translations[key] || key;
+  };
+
+  // Load settings on component mount
+  useEffect(() => {
+    loadAppearanceSettings();
+  }, []);
+
+  const loadAppearanceSettings = async () => {
+    try {
+      setLoading(true);
+
+      // Use the default and only user ID for this application
+      const userId = '00000000-0000-0000-0000-000000000001';
+
+      // Load appearance settings from API
+      const settingsResponse = await fetch(`/api/settings?userId=${userId}`);
+      if (settingsResponse.ok) {
+        const settings = await settingsResponse.json();
+        setTheme(settings.Theme || 'dark');
+        setLanguage(settings.Language || 'en');
+        setAccentColor(settings.AccentColor || '#8B5CF6');
+        setFontSize(settings.FontSize || 'medium');
+      }
+    } catch (error) {
+      console.error('Error loading appearance settings:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveAppearanceSettings = async () => {
+    try {
+      setLoading(true);
+      setSaveSuccess(false);
+      setSaveError('');
+
+      // Use the default and only user ID for this application
+      const userId = '00000000-0000-0000-0000-000000000001';
+
+      // Save settings to API
+      const settingsToSave = {
+        Theme: theme,
+        Language: language,
+        AccentColor: accentColor,
+        FontSize: fontSize
+      };
+
+      // Also update the browser language if i18n is available
+      if (typeof window !== 'undefined' && (window as any).i18n) {
+        try {
+          await (window as any).i18n.changeLanguage(language);
+        } catch (error) {
+          console.log('i18n not available, language change will apply on next reload');
+        }
+      }
+
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          UserId: userId,
+          Settings: settingsToSave
+        })
+      });
+
+      if (response.ok) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        setSaveError('Failed to save settings. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving appearance settings:', error);
+      setSaveError('Failed to save settings. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const themes = [
+    { id: 'light', name: 'Light', preview: 'bg-white border-gray-200' },
+    { id: 'dark', name: 'Dark', preview: 'bg-gray-800' },
+    { id: 'system', name: 'System', preview: 'bg-gradient-to-b from-white to-gray-800' }
+  ];
+
+  const accentColors = [
+    { id: '#8B5CF6', name: 'Purple', color: 'bg-purple-500' },
+    { id: '#3B82F6', name: 'Blue', color: 'bg-blue-500' },
+    { id: '#10B981', name: 'Green', color: 'bg-green-500' },
+    { id: '#F59E0B', name: 'Orange', color: 'bg-orange-500' },
+    { id: '#EF4444', name: 'Red', color: 'bg-red-500' }
+  ];
+
   return (
     <div className="space-y-6">
       <div>
@@ -1020,45 +1513,113 @@ const AppearanceSettings = () => {
         </p>
       </div>
 
-      <div className="space-y-4">
+      {/* Success/Error Messages */}
+      {saveSuccess && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
+          Appearance settings saved successfully!
+        </div>
+      )}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+          {saveError}
+        </div>
+      )}
+
+      <div className="space-y-6">
+        {/* Theme Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-3">
             Theme
           </label>
           <div className="grid grid-cols-3 gap-3">
-            <button className="flex flex-col items-center p-3 border border-gray-300 rounded-md bg-white">
-              <div className="w-full h-16 bg-white border border-gray-200 rounded-md mb-2"></div>
-              <span className="text-xs">Light</span>
-            </button>
-            <button className="flex flex-col items-center p-3 border border-primary-500 rounded-md bg-white shadow-sm">
-              <div className="w-full h-16 bg-gray-800 rounded-md mb-2"></div>
-              <span className="text-xs">Dark</span>
-            </button>
-            <button className="flex flex-col items-center p-3 border border-gray-300 rounded-md bg-white">
-              <div className="w-full h-16 bg-gradient-to-b from-white to-gray-800 rounded-md mb-2"></div>
-              <span className="text-xs">System</span>
-            </button>
+            {themes.map((themeOption) => (
+              <button
+                key={themeOption.id}
+                onClick={() => setTheme(themeOption.id)}
+                className={`flex flex-col items-center p-3 border rounded-md transition-all ${
+                  theme === themeOption.id
+                    ? 'border-primary-500 bg-primary-50 shadow-sm'
+                    : 'border-gray-300 bg-white hover:border-gray-400'
+                }`}
+                disabled={loading}
+              >
+                <div className={`w-full h-16 ${themeOption.preview} border border-gray-200 rounded-md mb-2`}></div>
+                <span className="text-xs font-medium">{themeOption.name}</span>
+              </button>
+            ))}
           </div>
         </div>
 
+        {/* Language Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
+            Language
+          </label>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            disabled={loading}
+          >
+            <option value="en">English</option>
+            <option value="ja">日本語 (Japanese)</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Select your preferred language for the interface
+          </p>
+        </div>
+
+        {/* Accent Color */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-3">
             Accent Color
           </label>
-          <div className="grid grid-cols-5 gap-2">
-            <button className="w-full h-10 bg-primary-500 rounded-md border-2 border-primary-700"></button>
-            <button className="w-full h-10 bg-secondary-500 rounded-md"></button>
-            <button className="w-full h-10 bg-accent-500 rounded-md"></button>
-            <button className="w-full h-10 bg-success-500 rounded-md"></button>
-            <button className="w-full h-10 bg-error-500 rounded-md"></button>
+          <div className="grid grid-cols-5 gap-3">
+            {accentColors.map((colorOption) => (
+              <button
+                key={colorOption.id}
+                onClick={() => setAccentColor(colorOption.id)}
+                className={`w-full h-12 ${colorOption.color} rounded-md border-2 transition-all ${
+                  accentColor === colorOption.id
+                    ? 'border-gray-800 scale-105'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+                disabled={loading}
+                title={colorOption.name}
+              />
+            ))}
           </div>
+        </div>
+
+        {/* Font Size */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Font Size
+          </label>
+          <select
+            value={fontSize}
+            onChange={(e) => setFontSize(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            disabled={loading}
+          >
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Adjust the size of text throughout the application
+          </p>
         </div>
       </div>
 
       <div className="pt-4 flex justify-end">
-        <button className="btn btn-primary">
-          <Save size={16} className="mr-1.5" />
-          Save Changes
+        <button
+          className="btn btn-primary flex items-center"
+          onClick={saveAppearanceSettings}
+          disabled={loading}
+        >
+          {loading ? <span className="loader mr-2"></span> : <Save size={16} className="mr-1.5" />}
+          {loading ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
     </div>

@@ -26,7 +26,7 @@ namespace SwAIvyn.Controllers
         public async Task<IActionResult> GetDefaultUser()
         {
             var user = await _dbContext.Users.FirstOrDefaultAsync();
-            
+
             if (user == null)
             {
                 // Create the default user if none exists
@@ -45,11 +45,49 @@ namespace SwAIvyn.Controllers
                 await _dbContext.SaveChangesAsync();
             }
 
-            return Ok(new { 
-                id = user.Id, 
+            return Ok(new {
+                id = user.Id,
                 username = user.Username,
                 createdAt = user.CreatedAt,
-                lastLogin = user.LastLogin 
+                lastLogin = user.LastLogin
+            });
+        }
+
+        /// <summary>
+        /// Gets a user by ID. Since this is a single-user application,
+        /// this will return the default user regardless of the ID provided.
+        /// </summary>
+        /// <param name="userId">User ID (ignored in single-user mode)</param>
+        /// <returns>The default user</returns>
+        [HttpGet("{userId}")]
+        public async Task<IActionResult> GetUser(Guid userId)
+        {
+            // In single-user mode, always return the default user
+            var user = await _dbContext.Users.FirstOrDefaultAsync();
+
+            if (user == null)
+            {
+                // Create the default user if none exists
+                user = new AppUser
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                    Username = "Default User",
+                    PasswordHash = "", // No password needed for single-user app
+                    PINCode = "",
+                    RecoveryPhrase = "",
+                    CreatedAt = DateTime.UtcNow,
+                    LastLogin = DateTime.UtcNow
+                };
+
+                _dbContext.Users.Add(user);
+                await _dbContext.SaveChangesAsync();
+            }
+
+            return Ok(new {
+                id = user.Id,
+                username = user.Username,
+                createdAt = user.CreatedAt,
+                lastLogin = user.LastLogin
             });
         }
 
@@ -60,17 +98,17 @@ namespace SwAIvyn.Controllers
         public async Task<IActionResult> GetUserProfile()
         {
             var user = await _dbContext.Users.FirstOrDefaultAsync();
-            
+
             if (user == null)
             {
                 return NotFound("No user found.");
             }
 
-            return Ok(new { 
-                id = user.Id, 
+            return Ok(new {
+                id = user.Id,
                 username = user.Username,
                 createdAt = user.CreatedAt,
-                lastLogin = user.LastLogin 
+                lastLogin = user.LastLogin
             });
         }
 
@@ -81,7 +119,7 @@ namespace SwAIvyn.Controllers
         public async Task<IActionResult> UpdateUserProfile([FromBody] UpdateUserProfileRequest request)
         {
             var user = await _dbContext.Users.FirstOrDefaultAsync();
-            
+
             if (user == null)
             {
                 return NotFound("No user found.");
@@ -94,14 +132,14 @@ namespace SwAIvyn.Controllers
             }
 
             user.LastLogin = DateTime.UtcNow;
-            
+
             await _dbContext.SaveChangesAsync();
 
-            return Ok(new { 
-                id = user.Id, 
+            return Ok(new {
+                id = user.Id,
                 username = user.Username,
                 createdAt = user.CreatedAt,
-                lastLogin = user.LastLogin 
+                lastLogin = user.LastLogin
             });
         }
     }

@@ -50,7 +50,11 @@ const chatService = {
   async getLlmSettings(userId?: string): Promise<{ engine: string, model: string }> {
     try {
       const url = userId ? `/api/settings/llm?userId=${userId}` : '/api/settings/llm';
+      console.log('🔄 Making LLM settings API call to:', url);
+      console.log('🔄 UserId parameter:', userId);
+      console.log('🔄 UserId type:', typeof userId);
       const response = await apiService.get(url);
+      console.log('🔄 LLM settings API response:', response);
       return response;
     } catch (error) {
       console.error('Error getting LLM settings:', error);

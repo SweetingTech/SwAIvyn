@@ -1,0 +1,345 @@
+import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import {
+  User,
+  Mail,
+  Calendar,
+  Shield,
+  Edit3,
+  Save,
+  X,
+  Camera,
+  Key,
+  Clock
+} from 'lucide-react';
+
+interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: string;
+  lastLogin: string;
+  profileImage?: string;
+}
+
+const UserProfilePage = () => {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    username: '',
+    email: ''
+  });
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => {
+    loadUserProfile();
+  }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      setLoading(true);
+
+      // Use the default and only user ID for this application
+      const defaultUserId = '00000000-0000-0000-0000-000000000001';
+      const response = await fetch(`/api/user/${defaultUserId}`);
+      if (response.ok) {
+        const userData = await response.json();
+        const userProfile: UserProfile = {
+          id: userData.id || defaultUserId,
+          username: userData.username || 'Default User',
+          email: userData.email || 'user@example.com',
+          createdAt: userData.createdAt || new Date().toISOString(),
+          lastLogin: userData.lastLogin || new Date().toISOString(),
+          profileImage: userData.profileImage
+        };
+
+        setProfile(userProfile);
+        setEditForm({
+          username: userProfile.username,
+          email: userProfile.email
+        });
+      } else {
+        // Fallback to default data
+        const defaultProfile: UserProfile = {
+          id: defaultUserId,
+          username: 'Default User',
+          email: 'user@example.com',
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString()
+        };
+        setProfile(defaultProfile);
+        setEditForm({
+          username: defaultProfile.username,
+          email: defaultProfile.email
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+      // Set fallback profile
+      const fallbackProfile: UserProfile = {
+        id: 'error-user-id',
+        username: 'Unknown User',
+        email: 'unknown@example.com',
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+      setProfile(fallbackProfile);
+      setEditForm({
+        username: fallbackProfile.username,
+        email: fallbackProfile.email
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaveError('');
+      setSaveSuccess(false);
+
+      // TODO: Implement actual save to backend
+      // For now, just update local state
+      if (profile) {
+        setProfile({
+          ...profile,
+          username: editForm.username,
+          email: editForm.email
+        });
+      }
+
+      setEditing(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      setSaveError('Failed to save profile. Please try again.');
+    }
+  };
+
+  const handleCancel = () => {
+    if (profile) {
+      setEditForm({
+        username: profile.username,
+        email: profile.email
+      });
+    }
+    setEditing(false);
+    setSaveError('');
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Unknown';
+    }
+  };
+
+  if (loading) {
+    return (
+      <motion.div
+        className="min-h-[calc(100vh-64px)] bg-gray-50 p-4 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+      >
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </motion.div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <motion.div
+        className="min-h-[calc(100vh-64px)] bg-gray-50 p-4 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+      >
+        <div className="text-center">
+          <h2 className="text-xl font-medium text-gray-800 mb-2">Profile Not Found</h2>
+          <p className="text-gray-600">Unable to load user profile information.</p>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div
+      className="min-h-[calc(100vh-64px)] bg-gray-50 p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="max-w-4xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-medium text-gray-800">User Profile</h1>
+          <p className="text-gray-600">Manage your account information and preferences</p>
+        </div>
+
+        {/* Success/Error Messages */}
+        {saveSuccess && (
+          <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
+            Profile updated successfully!
+          </div>
+        )}
+        {saveError && (
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+            {saveError}
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          {/* Profile Header */}
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center">
+                  {profile.profileImage ? (
+                    <img
+                      src={profile.profileImage}
+                      alt="Profile"
+                      className="w-20 h-20 rounded-full object-cover"
+                    />
+                  ) : (
+                    <User size={32} className="text-gray-500" />
+                  )}
+                </div>
+                <button className="absolute bottom-0 right-0 bg-primary-600 text-white p-1.5 rounded-full hover:bg-primary-700 transition-colors">
+                  <Camera size={14} />
+                </button>
+              </div>
+              <div className="flex-grow">
+                <h2 className="text-xl font-semibold text-gray-900">{profile.username}</h2>
+                <p className="text-gray-600">{profile.email}</p>
+                <p className="text-sm text-gray-500">User ID: {profile.id}</p>
+              </div>
+              <div>
+                {!editing ? (
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="btn btn-primary flex items-center"
+                  >
+                    <Edit3 size={16} className="mr-1.5" />
+                    Edit Profile
+                  </button>
+                ) : (
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleSave}
+                      className="btn btn-primary flex items-center"
+                    >
+                      <Save size={16} className="mr-1.5" />
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancel}
+                      className="btn btn-ghost flex items-center"
+                    >
+                      <X size={16} className="mr-1.5" />
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Profile Details */}
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Basic Information */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Basic Information</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Username
+                    </label>
+                    {editing ? (
+                      <input
+                        type="text"
+                        value={editForm.username}
+                        onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    ) : (
+                      <p className="text-gray-900">{profile.username}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Email Address
+                    </label>
+                    {editing ? (
+                      <input
+                        type="email"
+                        value={editForm.email}
+                        onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    ) : (
+                      <p className="text-gray-900">{profile.email}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Information */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Account Information</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center space-x-3">
+                    <Calendar size={16} className="text-gray-500" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Account Created</p>
+                      <p className="text-sm text-gray-600">{formatDate(profile.createdAt)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Clock size={16} className="text-gray-500" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Last Login</p>
+                      <p className="text-sm text-gray-600">{formatDate(profile.lastLogin)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Security Section */}
+          <div className="border-t border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Security</h3>
+            <div className="space-y-3">
+              <button className="flex items-center space-x-3 text-left hover:bg-gray-50 p-3 rounded-md w-full">
+                <Key size={16} className="text-gray-500" />
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Change Password</p>
+                  <p className="text-xs text-gray-500">Update your account password</p>
+                </div>
+              </button>
+              <button className="flex items-center space-x-3 text-left hover:bg-gray-50 p-3 rounded-md w-full">
+                <Shield size={16} className="text-gray-500" />
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Two-Factor Authentication</p>
+                  <p className="text-xs text-gray-500">Add an extra layer of security</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+export default UserProfilePage;

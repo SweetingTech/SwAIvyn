@@ -1,7 +1,60 @@
 import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import { Search, Plus, BookOpen, User, Calendar, Globe, Filter } from 'lucide-react';
 
+interface Memory {
+  id: string;
+  title: string;
+  category: string;
+  content: string;
+  date: string;
+  shared: boolean;
+  userId: string;
+}
+
 const MemoryPage = () => {
+  const [memories, setMemories] = useState<Memory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+
+  useEffect(() => {
+    loadMemories();
+  }, []);
+
+  const loadMemories = async () => {
+    try {
+      setLoading(true);
+
+      // Use the default and only user ID for this application
+      const userId = '00000000-0000-0000-0000-000000000001';
+
+      // Load memories from API
+      const response = await fetch(`/api/memory/user/${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setMemories(data || []);
+      } else {
+        // No memories found or API error
+        setMemories([]);
+      }
+    } catch (error) {
+      console.error('Error loading memories:', error);
+      setMemories([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredMemories = memories.filter(memory => {
+    const matchesSearch = memory.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         memory.content.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || memory.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories = ['All', 'Personal', 'Facts', 'Events', 'Shared'];
+
   return (
     <motion.div
       className="min-h-[calc(100vh-64px)] bg-gray-50 p-4"
@@ -21,7 +74,7 @@ const MemoryPage = () => {
             Add Memory
           </button>
         </div>
-        
+
         <div className="bg-white rounded-lg shadow-soft">
           {/* Search and Filter */}
           <div className="p-4 border-b">
@@ -31,6 +84,8 @@ const MemoryPage = () => {
                 <input
                   type="text"
                   placeholder="Search memories..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                 />
               </div>
@@ -40,70 +95,100 @@ const MemoryPage = () => {
               </button>
             </div>
           </div>
-          
+
           {/* Categories */}
           <div className="p-2 border-b overflow-x-auto">
             <div className="flex space-x-1">
-              <button className="px-3 py-1.5 text-sm font-medium bg-primary-50 text-primary-700 rounded-md">
-                All
-              </button>
-              <button className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
-                <User size={14} className="inline mr-1" />
-                Personal
-              </button>
-              <button className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
-                <BookOpen size={14} className="inline mr-1" />
-                Facts
-              </button>
-              <button className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
-                <Calendar size={14} className="inline mr-1" />
-                Events
-              </button>
-              <button className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
-                <Globe size={14} className="inline mr-1" />
-                Shared
-              </button>
+              {categories.map((category) => (
+                <button
+                  key={category}
+                  onClick={() => setSelectedCategory(category)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md ${
+                    selectedCategory === category
+                      ? 'bg-primary-50 text-primary-700'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {category === 'Personal' && <User size={14} className="inline mr-1" />}
+                  {category === 'Facts' && <BookOpen size={14} className="inline mr-1" />}
+                  {category === 'Events' && <Calendar size={14} className="inline mr-1" />}
+                  {category === 'Shared' && <Globe size={14} className="inline mr-1" />}
+                  {category}
+                </button>
+              ))}
             </div>
           </div>
-          
+
           {/* Memory List */}
           <div className="divide-y">
-            <MemoryItem 
-              title="User likes hiking in the mountains"
-              category="Personal"
-              icon={<User size={16} className="text-primary-500" />}
-              date="Today"
-              shared={false}
-            />
-            
-            <MemoryItem 
-              title="Meeting scheduled for Friday at 3pm"
-              category="Event"
-              icon={<Calendar size={16} className="text-accent-500" />}
-              date="Yesterday"
-              shared={true}
-            />
-            
-            <MemoryItem 
-              title="User's favorite book is 'Dune' by Frank Herbert"
-              category="Fact"
-              icon={<BookOpen size={16} className="text-secondary-500" />}
-              date="Last week"
-              shared={false}
-            />
-            
-            <MemoryItem 
-              title="User prefers dark mode in applications"
-              category="Preference"
-              icon={<User size={16} className="text-primary-500" />}
-              date="Last month"
-              shared={false}
-            />
+            {loading ? (
+              <div className="p-8 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+                <p className="mt-2 text-gray-500">Loading memories...</p>
+              </div>
+            ) : filteredMemories.length === 0 ? (
+              <div className="p-8 text-center">
+                <BookOpen size={48} className="mx-auto text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No memories found</h3>
+                <p className="text-gray-600 mb-4">
+                  {searchTerm || selectedCategory !== 'All'
+                    ? 'Try adjusting your search or filter criteria.'
+                    : 'Start a conversation with your AI to create memories automatically.'}
+                </p>
+                <button className="btn btn-primary">
+                  <Plus size={16} className="mr-1.5" />
+                  Add Memory
+                </button>
+              </div>
+            ) : (
+              filteredMemories.map((memory) => (
+                <MemoryItem
+                  key={memory.id}
+                  title={memory.title}
+                  category={memory.category}
+                  icon={getIconForCategory(memory.category)}
+                  date={formatDate(memory.date)}
+                  shared={memory.shared}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>
     </motion.div>
   );
+
+  function getIconForCategory(category: string) {
+    switch (category) {
+      case 'Personal':
+        return <User size={16} className="text-primary-500" />;
+      case 'Facts':
+        return <BookOpen size={16} className="text-secondary-500" />;
+      case 'Events':
+        return <Calendar size={16} className="text-accent-500" />;
+      case 'Shared':
+        return <Globe size={16} className="text-green-500" />;
+      default:
+        return <BookOpen size={16} className="text-gray-500" />;
+    }
+  }
+
+  function formatDate(dateString: string) {
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffTime = Math.abs(now.getTime() - date.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) return 'Today';
+      if (diffDays === 2) return 'Yesterday';
+      if (diffDays <= 7) return `${diffDays - 1} days ago`;
+      if (diffDays <= 30) return `${Math.ceil(diffDays / 7)} weeks ago`;
+      return date.toLocaleDateString();
+    } catch {
+      return 'Unknown';
+    }
+  }
 };
 
 interface MemoryItemProps {

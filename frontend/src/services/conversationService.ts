@@ -177,11 +177,17 @@ const conversationService = {
    */
   async getMessages(conversationId: string): Promise<Message[]> {
     try {
+      // Validate conversationId
+      if (!conversationId || conversationId === 'undefined' || conversationId === 'null') {
+        console.warn('Invalid conversation ID for getMessages:', conversationId);
+        return [];
+      }
+
       const response = await apiService.get(`/api/conversation/${conversationId}/messages`);
       return response;
     } catch (error) {
       console.error(`Error getting messages for conversation ${conversationId}:`, error);
-      throw error;
+      return []; // Return empty array instead of throwing
     }
   },
 
