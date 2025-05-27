@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Camera, Mic, Plus, AlertCircle } from 'lucide-react';
+import { Send, Paperclip, Camera, Mic, Plus } from 'lucide-react';
 
 import ChatMessage from '../components/chat/ChatMessage';
-import ChatInput from '../components/chat/ChatInput';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import CharacterSelector from '../components/chat/CharacterSelector';
 import BrainExplorer from '../components/BrainExplorer';
@@ -11,6 +10,7 @@ import BrainExplorer from '../components/BrainExplorer';
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import { Message } from '../types/chat';
+import { USER_ID, USER_NAME } from '../constants';
 
 /**
  * ChatPage component manages the chat interface including message display,
@@ -35,25 +35,65 @@ const ChatPage = () => {
     title: 'New Chat'
   });
 
-  // Demo user ID (replace with actual value from auth context)
-  const [userId, setUserId] = useState<string>('');
-
   // State for selected character
   const [selectedCharacter, setSelectedCharacter] = useState<any>(null);
-
-  // State for demo mode
-  const isDemoMode = userId === 'demo-user-id';
 
   // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(true);
 
-  // Load selected character from localStorage on mount
+  // Load the most recent conversation or start a new one
   useEffect(() => {
-    const storedCharacterId = localStorage.getItem('selectedCharacterId');
-    if (storedCharacterId && storedCharacterId !== 'null') {
-      // Character will be loaded when CharacterSelector loads the characters list
-      // We just store the ID for now
-    }
+    const loadConversation = async () => {
+      try {
+        console.log('Using hard-coded user:', USER_ID);
+        
+        // Load recent conversation for this user
+        const recent = await conversationService.getRecentConversation(USER_ID);
+
+        if (recent && recent.id) {
+          // Load existing conversation
+          setCurrentConversation({
+            id: recent.id as string,
+            title: recent.title
+          });
+
+          // Load messages for this conversation
+          const conversationMessages = await conversationService.getMessages(recent.id);
+
+          // Convert to the Message format used by the UI
+          const formattedMessages = conversationMessages.map(msg => ({
+            id: msg.id,
+            sender: msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'ai' : 'system') as 'user' | 'ai' | 'system',
+            text: msg.content,
+            timestamp: msg.timestamp
+          }));
+
+          setMessages(formattedMessages);
+          isFirstMessage.current = false;
+        } else {
+          // Start with a new conversation
+          setMessages([{
+            id: '1',
+            sender: 'ai',
+            text: `Hello ${USER_NAME}! How can I help you today?`,
+            timestamp: new Date().toISOString()
+          }]);
+          isFirstMessage.current = true;
+        }
+      } catch (error) {
+        console.error('Error loading conversation, starting fresh:', error);
+        // Start with a new conversation on error
+        setMessages([{
+          id: '1',
+          sender: 'ai',
+          text: `Hello ${USER_NAME}! How can I help you today?`,
+          timestamp: new Date().toISOString()
+        }]);
+        isFirstMessage.current = true;
+      }
+    };
+
+    loadConversation();
   }, []);
 
   // Handle character selection
@@ -67,144 +107,16 @@ const ChatPage = () => {
       localStorage.removeItem('selectedCharacterId');
     }
   };
-  // Load the most recent conversation or start a new one
-  useEffect(() => {
-    const loadUserAndConversation = async () => {
-      try {
-        // Fetch the default user from backend (single-user application)
-        let validUserId = null;
-        let username = 'Default User';
-
-        try {
-          console.log('Fetching user from /api/user/default...');
-          const response = await fetch('/api/user/default');
-          console.log('User API response status:', response.status);
-
-          if (response.ok) {
-            const data = await response.json();
-            console.log('User API response data:', data);
-
-            // Validate that we have a proper user ID (should be a GUID)
-            if (data && data.id && typeof data.id === 'string' && data.id.length >= 30) {
-              validUserId = data.id;
-              username = data.username || 'Default User';
-              console.log('Valid user found:', { id: validUserId, username });
-            } else {
-              console.warn('Invalid user ID format:', data);
-            }
-          } else {
-            console.warn('User API response not ok:', response.status, response.statusText);
-          }
-        } catch (userError) {
-          console.error('Error fetching user:', userError);
-        }
-
-        // If we don't have a valid user ID, use demo mode
-        if (!validUserId) {
-          console.warn('No valid user available, using demo mode');
-          setUserId('demo-user-id');
-          setMessages([{
-            id: '1',
-            sender: 'ai',
-            text: 'Hello! I\'m currently in demo mode. The backend may be unavailable.',
-            timestamp: new Date().toISOString()
-          }]);
-          isFirstMessage.current = true;
-          return;
-        }
-
-        // We have a valid user ID
-        setUserId(validUserId);
-
-        try {
-          // Now load recent conversation for this user
-          const recent = await conversationService.getRecentConversation(validUserId);
-
-          if (recent) {
-            // Load existing conversation
-            setCurrentConversation({
-              id: recent.id as string,
-              title: recent.title
-            });
-
-            // Load messages for this conversation
-            const conversationMessages = await conversationService.getMessages(recent.id);
-
-            // Convert to the Message format used by the UI
-            const formattedMessages = conversationMessages.map(msg => ({
-              id: msg.id,
-              sender: msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'ai' : 'system') as 'user' | 'ai' | 'system',
-              text: msg.content,
-              timestamp: msg.timestamp
-            }));
-
-            setMessages(formattedMessages);
-            isFirstMessage.current = false;
-          } else {
-            // Start with a new conversation
-            setMessages([{
-              id: '1',
-              sender: 'ai',
-              text: `Hello ${username}! How can I help you today?`,
-              timestamp: new Date().toISOString()
-            }]);
-            isFirstMessage.current = true;
-          }
-        } catch (convError) {
-          console.error('Error loading conversation data:', convError);
-          // Start with a new conversation on error
-          setMessages([{
-            id: '1',
-            sender: 'ai',
-            text: `Hello ${username}! How can I help you today?`,
-            timestamp: new Date().toISOString()
-          }]);
-          isFirstMessage.current = true;
-        }
-      } catch (error) {
-        console.error('Unexpected error in loadUserAndConversation:', error);
-        // Start with a new conversation on error
-        setUserId('demo-user-id');
-        setMessages([{
-          id: '1',
-          sender: 'ai',
-          text: 'Hello! I\'m currently in demo mode due to a connection issue.',
-          timestamp: new Date().toISOString()
-        }]);
-        isFirstMessage.current = true;
-      }
-    };
-
-    loadUserAndConversation();
-  }, []);
-
   /**
    * Creates a new conversation
    */
   const handleNewConversation = async () => {
-    if (isDemoMode) {
-      setMessages([{
-        id: '1',
-        sender: 'ai',
-        text: "Hello! I'm currently in demo mode. Some features may be limited.",
-        timestamp: new Date().toISOString(),
-      }]);
-      setCurrentConversation({ id: '', title: 'New Chat' });
-      isFirstMessage.current = true;
-      setInputText('');
-      return;
-    }
-
     try {
-      if (!userId) {
-        throw new Error('User ID not loaded');
-      }
-
       // Reset the current state
       setMessages([{
         id: '1',
         sender: 'ai',
-        text: 'Hello! How can I help you today?',
+        text: `Hello ${USER_NAME}! How can I help you today?`,
         timestamp: new Date().toISOString()
       }]);
 
@@ -224,19 +136,6 @@ const ChatPage = () => {
    * Selects an existing conversation
    */
   const handleSelectConversation = async (conversationId: string) => {
-    if (isDemoMode) {
-      setMessages([{
-        id: '1',
-        sender: 'ai',
-        text: "Demo mode: Conversation switching is disabled.",
-        timestamp: new Date().toISOString(),
-      }]);
-      setCurrentConversation({ id: '', title: 'New Chat' });
-      isFirstMessage.current = true;
-      setInputText('');
-      return;
-    }
-
     try {
       // Get conversation details
       const conversation = await conversationService.getConversation(conversationId);
@@ -273,7 +172,7 @@ const ChatPage = () => {
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isLoading || userId === '' || isDemoMode) return;
+    if (!inputText.trim() || isLoading) return;
 
     // Create a user message object
     const userMessage: Message = {
@@ -304,7 +203,7 @@ const ChatPage = () => {
           : userMessage.text;
 
         // Create a new conversation
-        const newConversation = await conversationService.createConversation(userId, title);
+        const newConversation = await conversationService.createConversation(USER_ID, title);
 
         conversationId = newConversation.id; // Use this right away
         setCurrentConversation({
@@ -317,7 +216,7 @@ const ChatPage = () => {
           try {
             await conversationService.setCharacterContext(
               conversationId,
-              userId,
+              USER_ID,
               selectedCharacter.id || null,
               selectedCharacter.systemPrompt
             );
@@ -337,7 +236,7 @@ const ChatPage = () => {
       // Store the user message in the database
       await conversationService.appendMessage(
         conversationId,
-        userId,
+        USER_ID,
         'user',
         userMessage.text
       );
@@ -345,7 +244,7 @@ const ChatPage = () => {
       // Send message to API and get AI response (include character ID if selected)
       const aiResponse = await chatService.sendMessage(
         conversationId,
-        userId,
+        USER_ID,
         inputText,
         selectedCharacter?.id || null
       );
@@ -364,7 +263,7 @@ const ChatPage = () => {
       // Store the AI response in the database
       await conversationService.appendMessage(
         conversationId,
-        userId,
+        USER_ID,
         'assistant',
         aiResponse
       );
@@ -392,12 +291,11 @@ const ChatPage = () => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
-    >
-      <div className="flex flex-grow overflow-hidden">
+    >      <div className="flex flex-grow overflow-hidden">
         {/* Chat Sidebar */}
         <div className="w-64 border-r">
           <ChatSidebar
-            userId={userId}
+            userId={USER_ID}
             currentSessionId={currentConversation.id || null}
             onSelectSession={handleSelectConversation}
             onNewSession={handleNewConversation}
@@ -413,7 +311,6 @@ const ChatPage = () => {
                 onClick={handleNewConversation}
                 className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
                 title="New Chat"
-                disabled={isDemoMode}
               >
                 <Plus size={20} />
               </button>
@@ -422,10 +319,9 @@ const ChatPage = () => {
             {/* Character Selector */}
             <div className="flex items-center justify-between">
               <CharacterSelector
-                userId={userId}
                 selectedCharacterId={selectedCharacter?.id || null}
                 onCharacterSelect={handleCharacterSelect}
-                disabled={isDemoMode}
+                disabled={false}
               />
               {selectedCharacter && (
                 <div className="text-sm text-blue-600 flex items-center">
@@ -437,16 +333,10 @@ const ChatPage = () => {
           </div>
 
           <div className="flex-grow overflow-y-auto p-4 space-y-4">
-            {isDemoMode && (
-              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4 rounded">
-                <div className="text-yellow-800 font-medium mb-1">Demo Mode Active</div>
-                <div className="text-yellow-700 text-sm">You are in demo mode. Chatting and advanced features are disabled. Please sign in or connect to the backend for full access.</div>
-              </div>
-            )}
             {messages.map((message: Message) => (
               <ChatMessage key={message.id} message={message} />
             ))}
-            {isLoading && !isDemoMode && (
+            {isLoading && (
               <div className="flex items-center justify-center p-2">
                 <div className="animate-pulse text-gray-500">AI is thinking...</div>
               </div>
@@ -457,37 +347,33 @@ const ChatPage = () => {
             <div className="flex items-center space-x-2">
               <input
                 type="text"
-                placeholder={isDemoMode ? "Demo mode: Chat disabled" : "Type your message..."}
+                placeholder="Type your message..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                disabled={isDemoMode}
               />
               <button
                 type="button"
                 className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-                disabled={isDemoMode}
               >
                 <Paperclip size={20} />
               </button>
               <button
                 type="button"
                 className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-                disabled={isDemoMode}
               >
                 <Camera size={20} />
               </button>
               <button
                 type="button"
                 className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-                disabled={isDemoMode}
               >
                 <Mic size={20} />
               </button>
               <button
                 type="submit"
                 className="p-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                disabled={isDemoMode || !inputText.trim()}
+                disabled={!inputText.trim() || isLoading}
               >
                 <Send size={20} />
               </button>
@@ -507,8 +393,7 @@ const ChatPage = () => {
               <h3 className="text-sm font-medium text-gray-700">Files</h3>
               <p className="text-sm text-gray-500 mt-1">
                 Drag and drop files here to upload
-              </p>
-              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300" disabled={isDemoMode}>
+              </p>              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300">
                 <Paperclip size={16} className="mr-2" />
                 Upload Files
               </button>
@@ -518,8 +403,7 @@ const ChatPage = () => {
               <h3 className="text-sm font-medium text-gray-700">Voice</h3>
               <p className="text-sm text-gray-500 mt-1">
                 Record a voice message
-              </p>
-              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300" disabled={isDemoMode}>
+              </p>              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300">
                 <Mic size={16} className="mr-2" />
                 Start Recording
               </button>
@@ -529,8 +413,7 @@ const ChatPage = () => {
               <h3 className="text-sm font-medium text-gray-700">Camera</h3>
               <p className="text-sm text-gray-500 mt-1">
                 Take a photo or video
-              </p>
-              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300" disabled={isDemoMode}>
+              </p>              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300">
                 <Camera size={16} className="mr-2" />
                 Open Camera
               </button>
