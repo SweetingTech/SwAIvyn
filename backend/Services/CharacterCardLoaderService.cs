@@ -30,7 +30,7 @@ namespace SwAIvyn.Services
             _yamlDeserializer = new DeserializerBuilder()
                 .IgnoreUnmatchedProperties()
                 .Build();
-            
+
             // Path to character cards directory
             _characterCardsPath = Path.Combine(Directory.GetCurrentDirectory(), "frontend", "AI");
         }
@@ -122,13 +122,13 @@ namespace SwAIvyn.Services
                     return;
                 }
 
-                // Check if character already exists
+                // Check if character already exists (case-insensitive)
                 var existingCharacter = await _dbContext.Avatars
-                    .FirstOrDefaultAsync(a => a.Name == characterData.Name && a.UserId == defaultUser.Id);
+                    .FirstOrDefaultAsync(a => a.Name.ToLower() == characterData.Name.ToLower() && a.UserId == defaultUser.Id);
 
                 if (existingCharacter != null)
                 {
-                    _logger.LogInformation("Character {CharacterName} already exists, updating...", characterData.Name);
+                    _logger.LogInformation("Character {CharacterName} already exists (case-insensitive match with '{ExistingName}'), updating...", characterData.Name, existingCharacter.Name);
                     await UpdateExistingCharacterAsync(existingCharacter, characterData, yamlContent, imagePath);
                 }
                 else
@@ -214,19 +214,19 @@ namespace SwAIvyn.Services
         private string GenerateSystemPrompt(CharacterCardData characterData)
         {
             var prompt = $"You are roleplaying as the AI character below. Remain fully in character at all times.\n\n";
-            
+
             if (!string.IsNullOrEmpty(characterData.Name))
                 prompt += $"Name: {characterData.Name}\n";
-            
+
             if (!string.IsNullOrEmpty(characterData.Description))
                 prompt += $"Description: {characterData.Description}\n";
-            
+
             if (!string.IsNullOrEmpty(characterData.Personality))
                 prompt += $"Personality: {characterData.Personality}\n";
-            
+
             if (!string.IsNullOrEmpty(characterData.Scenario))
                 prompt += $"Scenario: {characterData.Scenario}\n";
-            
+
             if (!string.IsNullOrEmpty(characterData.CreatorNotes))
                 prompt += $"Creator Notes: {characterData.CreatorNotes}\n";
 

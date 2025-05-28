@@ -25,11 +25,13 @@ const chatService = {
         conversationId,
         userId,
         message
-      };      // Add characterId if provided, or "default" for GLaDOS
-      if (characterId) {
+      };
+
+      // Add characterId if provided and valid, otherwise use "default"
+      if (characterId && characterId !== 'null' && characterId !== 'undefined') {
         requestBody.characterId = characterId;
       } else {
-        // When no character is selected, explicitly request the default character (GLaDOS)
+        // When no character is selected, explicitly request the default character
         requestBody.characterId = "default";
       }
 

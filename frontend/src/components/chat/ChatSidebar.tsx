@@ -61,11 +61,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       try {
         // Fetch folders
         const folderResponse = await apiService.get(`/api/folder/user/${userId}`);
-        setFolders(folderResponse.data);
+        const foldersData = Array.isArray(folderResponse?.data) ? folderResponse.data :
+                           Array.isArray(folderResponse) ? folderResponse : [];
+        setFolders(foldersData);
 
         // Initialize expanded state for root folders
         const expanded: Record<string, boolean> = {};
-        folderResponse.data.forEach((folder: ChatFolder) => {
+        foldersData.forEach((folder: ChatFolder) => {
           if (!folder.parentId) {
             expanded[folder.id] = true;
           }
@@ -74,7 +76,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
         // Fetch sessions
         const sessionResponse = await apiService.get(`/api/conversation/user/${userId}`);
-        setSessions(sessionResponse.data);
+        const sessionsData = Array.isArray(sessionResponse?.data) ? sessionResponse.data :
+                            Array.isArray(sessionResponse) ? sessionResponse : [];
+        setSessions(sessionsData);
       } catch (error) {
         console.error('Error fetching data:', error);
         // Set empty arrays on error

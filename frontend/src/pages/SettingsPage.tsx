@@ -294,7 +294,7 @@ const AccountSettings = () => {
 };
 
 const ModelSettings = () => {
-  const [selectedEngine, setSelectedEngine] = useState('ollama');
+  const [selectedEngine, setSelectedEngine] = useState(''); // Start empty to avoid race conditions
   const [selectedModel, setSelectedModel] = useState('');
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
@@ -303,6 +303,7 @@ const ModelSettings = () => {
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [settingsLoaded, setSettingsLoaded] = useState(false); // Track if settings have been loaded
 
   // User ID state
   const [userId, setUserId] = useState<string>('');
@@ -358,7 +359,8 @@ const ModelSettings = () => {
   // Handle engine changes - load models when engine changes
   useEffect(() => {
     const loadModelsForEngine = async () => {
-      if (!userId || loading) return;
+      // Only proceed if we have a valid setup and settings have been loaded
+      if (!userId || loading || !settingsLoaded || !selectedEngine) return;
 
       try {
         if (selectedEngine === 'ollama') {
@@ -382,7 +384,7 @@ const ModelSettings = () => {
     };
 
     loadModelsForEngine();
-  }, [selectedEngine, userId, loading]);
+  }, [selectedEngine, userId, settingsLoaded]);
 
   // Load current settings function
   const loadSettings = async (userIdToUse: string) => {
@@ -405,7 +407,40 @@ const ModelSettings = () => {
       console.log('🔄 Settings.model:', settings.model);
 
       const engineToSet = settings.engine || 'ollama';
-      const modelToSet = settings.model || '';
+      let modelToSet = settings.model || '';
+
+      // Verify the model matches the engine and get current state
+      if (engineToSet === 'lmstudio') {
+        // For LM Studio, get the actual current model from the API
+        try {
+          const modelsResponse = await fetch('/api/llm/lmstudio/models');
+          if (modelsResponse.ok) {
+            const modelsData = await modelsResponse.json();
+            if (modelsData.data && modelsData.data.length > 0) {
+              modelToSet = modelsData.data[0].id; // Use actual current model
+              console.log('🔄 Detected actual LM Studio model:', modelToSet);
+            }
+          }
+        } catch (error) {
+          console.error('Error getting LM Studio current model:', error);
+        }
+      } else if (engineToSet === 'ollama') {
+        // For Ollama, verify the model exists in available models
+        try {
+          const modelsResponse = await fetch('/api/llm/ollama/models');
+          if (modelsResponse.ok) {
+            const models = await modelsResponse.json();
+            setOllamaModels(models);
+            // If stored model doesn't exist in available models, use first available
+            if (!models.includes(modelToSet)) {
+              modelToSet = models[0] || '';
+              console.log('🔄 Stored Ollama model not found, using:', modelToSet);
+            }
+          }
+        } catch (error) {
+          console.error('Error getting Ollama models:', error);
+        }
+      }
 
       console.log('🔄 About to set engine to:', engineToSet);
       console.log('🔄 About to set model to:', modelToSet);
@@ -415,6 +450,9 @@ const ModelSettings = () => {
 
       console.log('✅ Called setSelectedEngine with:', engineToSet);
       console.log('✅ Called setSelectedModel with:', modelToSet);
+
+      // Mark settings as loaded to prevent race conditions
+      setSettingsLoaded(true);
 
       // Add a small delay to check if state updates
       setTimeout(() => {
@@ -552,9 +590,41 @@ const ModelSettings = () => {
           <select
             className="w-full border rounded px-3 py-2"
             value={selectedEngine}
-            onChange={e => {
-              console.log('🔄 Engine dropdown changed to:', e.target.value);
-              setSelectedEngine(e.target.value);
+            onChange={async (e) => {
+              const newEngine = e.target.value;
+              console.log('🔄 Engine dropdown changed to:', newEngine);
+              setSelectedEngine(newEngine);
+
+              // Auto-detect and set the current model for the selected engine
+              try {
+                if (newEngine === 'ollama') {
+                  // For Ollama, keep the current model selection or use first available
+                  const modelsResponse = await fetch('/api/llm/ollama/models');
+                  if (modelsResponse.ok) {
+                    const models = await modelsResponse.json();
+                    setOllamaModels(models);
+                    // Keep current model if it exists in the list, otherwise use first available
+                    if (!selectedModel || !models.includes(selectedModel)) {
+                      setSelectedModel(models[0] || '');
+                    }
+                  }
+                } else if (newEngine === 'lmstudio') {
+                  // For LM Studio, get the actual current model from the API
+                  const modelsResponse = await fetch('/api/llm/lmstudio/models');
+                  if (modelsResponse.ok) {
+                    const modelsData = await modelsResponse.json();
+                    if (modelsData.data && modelsData.data.length > 0) {
+                      const currentModel = modelsData.data[0].id;
+                      setSelectedModel(currentModel);
+                      console.log('🔄 Auto-detected LM Studio model:', currentModel);
+                    } else {
+                      setSelectedModel('');
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error('Error auto-detecting model for engine:', newEngine, error);
+              }
             }}
             disabled={loading}
           >

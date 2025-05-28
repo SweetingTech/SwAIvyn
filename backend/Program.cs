@@ -76,7 +76,7 @@ builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
     loggerForDb.LogInfo($"Using resolved connection string for ApplicationDbContext: {connectionString}");
 
     options
-        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+        .UseSqlite(connectionString);
         // TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
         // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 });
@@ -109,7 +109,7 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
     loggerForDbFactory.LogInfo($"Using resolved connection string for ApplicationDbContext (Factory): {connectionString}");
 
     options
-        .UseSqlite(connectionString + ";Pooling=true;Cache=Shared");
+        .UseSqlite(connectionString);
         // TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
         // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 }, ServiceLifetime.Scoped);
@@ -158,13 +158,11 @@ builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 builder.Services.AddScoped<ILlmConnectorService, LlmConnectorService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
-// Add character card loader service
-builder.Services.AddScoped<CharacterCardLoaderService>();
+// REMOVED: Character card loader and default character services - database-only approach
+// builder.Services.AddScoped<CharacterCardLoaderService>();
+// builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 
-// Add default character service
-builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
-
-builder.Services.AddSignalR();
+builder.Services.AddSignalR().AddJsonProtocol();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -182,11 +180,30 @@ builder.Logging.AddDebug();
 // Add CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("CorsPolicy", builder =>
-        builder.WithOrigins("http://localhost:3000")
-               .AllowAnyMethod()
-               .AllowAnyHeader()
-               .AllowCredentials());
+    options.AddPolicy("CorsPolicy", corsBuilder =>
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            // Development: Allow common dev server ports
+            corsBuilder.WithOrigins(
+                "http://localhost:3000",   // Create React App
+                "http://localhost:5000",   // ASP.NET Core
+                "http://localhost:5173",   // Vite default
+                "http://localhost:5174",   // Vite alternate
+                "https://localhost:5001"   // ASP.NET Core HTTPS
+            );
+        }
+        else
+        {
+            // Production: Only allow the configured base URL
+            var baseUrl = builder.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
+            corsBuilder.WithOrigins(baseUrl);
+        }
+
+        corsBuilder.AllowAnyMethod()
+                   .AllowAnyHeader()
+                   .AllowCredentials();
+    });
 });
 
 // Build the app
@@ -295,55 +312,58 @@ try
             // For now, just use the first user
         }
 
+        // COMMENTED OUT: Hardcoded character creation - only load from database
         // If no AI character profiles exist, create a default one linked to our user
-        if (!db.Avatars.Any())
-        {
-            logger.LogInfo("No AI profiles found. Creating default AI profile...");            db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
-            {
-                Id = Guid.NewGuid(),
-                UserId = defaultUserId, // Use our confirmed user ID
-                Name = "Default AI",
-                ImagePath = "",
-                Personality = "Friendly and helpful AI assistant.",
-                VoiceSettings = "default",
-                Description = "A helpful AI assistant ready to chat with you.",
-                Scenario = "General conversation",
-                FirstMessage = "Hello! I'm your AI assistant. How can I help you today?",
-                MessageExample = "",
-                SystemPrompt = "You are a helpful, harmless, and honest AI assistant.",
-                PostHistoryInstructions = "",
-                AlternateGreetings = "[]",
-                Tags = "[]",
-                Creator = "SwAIvyn",
-                CreatorNotes = "Default AI assistant character",
-                CharacterVersion = "1.0",
-                Talkativeness = 0.5f,
-                IsFavorite = false,
-                Extensions = "{}",
-                YamlProfile = "",
-                CreatedAt = DateTime.UtcNow,
-                LastModified = DateTime.UtcNow
-            });
-
-            db.SaveChanges();
-            logger.LogInfo("Seeded default AI profile.");
-        }
+        // if (!db.Avatars.Any())
+        // {
+        //     logger.LogInfo("No AI profiles found. Creating default AI profile...");
+        //     db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
+        //     {
+        //         Id = Guid.NewGuid(),
+        //         UserId = defaultUserId, // Use our confirmed user ID
+        //         Name = "Default AI",
+        //         ImagePath = "",
+        //         Personality = "Friendly and helpful AI assistant.",
+        //         VoiceSettings = "default",
+        //         Description = "A helpful AI assistant ready to chat with you.",
+        //         Scenario = "General conversation",
+        //         FirstMessage = "Hello! I'm your AI assistant. How can I help you today?",
+        //         MessageExample = "",
+        //         SystemPrompt = "You are a helpful, harmless, and honest AI assistant.",
+        //         PostHistoryInstructions = "",
+        //         AlternateGreetings = "[]",
+        //         Tags = "[]",
+        //         Creator = "SwAIvyn",
+        //         CreatorNotes = "Default AI assistant character",
+        //         CharacterVersion = "1.0",
+        //         Talkativeness = 0.5f,
+        //         IsFavorite = false,
+        //         Extensions = "{}",
+        //         YamlProfile = "",
+        //         CreatedAt = DateTime.UtcNow,
+        //         LastModified = DateTime.UtcNow
+        //     });
+        //
+        //     db.SaveChanges();
+        //     logger.LogInfo("Seeded default AI profile.");
+        // }
 
         // Initialize default settings for the user
         var settingsService = scope.ServiceProvider.GetRequiredService<ISettingsService>();
         await settingsService.InitializeDefaultSettingsAsync(defaultUserId);
 
+        // COMMENTED OUT: Character card loading and hardcoded GLaDOS creation - only load from database
         // Load character cards from filesystem
-        logger.LogInfo("Loading character cards from filesystem...");
-        var characterCardLoader = scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>();
-        await characterCardLoader.LoadCharacterCardsAsync();
-        logger.LogInfo("Character card loading completed");
+        // logger.LogInfo("Loading character cards from filesystem...");
+        // var characterCardLoader = scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>();
+        // await characterCardLoader.LoadCharacterCardsAsync();
+        // logger.LogInfo("Character card loading completed");
 
         // Ensure GLaDOS default character is loaded
-        logger.LogInfo("Ensuring GLaDOS default character is loaded...");
-        var defaultCharacterService = scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>();
-        await defaultCharacterService.EnsureDefaultCharacterAsync();
-        logger.LogInfo("GLaDOS default character loaded successfully");
+        // logger.LogInfo("Ensuring GLaDOS default character is loaded...");
+        // var defaultCharacterService = scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>();
+        // await defaultCharacterService.EnsureDefaultCharacterAsync();
+        // logger.LogInfo("GLaDOS default character loaded successfully");
 
         // Create a welcome conversation if no conversations exist
         if (!db.Conversations.Any())
@@ -525,19 +545,20 @@ app.UseAuthorization();
 
 // Map API controllers first
 app.MapControllers();
-app.MapHub<ChatHub>("/hubs/chat");
-app.MapHub<VoiceHub>("/hubs/voice");
-app.MapHub<NotificationHub>("/hubs/notification");
+app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
+app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");
+app.MapHub<NotificationHub>("/hubs/notification").RequireCors("CorsPolicy");
+
+// Add health endpoint for Neo4j
+app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>
+    Results.Ok(await neo4jService.GetStatusAsync()))
+    .RequireCors("CorsPolicy");
 
 // Fallback to index.html for SPA routes - CRITICAL for React Router to work
 app.MapFallbackToFile("index.html");
 
-// Add health endpoint for Neo4j
-app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>
-    Results.Ok(await neo4jService.GetStatusAsync()));
-
 // Set URLs explicitly
-if (!app.Urls.Any())
+if (app.Urls.Count == 0)
 {
     app.Urls.Add("http://localhost:5000");
 }
@@ -582,16 +603,23 @@ if (!app.Environment.IsDevelopment())
     // Wait a moment for the server to start
     Thread.Sleep(2000);
 
-    // Open the browser
+    // Open the browser (Windows only)
     try
     {
-        logger.LogInfo($"Opening browser at URL: {hostUrl}");
-        var psi = new ProcessStartInfo
+        if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
         {
-            FileName = hostUrl,
-            UseShellExecute = true
-        };
-        Process.Start(psi);
+            logger.LogInfo($"Opening browser at URL: {hostUrl}");
+            var psi = new ProcessStartInfo
+            {
+                FileName = hostUrl,
+                UseShellExecute = true
+            };
+            Process.Start(psi);
+        }
+        else
+        {
+            logger.LogInfo($"Application started at URL: {hostUrl} (browser auto-open disabled on non-Windows platforms)");
+        }
     }
     catch (Exception ex)
     {

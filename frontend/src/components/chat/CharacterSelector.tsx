@@ -33,23 +33,52 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load characters on mount
+  // Load characters on mount and clean up old localStorage data
   useEffect(() => {
+    // Clean up old localStorage data (migration to sessionStorage)
+    if (localStorage.getItem('selectedCharacterId')) {
+      console.log('Migrating character selection from localStorage to sessionStorage');
+      const oldCharacterId = localStorage.getItem('selectedCharacterId');
+      if (oldCharacterId && oldCharacterId !== 'null') {
+        sessionStorage.setItem('selectedCharacterId', oldCharacterId);
+      }
+      localStorage.removeItem('selectedCharacterId');
+    }
+
     loadCharacters();
   }, []);
 
-  // Auto-select character from localStorage when characters are loaded
+  // Auto-select character from sessionStorage when characters are loaded
   useEffect(() => {
-    if (characters.length === 0 || selectedCharacterId) {
+    if (characters.length === 0) {
       return;
     }
 
-    const storedCharacterId = localStorage.getItem('selectedCharacterId');
+    // Check if the current selectedCharacterId is valid
+    if (selectedCharacterId) {
+      const currentCharacter = characters.find(c => c.id === selectedCharacterId);
+      if (!currentCharacter) {
+        // Current selected character ID is invalid, clear it
+        console.warn('Current selected character ID not found in database, clearing:', selectedCharacterId);
+        sessionStorage.removeItem('selectedCharacterId');
+        onCharacterSelect(null);
+        return;
+      }
+      // Current selection is valid, no need to auto-select
+      return;
+    }
+
+    // No character selected, try to auto-select from sessionStorage
+    const storedCharacterId = sessionStorage.getItem('selectedCharacterId');
     if (storedCharacterId && storedCharacterId !== 'null') {
       const storedCharacter = characters.find(c => c.id === storedCharacterId);
       if (storedCharacter) {
-        console.log('Auto-selecting character:', storedCharacter.name);
+        console.log('Auto-selecting character from session:', storedCharacter.name);
         onCharacterSelect(storedCharacter);
+      } else {
+        // Character ID in sessionStorage doesn't exist anymore, clear it
+        console.warn('Stored character ID not found in current characters, clearing sessionStorage:', storedCharacterId);
+        sessionStorage.removeItem('selectedCharacterId');
       }
     }
   }, [characters, selectedCharacterId, onCharacterSelect]);
@@ -59,12 +88,12 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
       setLoading(true);
       setError(null);
       console.log('Loading characters for user:', USER_ID);
-      
+
       const response = await apiService.get(`/api/character/user/${USER_ID}`);
       const charactersData = Array.isArray(response) ? response : [];
-      
+
       // Validate each character object
-      const validCharacters = charactersData.filter(char => 
+      const validCharacters = charactersData.filter(char =>
         char && typeof char === 'object' && char.id && typeof char.id === 'string'
       );
 
@@ -79,7 +108,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   };
 
   // Calculate selected character
-  const selectedCharacter = selectedCharacterId 
+  const selectedCharacter = selectedCharacterId
     ? characters.find(c => c.id === selectedCharacterId) || null
     : null;
 

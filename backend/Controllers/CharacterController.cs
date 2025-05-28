@@ -349,47 +349,50 @@ namespace SwAIvyn.Controllers
             }
         }
 
-        /// <summary>
-        /// Manually loads character cards from filesystem (GET version for testing)
-        /// </summary>
-        /// <returns>Success response</returns>
-        [HttpGet("load-from-filesystem")]
-        public async Task<IActionResult> LoadCharacterCardsFromFilesystemGet()
-        {
-            try
-            {
-                var characterCardLoader = HttpContext.RequestServices.GetRequiredService<CharacterCardLoaderService>();
-                await characterCardLoader.LoadCharacterCardsAsync();
+        // REMOVED: Filesystem loading endpoints - database-only approach
+        // Users should upload YAML files through the upload endpoints instead
 
-                return Ok(new { success = true, message = "Character cards loaded successfully" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Error loading character cards from filesystem", ex);
-                return StatusCode(500, $"An error occurred while loading character cards: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Manually loads character cards from filesystem
-        /// </summary>
-        /// <returns>Success response</returns>
-        [HttpPost("load-from-filesystem")]
-        public async Task<IActionResult> LoadCharacterCardsFromFilesystem()
-        {
-            try
-            {
-                var characterCardLoader = HttpContext.RequestServices.GetRequiredService<CharacterCardLoaderService>();
-                await characterCardLoader.LoadCharacterCardsAsync();
-
-                return Ok(new { success = true, message = "Character cards loaded successfully" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Error loading character cards from filesystem", ex);
-                return StatusCode(500, $"An error occurred while loading character cards: {ex.Message}");
-            }
-        }
+        // /// <summary>
+        // /// Manually loads character cards from filesystem (GET version for testing)
+        // /// </summary>
+        // /// <returns>Success response</returns>
+        // [HttpGet("load-from-filesystem")]
+        // public async Task<IActionResult> LoadCharacterCardsFromFilesystemGet()
+        // {
+        //     try
+        //     {
+        //         var characterCardLoader = HttpContext.RequestServices.GetRequiredService<CharacterCardLoaderService>();
+        //         await characterCardLoader.LoadCharacterCardsAsync();
+        //
+        //         return Ok(new { success = true, message = "Character cards loaded successfully" });
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         _logger.LogError("Error loading character cards from filesystem", ex);
+        //         return StatusCode(500, $"An error occurred while loading character cards: {ex.Message}");
+        //     }
+        // }
+        //
+        // /// <summary>
+        // /// Manually loads character cards from filesystem
+        // /// </summary>
+        // /// <returns>Success response</returns>
+        // [HttpPost("load-from-filesystem")]
+        // public async Task<IActionResult> LoadCharacterCardsFromFilesystem()
+        // {
+        //     try
+        //     {
+        //         var characterCardLoader = HttpContext.RequestServices.GetRequiredService<CharacterCardLoaderService>();
+        //         await characterCardLoader.LoadCharacterCardsAsync();
+        //
+        //         return Ok(new { success = true, message = "Character cards loaded successfully" });
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         _logger.LogError("Error loading character cards from filesystem", ex);
+        //         return StatusCode(500, $"An error occurred while loading character cards: {ex.Message}");
+        //     }
+        // }
 
         /// <summary>
         /// Generates a system prompt from character data

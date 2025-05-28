@@ -52,6 +52,13 @@ namespace SwAIvyn.Services.Graph
         Task<GraphVisualizationData> GetGraphVisualizationAsync(Guid memoryId, int depth = 2);
 
         /// <summary>
+        /// Deletes a memory from the brain graph
+        /// </summary>
+        /// <param name="id">Memory ID</param>
+        /// <returns>True if successful</returns>
+        Task<bool> DeleteMemoryAsync(Guid id);
+
+        /// <summary>
         /// Gets the status of the brain graph service
         /// </summary>
         /// <returns>Status information</returns>
@@ -393,6 +400,43 @@ namespace SwAIvyn.Services.Graph
                     Nodes = new List<GraphNode>(),
                     Relationships = new List<GraphRelationship>()
                 };
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> DeleteMemoryAsync(Guid id)
+        {
+            if (!_isInitialized)
+                await InitializeAsync();
+
+            try
+            {
+                // Delete from vector store
+                var vectorStoreSuccess = await _vectorStore.DeleteVectorAsync(id);
+
+                try
+                {
+                    // Delete from Neo4j (this will be skipped if Neo4j is not available)
+                    var cypher = "MATCH (m:Memory {id: $id}) DETACH DELETE m";
+                    var parameters = new Dictionary<string, object>
+                    {
+                        { "id", id.ToString() }
+                    };
+
+                    await _neo4jService.ExecuteQueryAsync(cypher, parameters);
+                }
+                catch (Exception ex)
+                {
+                    // Just log the error and continue
+                    _logger.LogError($"Failed to delete Neo4j node for memory {id}: {ex.Message}");
+                }
+
+                return vectorStoreSuccess;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to delete memory {id}", ex);
+                return false;
             }
         }
 

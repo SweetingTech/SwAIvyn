@@ -29,10 +29,14 @@ const conversationService = {
   async getConversations(userId: string): Promise<Conversation[]> {
     try {
       const response = await apiService.get(`/api/conversation/user/${userId}`);
-      return response;
-    } catch (error) {
+      return Array.isArray(response) ? response : [];
+    } catch (error: any) {
+      // If it's a 404 or similar "not found" error, return empty array instead of throwing
+      if (error.response && (error.response.status === 404 || error.response.status === 204)) {
+        return [];
+      }
       console.error('Error getting conversations:', error);
-      throw error;
+      return []; // Return empty array instead of throwing
     }
   },
 
@@ -158,6 +162,14 @@ const conversationService = {
     }
 
     try {
+      // First check if user has any conversations to avoid unnecessary 404
+      const allConversations = await this.getConversations(userId);
+      if (!allConversations || allConversations.length === 0) {
+        // User has no conversations, return null without making the recent API call
+        return null;
+      }
+
+      // User has conversations, now get the most recent one
       const response = await apiService.get(`/api/conversation/recent/${userId}`);
       return response;
     } catch (error: any) {

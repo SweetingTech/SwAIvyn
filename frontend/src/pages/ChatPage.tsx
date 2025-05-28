@@ -46,7 +46,7 @@ const ChatPage = () => {
     const loadConversation = async () => {
       try {
         console.log('Using hard-coded user:', USER_ID);
-        
+
         // Load recent conversation for this user
         const recent = await conversationService.getRecentConversation(USER_ID);
 
@@ -60,8 +60,9 @@ const ChatPage = () => {
           // Load messages for this conversation
           const conversationMessages = await conversationService.getMessages(recent.id);
 
-          // Convert to the Message format used by the UI
-          const formattedMessages = conversationMessages.map(msg => ({
+          // Convert to the Message format used by the UI - ensure it's an array
+          const messagesArray = Array.isArray(conversationMessages) ? conversationMessages : [];
+          const formattedMessages = messagesArray.map(msg => ({
             id: msg.id,
             sender: msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'ai' : 'system') as 'user' | 'ai' | 'system',
             text: msg.content,
@@ -100,11 +101,11 @@ const ChatPage = () => {
   const handleCharacterSelect = (character: any) => {
     setSelectedCharacter(character);
 
-    // Persist selection to localStorage
+    // Persist selection to sessionStorage for the browser session
     if (character) {
-      localStorage.setItem('selectedCharacterId', character.id);
+      sessionStorage.setItem('selectedCharacterId', character.id);
     } else {
-      localStorage.removeItem('selectedCharacterId');
+      sessionStorage.removeItem('selectedCharacterId');
     }
   };
   /**
@@ -148,8 +149,9 @@ const ChatPage = () => {
       // Load messages for this conversation
       const conversationMessages = await conversationService.getMessages(conversationId);
 
-      // Convert to the Message format used by the UI
-      const formattedMessages = conversationMessages.map(msg => ({
+      // Convert to the Message format used by the UI - ensure it's an array
+      const messagesArray = Array.isArray(conversationMessages) ? conversationMessages : [];
+      const formattedMessages = messagesArray.map(msg => ({
         id: msg.id,
         sender: msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'ai' : 'system') as 'user' | 'ai' | 'system',
         text: msg.content,

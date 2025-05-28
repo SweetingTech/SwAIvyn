@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
+using SwAIvyn.Services.Graph;
 using YamlDotNet.Serialization;
 
 namespace SwAIvyn.Services
@@ -51,8 +52,8 @@ namespace SwAIvyn.Services
         private readonly ISimpleLoggerService _logger;
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _dbContext;
-        private readonly IDefaultCharacterService _defaultCharacterService;
-        private readonly IBrainService _brainService;
+        // REMOVED: IDefaultCharacterService - database-only approach
+        private readonly IBrainGraphService _brainGraphService;
 
         // Setting keys
         private const string DEFAULT_LLM_ENGINE_KEY = "DefaultLlmEngine";
@@ -67,8 +68,7 @@ namespace SwAIvyn.Services
         /// <param name="logger">Logger service</param>
         /// <param name="configuration">Configuration</param>
         /// <param name="dbContext">Database context</param>
-        /// <param name="defaultCharacterService">Default character service</param>
-        /// <param name="brainService">Brain service for memory search</param>
+        /// <param name="brainGraphService">Brain graph service for memory search</param>
         public AiChatService(
             ILlmConnectorService llmConnector,
             IConversationService conversationService,
@@ -76,8 +76,7 @@ namespace SwAIvyn.Services
             ISimpleLoggerService logger,
             IConfiguration configuration,
             ApplicationDbContext dbContext,
-            IDefaultCharacterService defaultCharacterService,
-            IBrainService brainService)
+            IBrainGraphService brainGraphService)
         {
             _llmConnector = llmConnector;
             _conversationService = conversationService;
@@ -85,8 +84,7 @@ namespace SwAIvyn.Services
             _logger = logger;
             _configuration = configuration;
             _dbContext = dbContext;
-            _defaultCharacterService = defaultCharacterService;
-            _brainService = brainService;
+            _brainGraphService = brainGraphService;
         }
 
         /// <inheritdoc/>
@@ -122,10 +120,28 @@ namespace SwAIvyn.Services
                 }
                 else
                 {
-                    // Fall back to default GLaDOS character
-                    _logger.LogInfo("🚀 No character in conversation, falling back to GLaDOS default");
-                    systemPrompt = await _defaultCharacterService.GetDefaultSystemPromptAsync();
-                    _logger.LogInfo($"✅ GLaDOS default system prompt retrieved - Length: {systemPrompt?.Length ?? 0}");
+                    // Fall back to first available character from database
+                    _logger.LogInfo("🚀 No character in conversation, falling back to first available character");
+                    var firstCharacter = await _dbContext.Avatars
+                        .Where(a => a.UserId == userId)
+                        .OrderBy(a => a.CreatedAt)
+                        .FirstOrDefaultAsync();
+
+                    if (firstCharacter != null)
+                    {
+                        systemPrompt = firstCharacter.SystemPrompt ?? "";
+                        if (string.IsNullOrEmpty(systemPrompt))
+                        {
+                            // Generate a basic system prompt from character data
+                            systemPrompt = $"You are roleplaying as {firstCharacter.Name}. {firstCharacter.Personality} {firstCharacter.Description}";
+                        }
+                        _logger.LogInfo($"✅ Fallback character '{firstCharacter.Name}' system prompt retrieved - Length: {systemPrompt.Length}");
+                    }
+                    else
+                    {
+                        _logger.LogInfo("⚠️ No characters available for user, using generic assistant prompt");
+                        systemPrompt = "You are a helpful AI assistant.";
+                    }
                 }
 
                 // Prepare structured messages for the LLM
@@ -150,16 +166,17 @@ namespace SwAIvyn.Services
                 string memoryContext = "";
                 try
                 {
-                    _logger.LogInfo("🧠 Searching for relevant memories...");
-                    var memoryHits = await _brainService.SearchAsync(userMessage, limit: 5);
+                    _logger.LogInfo("🧠 Searching for relevant memories in graph database...");
+                    var memoryResults = await _brainGraphService.SearchAsync(userMessage, limit: 5);
 
-                    if (memoryHits.Any())
+                    if (memoryResults.Any())
                     {
-                        _logger.LogInfo($"✅ Found {memoryHits.Count} relevant memories");
+                        _logger.LogInfo($"✅ Found {memoryResults.Count} relevant memories");
                         var memoryTexts = new List<string>();
 
-                        foreach (var hit in memoryHits)
+                        foreach (var result in memoryResults)
                         {
+                            var hit = result.Hit;
                             if (hit.Metadata != null && hit.Metadata.ContainsKey("userId"))
                             {
                                 // Only include memories from the same user

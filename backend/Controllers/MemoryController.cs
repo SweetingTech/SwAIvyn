@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
 using SwAIvyn.Data.Entities;
 using SwAIvyn.Services;
+using SwAIvyn.Services.Graph;
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -18,12 +19,12 @@ namespace SwAIvyn.Controllers
     public class MemoryController : ControllerBase
     {
         private readonly ApplicationDbContext _dbContext;
-        private readonly IBrainService _brainService;
+        private readonly IBrainGraphService _brainGraphService;
 
-        public MemoryController(ApplicationDbContext dbContext, IBrainService brainService)
+        public MemoryController(ApplicationDbContext dbContext, IBrainGraphService brainGraphService)
         {
             _dbContext = dbContext;
-            _brainService = brainService;
+            _brainGraphService = brainGraphService;
         }
 
         /// <summary>
@@ -64,7 +65,7 @@ namespace SwAIvyn.Controllers
             _dbContext.Memories.Add(memory);
             await _dbContext.SaveChangesAsync();
 
-            // Add to vector store for semantic search
+            // Add to Neo4j graph database for persistent memory and relationships
             try
             {
                 var metadata = new Dictionary<string, string>
@@ -75,12 +76,12 @@ namespace SwAIvyn.Controllers
                     { "createdAt", memory.CreatedAt.ToString("O") }
                 };
 
-                await _brainService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
             }
             catch (Exception ex)
             {
                 // Log error but don't fail the request - memory is still saved to database
-                Console.WriteLine($"Warning: Failed to add memory to vector store: {ex.Message}");
+                Console.WriteLine($"Warning: Failed to add memory to graph database: {ex.Message}");
             }
 
             return Ok(memory);
@@ -129,28 +130,28 @@ namespace SwAIvyn.Controllers
             _dbContext.Memories.Remove(memory);
             await _dbContext.SaveChangesAsync();
 
-            // Remove from vector store
+            // Remove from graph database
             try
             {
-                await _brainService.DeleteMemoryAsync(id);
+                await _brainGraphService.DeleteMemoryAsync(id);
             }
             catch (Exception ex)
             {
                 // Log error but don't fail the request - memory is already deleted from database
-                Console.WriteLine($"Warning: Failed to delete memory from vector store: {ex.Message}");
+                Console.WriteLine($"Warning: Failed to delete memory from graph database: {ex.Message}");
             }
 
             return NoContent();
         }
 
         /// <summary>
-        /// Rebuilds the vector store by adding all existing memories to it.
-        /// This is useful for migrating existing memories to the vector store.
+        /// Rebuilds the graph database by adding all existing memories to it.
+        /// This is useful for migrating existing memories to the graph database.
         /// </summary>
         /// <param name="userId">User ID to rebuild memories for</param>
         /// <returns>Number of memories processed</returns>
-        [HttpPost("rebuild-vectors/{userId}")]
-        public async Task<IActionResult> RebuildVectors(Guid userId)
+        [HttpPost("rebuild-graph/{userId}")]
+        public async Task<IActionResult> RebuildGraph(Guid userId)
         {
             try
             {
@@ -173,12 +174,12 @@ namespace SwAIvyn.Controllers
                             { "createdAt", memory.CreatedAt.ToString("O") }
                         };
 
-                        await _brainService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                        await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
                         processed++;
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Failed to add memory {memory.Id} to vector store: {ex.Message}");
+                        Console.WriteLine($"Failed to add memory {memory.Id} to graph database: {ex.Message}");
                         errors++;
                     }
                 }
@@ -187,7 +188,7 @@ namespace SwAIvyn.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error rebuilding vectors: {ex.Message}");
+                return StatusCode(500, $"Error rebuilding graph: {ex.Message}");
             }
         }
     }

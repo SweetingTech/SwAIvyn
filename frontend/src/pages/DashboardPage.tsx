@@ -61,18 +61,34 @@ const DashboardPage = () => {
       const llmData = llmResponse.ok ? await llmResponse.json() : { engine: 'Unknown', model: 'Unknown' };
       console.log('🔍 Dashboard: LLM API response data:', llmData);
 
-      // Test LLM connection
+      // Get the actual current model from the respective service
+      let actualModel = 'Unknown';
       let llmConnected = false;
+
       try {
         if (llmData.engine === 'ollama') {
           const testResponse = await fetch('/api/llm/ollama/models');
           llmConnected = testResponse.ok;
+          if (testResponse.ok) {
+            // For Ollama, use the model from database settings
+            actualModel = llmData.model || 'Not selected';
+          }
         } else if (llmData.engine === 'lmstudio') {
           const testResponse = await fetch('/api/llm/lmstudio/models');
           llmConnected = testResponse.ok;
+          if (testResponse.ok) {
+            // For LM Studio, get the actual loaded model from the API
+            const modelsData = await testResponse.json();
+            if (modelsData.data && modelsData.data.length > 0) {
+              actualModel = modelsData.data[0].id; // Use the first (current) model
+            } else {
+              actualModel = 'No model loaded';
+            }
+          }
         }
       } catch {
         llmConnected = false;
+        actualModel = 'Connection failed';
       }
 
       // Get character count using user ID from context

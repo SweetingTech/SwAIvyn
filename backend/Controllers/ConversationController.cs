@@ -19,7 +19,7 @@ namespace SwAIvyn.Controllers
         private readonly IAiChatService _aiChatService;
         private readonly ISimpleLoggerService _logger;
         private readonly ApplicationDbContext _dbContext;
-        private readonly IDefaultCharacterService _defaultCharacterService;
+        // REMOVED: IDefaultCharacterService - database-only approach
 
         /// <summary>
         /// Initializes a new instance of the ConversationController
@@ -28,19 +28,16 @@ namespace SwAIvyn.Controllers
         /// <param name="aiChatService">AI chat service</param>
         /// <param name="logger">Logger service</param>
         /// <param name="dbContext">Database context</param>
-        /// <param name="defaultCharacterService">Default character service</param>
         public ConversationController(
             IConversationService conversationService,
             IAiChatService aiChatService,
             ISimpleLoggerService logger,
-            ApplicationDbContext dbContext,
-            IDefaultCharacterService defaultCharacterService)
+            ApplicationDbContext dbContext)
         {
             _conversationService = conversationService;
             _aiChatService = aiChatService;
             _logger = logger;
             _dbContext = dbContext;
-            _defaultCharacterService = defaultCharacterService;
         }
 
         /// <summary>
@@ -347,23 +344,36 @@ namespace SwAIvyn.Controllers
                 AvatarInfo? character = null;
                 string systemPrompt = "";
 
-                // Handle default character case
+                // Handle default character case - load first available character from database
                 if (characterId.Equals("default", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogInfo($"[CHARACTER_LOAD] Processing 'default' character selection - should load GLaDOS");
+                    _logger.LogInfo($"[CHARACTER_LOAD] Processing 'default' character selection - loading first available character");
 
-                    character = await _defaultCharacterService.GetDefaultCharacterAsync();
+                    character = await _dbContext.Avatars
+                        .Where(a => a.UserId == userId)
+                        .OrderBy(a => a.CreatedAt)
+                        .FirstOrDefaultAsync();
 
                     if (character != null)
                     {
-                        _logger.LogInfo($"[CHARACTER_LOAD] ✅ Default character loaded - Name: '{character.Name}', Id: {character.Id}");
-                        systemPrompt = await _defaultCharacterService.GetDefaultSystemPromptAsync();
-                        _logger.LogInfo($"[CHARACTER_LOAD] Default system prompt retrieved (length: {systemPrompt?.Length ?? 0} chars)");
+                        _logger.LogInfo($"[CHARACTER_LOAD] ✅ Default character loaded from database - Name: '{character.Name}', Id: {character.Id}");
+                        systemPrompt = character.SystemPrompt ?? "";
+
+                        // If no pre-generated prompt exists, generate one as fallback
+                        if (string.IsNullOrEmpty(systemPrompt))
+                        {
+                            systemPrompt = GenerateSystemPromptFromCharacter(character);
+                            _logger.LogWarning($"[CHARACTER_LOAD] Character '{character.Name}' has no pre-generated system prompt, using fallback generation");
+                        }
+                        else
+                        {
+                            _logger.LogInfo($"[CHARACTER_LOAD] Using pre-generated system prompt (length: {systemPrompt.Length} chars)");
+                        }
                     }
                     else
                     {
-                        _logger.LogError($"[CHARACTER_LOAD] ❌ Default character service returned null");
-                        throw new ArgumentException("Default character not found");
+                        _logger.LogError($"[CHARACTER_LOAD] ❌ No characters found in database for user {userId}");
+                        throw new ArgumentException("No characters available for this user");
                     }
                 }
                 else
