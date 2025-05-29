@@ -44,6 +44,23 @@ namespace SwAIvyn.Services.Graph
         Task<List<BrainSearchResult>> SearchAsync(string query, int limit = 10);
 
         /// <summary>
+        /// Searches for relevant conversation chunks
+        /// </summary>
+        /// <param name="query">Search query</param>
+        /// <param name="limit">Maximum number of results</param>
+        /// <returns>List of conversation search results</returns>
+        Task<List<BrainSearchResult>> SearchConversationAsync(string query, int limit = 10);
+
+        /// <summary>
+        /// Adds a conversation chunk to the brain graph
+        /// </summary>
+        /// <param name="id">Conversation chunk ID</param>
+        /// <param name="text">Conversation text</param>
+        /// <param name="metadata">Optional metadata</param>
+        /// <returns>True if successful</returns>
+        Task<bool> AddConversationChunkAsync(Guid id, string text, Dictionary<string, string> metadata = null);
+
+        /// <summary>
         /// Gets the graph visualization data for a memory
         /// </summary>
         /// <param name="memoryId">Memory ID</param>
@@ -56,13 +73,18 @@ namespace SwAIvyn.Services.Graph
         /// </summary>
         /// <param name="id">Memory ID</param>
         /// <returns>True if successful</returns>
-        Task<bool> DeleteMemoryAsync(Guid id);
-
-        /// <summary>
+        Task<bool> DeleteMemoryAsync(Guid id);        /// <summary>
         /// Gets the status of the brain graph service
         /// </summary>
         /// <returns>Status information</returns>
         Task<Dictionary<string, object>> GetStatusAsync();
+
+        /// <summary>
+        /// Gets all memory IDs for a specific user from Neo4j
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>List of memory IDs</returns>
+        Task<List<Guid>> GetAllMemoryIdsAsync(Guid userId);
     }
 
     /// <summary>
@@ -108,7 +130,7 @@ namespace SwAIvyn.Services.Graph
     public class BrainGraphService : IBrainGraphService
     {
         private readonly INeo4jService _neo4jService;
-        private readonly IVectorStore _vectorStore;
+        private readonly Neo4jVectorStore _neo4jVectorStore;
         private readonly IEmbeddingService _embeddingService;
         private readonly ISimpleLoggerService _logger;
         private bool _isInitialized = false;
@@ -117,17 +139,17 @@ namespace SwAIvyn.Services.Graph
         /// Initializes a new instance of the BrainGraphService
         /// </summary>
         /// <param name="neo4jService">Neo4j service</param>
-        /// <param name="vectorStore">Vector store</param>
+        /// <param name="neo4jVectorStore">Neo4j vector store for memories and conversations</param>
         /// <param name="embeddingService">Embedding service</param>
         /// <param name="logger">Logger service</param>
         public BrainGraphService(
             INeo4jService neo4jService,
-            IVectorStore vectorStore,
+            Neo4jVectorStore neo4jVectorStore,
             IEmbeddingService embeddingService,
             ISimpleLoggerService logger)
         {
             _neo4jService = neo4jService;
-            _vectorStore = vectorStore;
+            _neo4jVectorStore = neo4jVectorStore;
             _embeddingService = embeddingService;
             _logger = logger;
         }
@@ -142,8 +164,8 @@ namespace SwAIvyn.Services.Graph
                 // Initialize Neo4j service (this will be skipped if Neo4j is not embedded)
                 await _neo4jService.InitializeAsync();
 
-                // Initialize vector store
-                await _vectorStore.InitializeAsync();
+                // Initialize Neo4j vector store for memories and conversations
+                await _neo4jVectorStore.InitializeAsync();
 
                 _isInitialized = true;
                 _logger.LogInfo("Brain graph service initialized successfully");
@@ -167,8 +189,8 @@ namespace SwAIvyn.Services.Graph
                 // Generate embedding for the text
                 var embedding = await _embeddingService.EmbedTextAsync(text);
 
-                // Store the embedding in the vector store
-                var vectorStoreSuccess = await _vectorStore.StoreVectorAsync(id, embedding, metadata);
+                // Store the embedding in Neo4j vector store
+                var vectorStoreSuccess = await _neo4jVectorStore.StoreVectorAsync(id, embedding, metadata);
 
                 try
                 {
@@ -248,8 +270,8 @@ namespace SwAIvyn.Services.Graph
                 // Generate embedding for the query
                 var queryEmbedding = await _embeddingService.EmbedTextAsync(query);
 
-                // Search the vector store
-                var hits = await _vectorStore.SearchAsync(queryEmbedding, limit);
+                // Search Neo4j vector store for memories
+                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, limit);
 
                 var results = new List<BrainSearchResult>();
                 foreach (var hit in hits)
@@ -411,8 +433,8 @@ namespace SwAIvyn.Services.Graph
 
             try
             {
-                // Delete from vector store
-                var vectorStoreSuccess = await _vectorStore.DeleteVectorAsync(id);
+                // Delete from Neo4j vector store
+                var vectorStoreSuccess = await _neo4jVectorStore.DeleteVectorAsync(id);
 
                 try
                 {
@@ -436,6 +458,152 @@ namespace SwAIvyn.Services.Graph
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to delete memory {id}", ex);
+                return false;
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<List<BrainSearchResult>> SearchConversationAsync(string query, int limit = 10)
+        {
+            if (!_isInitialized)
+                await InitializeAsync();
+
+            try
+            {
+                // Generate embedding for the query
+                var queryEmbedding = await _embeddingService.EmbedTextAsync(query);
+
+                // Search Neo4j vector store for conversation chunks
+                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, limit);
+
+                var results = new List<BrainSearchResult>();
+                foreach (var hit in hits)
+                {
+                    // Filter for conversation chunks only
+                    if (hit.Metadata?.GetValueOrDefault("type") == "conversation")
+                    {
+                        var relatedNodes = new List<GraphNode>();
+                        var relationships = new List<GraphRelationship>();
+
+                        try
+                        {
+                            // Get related nodes and relationships from Neo4j (this will be skipped if Neo4j is not available)
+                            var nodeQuery = $"MATCH (n:ConversationChunk {{id: '{hit.Id}'}}) RETURN n";
+                            var nodeResults = await _neo4jService.ExecuteQueryAsync(nodeQuery);
+
+                            if (nodeResults.Count > 0)
+                            {
+                                var nodeData = (Dictionary<string, object>)nodeResults[0]["n"];
+                                relatedNodes.Add(new GraphNode
+                                {
+                                    Id = nodeData["id"].ToString(),
+                                    Labels = new List<string> { "ConversationChunk" },
+                                    Properties = nodeData
+                                });
+                            }
+
+                            // Get relationships
+                            var relationshipQuery = $"MATCH (n:ConversationChunk {{id: '{hit.Id}'}})-[r]-(m) RETURN r, m";
+                            var relationshipResults = await _neo4jService.ExecuteQueryAsync(relationshipQuery);
+
+                            foreach (var result in relationshipResults)
+                            {
+                                var relationshipData = (Dictionary<string, object>)result["r"];
+                                var relatedNodeData = (Dictionary<string, object>)result["m"];
+
+                                relationships.Add(new GraphRelationship
+                                {
+                                    Id = relationshipData.GetValueOrDefault("id", Guid.NewGuid().ToString()).ToString(),
+                                    Type = relationshipData.GetValueOrDefault("type", "RELATED").ToString(),
+                                    StartNodeId = hit.Id.ToString(),
+                                    EndNodeId = relatedNodeData["id"].ToString(),
+                                    Properties = relationshipData
+                                });
+
+                                relatedNodes.Add(new GraphNode
+                                {
+                                    Id = relatedNodeData["id"].ToString(),
+                                    Labels = new List<string> { relatedNodeData.GetValueOrDefault("type", "Unknown").ToString() },
+                                    Properties = relatedNodeData
+                                });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // Just log the error and continue
+                            _logger.LogError($"Failed to get Neo4j data for conversation chunk {hit.Id}: {ex.Message}");
+                        }
+
+                        results.Add(new BrainSearchResult
+                        {
+                            Hit = hit,
+                            RelatedNodes = relatedNodes,
+                            Relationships = relationships
+                        });
+                    }
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Failed to search conversation chunks", ex);
+                return new List<BrainSearchResult>();
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> AddConversationChunkAsync(Guid id, string text, Dictionary<string, string> metadata = null)
+        {
+            if (!_isInitialized)
+                await InitializeAsync();
+
+            try
+            {
+                // Generate embedding for the text
+                var embedding = await _embeddingService.EmbedTextAsync(text);
+
+                // Add type metadata to identify as conversation chunk
+                var conversationMetadata = new Dictionary<string, string>(metadata ?? new Dictionary<string, string>())
+                {
+                    ["type"] = "conversation"
+                };
+
+                // Store the embedding in Neo4j vector store
+                var vectorStoreSuccess = await _neo4jVectorStore.StoreVectorAsync(id, embedding, conversationMetadata);
+
+                try
+                {
+                    // Create a node in Neo4j (this will be skipped if Neo4j is not available)
+                    var properties = new Dictionary<string, object>
+                    {
+                        { "id", id.ToString() },
+                        { "text", text },
+                        { "type", "conversation" }
+                    };
+
+                    // Add metadata to properties
+                    if (metadata != null)
+                    {
+                        foreach (var kvp in metadata)
+                        {
+                            properties[kvp.Key] = kvp.Value;
+                        }
+                    }
+
+                    await _neo4jService.CreateNodeAsync(new List<string> { "ConversationChunk" }, properties);
+                }
+                catch (Exception ex)
+                {
+                    // Just log the error and continue
+                    _logger.LogError($"Failed to create Neo4j node for conversation chunk {id}: {ex.Message}");
+                }
+
+                return vectorStoreSuccess;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to add conversation chunk {id}", ex);
                 return false;
             }
         }
@@ -466,15 +634,15 @@ namespace SwAIvyn.Services.Graph
 
                 try
                 {
-                    // Get vector store status
-                    var vectorStoreStatus = await _vectorStore.GetStatusAsync();
-                    status["VectorStore"] = vectorStoreStatus;
+                    // Get Neo4j vector store status
+                    var vectorStoreStatus = await _neo4jVectorStore.GetStatusAsync();
+                    status["Neo4jVectorStore"] = vectorStoreStatus;
                 }
                 catch (Exception ex)
                 {
                     // Just log the error and continue
-                    _logger.LogError($"Failed to get vector store status: {ex.Message}");
-                    status["VectorStore"] = new Dictionary<string, object>
+                    _logger.LogError($"Failed to get Neo4j vector store status: {ex.Message}");
+                    status["Neo4jVectorStore"] = new Dictionary<string, object>
                     {
                         ["Error"] = ex.Message
                     };
@@ -486,11 +654,52 @@ namespace SwAIvyn.Services.Graph
             }
             catch (Exception ex)
             {
-                _logger.LogError("Failed to get brain graph status", ex);
-                return new Dictionary<string, object>
+                _logger.LogError("Failed to get brain graph status", ex);                return new Dictionary<string, object>
                 {
                     ["Error"] = ex.Message
                 };
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<List<Guid>> GetAllMemoryIdsAsync(Guid userId)
+        {
+            if (!_isInitialized)
+                await InitializeAsync();
+
+            try
+            {
+                _logger.LogInfo($"Getting all memory IDs for user {userId}");
+
+                // Query Neo4j for all memory nodes for this user
+                var query = "MATCH (m:Memory) WHERE m.userId = $userId RETURN m.id as memoryId";
+                var parameters = new Dictionary<string, object>
+                {
+                    { "userId", userId.ToString() }
+                };
+
+                var result = await _neo4jService.ExecuteQueryAsync(query, parameters);
+                var memoryIds = new List<Guid>();
+
+                foreach (var record in result)
+                {
+                    if (record.TryGetValue("memoryId", out var idValue) && idValue != null)
+                    {
+                        if (Guid.TryParse(idValue.ToString(), out var memoryId))
+                        {
+                            memoryIds.Add(memoryId);
+                        }
+                    }
+                }
+
+                _logger.LogInfo($"Found {memoryIds.Count} memory IDs in Neo4j for user {userId}");
+                return memoryIds;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get memory IDs for user {userId}", ex);
+                // Return empty list instead of throwing to allow the sync status to continue
+                return new List<Guid>();
             }
         }
     }
