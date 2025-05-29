@@ -1,0 +1,84 @@
+# SwAIvyn Desktop Application Build Workflow
+#
+# This workflow builds and tests the SwAIvyn desktop application for Windows.
+# It handles both the frontend and backend components, running tests and producing
+# distributable artifacts for both Debug and Release configurations.
+#
+# The workflow:
+# 1. Builds the frontend React application
+# 2. Builds the .NET backend
+# 3. Runs automated tests
+# 4. Packages the application for distribution
+#
+# Artifacts are uploaded and available for download after successful builds.
+
+name: .NET Core Desktop
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+
+    runs-on: windows-latest
+
+    env:
+      Solution_Name: SwAIvyn.sln
+      Test_Project_Path: backend/Tests/SwAIvyn.Tests.csproj
+      # If you don't have a WAP project, you can comment out or remove these lines
+      # Wap_Project_Directory: your-wap-project-directory-name
+      # Wap_Project_Path: your-wap-project-path
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # Install the .NET Core workload
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    # Install Node.js for frontend build
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18'
+
+    # Build frontend
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm install
+        npm run build
+        cd ..
+
+    # Add MSBuild to the PATH
+    - name: Setup MSBuild.exe
+      uses: microsoft/setup-msbuild@v2
+
+    # Execute all unit tests in the solution
+    - name: Execute unit tests
+      run: dotnet test $env:Test_Project_Path
+
+    # Build the application
+    - name: Build the application
+      run: |
+        .\scripts\build-app.ps1 -Configuration $env:Configuration -Runtime win-x64 -OutputDir "dist"
+      env:
+        Configuration: ${{ matrix.configuration }}
+
+    # Upload the build artifacts
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: SwAIvyn-${{ matrix.configuration }}
+        path: dist/
