@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -19,9 +20,51 @@ using SQLitePCL;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using YamlDotNet.Serialization;
+using System.Linq;
+using System.Collections.Generic;
 
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
+
+// Kill any existing SwAIvyn processes to prevent Neo4j lock conflicts
+try
+{
+    var currentProcess = Process.GetCurrentProcess();
+    var existingProcesses = Process.GetProcessesByName("SwAIvyn")
+        .Where(p => p.Id != currentProcess.Id)
+        .ToList();
+
+    if (existingProcesses.Any())
+    {
+        Console.WriteLine($"[STARTUP] Found {existingProcesses.Count} existing SwAIvyn process(es). Terminating...");
+        foreach (var process in existingProcesses)
+        {
+            try
+            {
+                Console.WriteLine($"[STARTUP] Killing process {process.Id}...");
+                process.Kill();
+                process.WaitForExit(5000); // Wait up to 5 seconds
+                Console.WriteLine($"[STARTUP] Process {process.Id} terminated successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[STARTUP] Failed to kill process {process.Id}: {ex.Message}");
+            }
+        }
+
+        // Give processes time to fully clean up
+        Console.WriteLine("[STARTUP] Waiting 3 seconds for cleanup...");
+        Thread.Sleep(3000);
+    }
+    else
+    {
+        Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[STARTUP] Error checking for existing processes: {ex.Message}");
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -144,9 +187,16 @@ builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
 
 // Add vector store and brain services
 builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
-// Use Weaviate instead of SQLite-VSS for vector storage
+
+// Register individual vector stores
+builder.Services.AddScoped<Neo4jVectorStore>();        // brain memories (scoped because it depends on INeo4jService)
 builder.Services.AddHttpClient<WeaviateVectorStore>();
-builder.Services.AddSingleton<IVectorStore, WeaviateVectorStore>();
+builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
+
+// Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
+builder.Services.AddScoped<IVectorRouter, VectorRouter>();
+
+// Register BrainService with IVectorRouter instead of IVectorStore
 builder.Services.AddScoped<IBrainService, BrainService>();
 
 // Add Neo4j and BrainGraph services
@@ -158,9 +208,12 @@ builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 builder.Services.AddScoped<ILlmConnectorService, LlmConnectorService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
-// REMOVED: Character card loader and default character services - database-only approach
-// builder.Services.AddScoped<CharacterCardLoaderService>();
-// builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
+// Add memory re-indexing service
+builder.Services.AddScoped<SwAIvyn.Services.Memory.MemoryReindexService>();
+
+// Add character services
+builder.Services.AddScoped<CharacterCardLoaderService>();
+builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 
 builder.Services.AddSignalR().AddJsonProtocol();
 builder.Services.AddEndpointsApiExplorer();
@@ -224,10 +277,90 @@ using (var scope = app.Services.CreateScope())
     else
     {
         logger.LogInfo("SQLite database connection check passed.");
-    }
-
-    // Skip Neo4j health check completely
+    }    // Skip Neo4j health check completely
     logger.LogInfo("Startup health checks completed.");
+
+    // Perform memory sync on startup (optional feature)
+    try
+    {
+        logger.LogInfo("Performing memory synchronization on startup...");
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var brainGraphService = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
+        
+        const string defaultUserId = "00000000-0000-0000-0000-000000000001";
+        var userId = Guid.Parse(defaultUserId);
+        
+        // Check sync status first
+        var sqliteMemories = await dbContext.Memories
+            .Where(m => m.UserId == userId)
+            .ToListAsync();
+        
+        var neo4jMemoryIds = new List<Guid>();
+        try
+        {
+            neo4jMemoryIds = await brainGraphService.GetAllMemoryIdsAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Failed to get Neo4j memories during startup sync: {ex.Message}");
+        }
+        
+        var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
+        var neo4jIds = neo4jMemoryIds.ToHashSet();
+        var missingInNeo4j = sqliteIds.Except(neo4jIds).ToList();
+        
+        if (missingInNeo4j.Count > 0)
+        {
+            logger.LogInfo($"Found {missingInNeo4j.Count} memories missing from Neo4j. Performing repair...");
+            
+            int successCount = 0;
+            int failureCount = 0;
+            
+            foreach (var memoryId in missingInNeo4j)
+            {
+                var memory = sqliteMemories.First(m => m.Id == memoryId);
+                
+                try
+                {
+                    var metadata = new Dictionary<string, string>
+                    {
+                        { "category", memory.Category ?? "general" },
+                        { "userId", memory.UserId.ToString() },
+                        { "isShared", memory.IsShared.ToString() },
+                        { "createdAt", memory.CreatedAt.ToString("O") },
+                        { "source", "startup-sync" }
+                    };
+
+                    var success = await brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                    
+                    if (success)
+                    {
+                        successCount++;
+                    }
+                    else
+                    {
+                        failureCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failureCount++;
+                    logger.LogWarning($"Failed to sync memory {memory.Id} during startup: {ex.Message}");
+                }
+            }
+            
+            logger.LogInfo($"Startup memory repair completed: {successCount} successful, {failureCount} failed");
+        }
+        else
+        {
+            logger.LogInfo("Memory databases are already in sync.");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError("Failed to perform startup memory sync", ex);
+        // Don't fail startup for sync issues
+    }
 }
 
 // Initialize directories
@@ -263,6 +396,38 @@ try
 catch (Exception ex)
 {
     logger.LogCritical("Failed to initialize database", ex);
+}
+
+// Initialize Neo4j database schema
+try
+{
+    logger.LogInfo("Initializing Neo4j database schema...");
+    using (var scope = app.Services.CreateScope())
+    {
+        var neo4jService = scope.ServiceProvider.GetRequiredService<INeo4jService>();
+        await neo4jService.InitializeDatabaseSchemaAsync();
+        logger.LogInfo("Neo4j database schema initialization completed successfully");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogWarning($"Failed to initialize Neo4j database schema - this is expected if Neo4j is not available. Error: {ex.Message}");
+}
+
+// Initialize Weaviate vector store schema
+try
+{
+    logger.LogInfo("Initializing Weaviate vector store schema...");
+    using (var scope = app.Services.CreateScope())
+    {
+        var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
+        await vectorStore.InitializeAsync();
+        logger.LogInfo("Weaviate vector store schema initialization completed successfully");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogWarning($"Failed to initialize Weaviate vector store schema - this is expected if Weaviate is not available. Error: {ex.Message}");
 }
 
 // --- Seed default user and AI profile on first run ---
@@ -352,18 +517,17 @@ try
         var settingsService = scope.ServiceProvider.GetRequiredService<ISettingsService>();
         await settingsService.InitializeDefaultSettingsAsync(defaultUserId);
 
-        // COMMENTED OUT: Character card loading and hardcoded GLaDOS creation - only load from database
         // Load character cards from filesystem
-        // logger.LogInfo("Loading character cards from filesystem...");
-        // var characterCardLoader = scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>();
-        // await characterCardLoader.LoadCharacterCardsAsync();
-        // logger.LogInfo("Character card loading completed");
+        logger.LogInfo("Loading character cards from filesystem...");
+        var characterCardLoader = scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>();
+        await characterCardLoader.LoadCharacterCardsAsync();
+        logger.LogInfo("Character card loading completed");
 
         // Ensure GLaDOS default character is loaded
-        // logger.LogInfo("Ensuring GLaDOS default character is loaded...");
-        // var defaultCharacterService = scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>();
-        // await defaultCharacterService.EnsureDefaultCharacterAsync();
-        // logger.LogInfo("GLaDOS default character loaded successfully");
+        logger.LogInfo("Ensuring GLaDOS default character is loaded...");
+        var defaultCharacterService = scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>();
+        await defaultCharacterService.EnsureDefaultCharacterAsync();
+        logger.LogInfo("GLaDOS default character loaded successfully");
 
         // Create a welcome conversation if no conversations exist
         if (!db.Conversations.Any())
@@ -424,17 +588,17 @@ catch (Exception ex)
     }
 }
 
-// Initialize vector store
+// Initialize vector stores
 try
 {
-    logger.LogInfo("Initializing vector store...");
-    var vectorStore = app.Services.GetRequiredService<IVectorStore>();
-    await vectorStore.InitializeAsync();
-    logger.LogInfo("Vector store initialization completed successfully");
+    logger.LogInfo("Initializing Weaviate vector store...");
+    var weaviateStore = app.Services.GetRequiredService<WeaviateVectorStore>();
+    await weaviateStore.InitializeAsync();
+    logger.LogInfo("Weaviate vector store initialization completed successfully");
 }
 catch (Exception ex)
 {
-    logger.LogError($"Failed to initialize vector store. Vector search will not be available. Error: {ex.Message}");
+    logger.LogError($"Failed to initialize Weaviate vector store. Upload search will not be available. Error: {ex.Message}");
 }
 
 // Initialize Neo4j runtime and service
@@ -451,6 +615,14 @@ try
     // Initialize Neo4j runtime (extract and start Neo4j)
     logger.LogInfo("Initializing Neo4j runtime...");
     await neo4jRuntime.InitializeAsync();
+
+    // Give Neo4j time to fully start up before connecting
+    if (neo4jEmbedded)
+    {
+        logger.LogInfo("Waiting 30 seconds for Neo4j to fully start up...");
+        await Task.Delay(TimeSpan.FromSeconds(30));
+        logger.LogInfo("Neo4j startup delay completed, proceeding with service initialization...");
+    }
 
     using (var scope = app.Services.CreateScope())
     {
@@ -488,6 +660,19 @@ catch (Exception ex)
     }
 }
 
+// Initialize Neo4j vector store after Neo4j runtime is ready
+try
+{
+    logger.LogInfo("Initializing Neo4j vector store...");
+    var neo4jStore = app.Services.GetRequiredService<Neo4jVectorStore>();
+    await neo4jStore.InitializeAsync();
+    logger.LogInfo("Neo4j vector store initialization completed successfully");
+}
+catch (Exception ex)
+{
+    logger.LogError($"Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
+}
+
 // Set up global exception handler
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
 {
@@ -521,6 +706,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Add request logging middleware for debugging
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value;
+    var method = context.Request.Method;
+    logger.LogInfo($"[REQUEST] {method} {path}");
+
+    await next();
+
+    logger.LogInfo($"[RESPONSE] {method} {path} -> {context.Response.StatusCode}");
+});
+
 // Add global exception handler middleware
 app.UseGlobalExceptionHandler();
 
@@ -544,7 +741,10 @@ app.UseCors("CorsPolicy");
 app.UseAuthorization();
 
 // Map API controllers first
+logger.LogInfo("[ROUTING] Mapping controllers...");
 app.MapControllers();
+logger.LogInfo("[ROUTING] Controllers mapped successfully");
+
 app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
 app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");
 app.MapHub<NotificationHub>("/hubs/notification").RequireCors("CorsPolicy");
@@ -554,8 +754,155 @@ app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>
     Results.Ok(await neo4jService.GetStatusAsync()))
     .RequireCors("CorsPolicy");
 
+// Add memory debug endpoints
+app.MapPost("/api/debug/memory-search", async (
+    HttpContext context,
+    [FromBody] MemorySearchRequest request,
+    IBrainService brainService,
+    IVectorRouter vectorRouter,
+    Neo4jVectorStore neo4jStore,
+    IEmbeddingService embeddingService,
+    ISimpleLoggerService logger) =>
+{
+    try
+    {
+        logger.LogInfo($"[MEMORY DEBUG] Testing memory search for: {request.Query}");
+        
+        // Use a test user ID for debug purposes
+        var testUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        
+        // Test BrainService search
+        logger.LogInfo("[MEMORY DEBUG] Testing BrainService.SearchAsync...");
+        var brainResults = await brainService.SearchAsync(request.Query, request.Limit ?? 5);
+        logger.LogInfo($"[MEMORY DEBUG] BrainService returned {brainResults.Count()} results");
+        
+        // Test Neo4j vector store directly (need to generate embedding first)
+        logger.LogInfo("[MEMORY DEBUG] Testing Neo4jVectorStore.SearchAsync...");
+        var queryEmbedding = await embeddingService.EmbedTextAsync(request.Query);
+        var neo4jResults = await neo4jStore.SearchAsync(queryEmbedding, request.Limit ?? 5);
+        logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore returned {neo4jResults.Count()} results");
+        
+        // Test VectorRouter
+        logger.LogInfo("[MEMORY DEBUG] Testing VectorRouter.SearchMemoryAsync...");
+        var routerResults = await vectorRouter.SearchMemoryAsync(testUserId, request.Query, request.Limit ?? 5);
+        logger.LogInfo($"[MEMORY DEBUG] VectorRouter returned {routerResults.Count()} results");        
+        return Results.Ok(new
+        {
+            query = request.Query,
+            brainService = new
+            {
+                count = brainResults.Count(),
+                results = brainResults.Select(r => new
+                {
+                    id = r.Id,
+                    score = r.Score,
+                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    metadata = r.Metadata
+                }).ToList()
+            },
+            neo4jVectorStore = new
+            {
+                count = neo4jResults.Count(),
+                results = neo4jResults.Select(r => new
+                {
+                    id = r.Id,
+                    score = r.Score,
+                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    metadata = r.Metadata
+                }).ToList()
+            },
+            vectorRouter = new
+            {
+                count = routerResults.Count(),
+                results = routerResults.Select(r => new
+                {
+                    id = r.Id,
+                    score = r.Score,
+                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    metadata = r.Metadata
+                }).ToList()
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"[MEMORY DEBUG] Error testing memory search: {ex.Message}", ex);
+        return Results.BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
+    }
+})
+.RequireCors("CorsPolicy");
+
+app.MapGet("/api/debug/memory-count", async (
+    IBrainService brainService,
+    Neo4jVectorStore neo4jStore,
+    IEmbeddingService embeddingService,
+    ISimpleLoggerService logger) =>
+{
+    try
+    {
+        logger.LogInfo("[MEMORY DEBUG] Getting memory counts...");
+        
+        // Get all memories from BrainService
+        var allBrainMemories = await brainService.SearchAsync("", 1000); // Large limit to get all
+        logger.LogInfo($"[MEMORY DEBUG] BrainService has {allBrainMemories.Count()} memories");
+        
+        // Try to get count from Neo4j directly
+        var neo4jCount = 0;
+        try
+        {
+            var emptyEmbedding = await embeddingService.EmbedTextAsync("");
+            var allNeo4jResults = await neo4jStore.SearchAsync(emptyEmbedding, 1000);
+            neo4jCount = allNeo4jResults.Count();
+            logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore has {neo4jCount} memories");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError($"[MEMORY DEBUG] Failed to query Neo4j: {ex.Message}");
+        }
+        
+        return Results.Ok(new
+        {
+            brainService = allBrainMemories.Count(),
+            neo4jVectorStore = neo4jCount,
+            brainMemories = allBrainMemories.Select(r => new
+            {
+                id = r.Id,
+                score = r.Score,
+                content = r.Metadata?.GetValueOrDefault("content", ""),
+                metadata = r.Metadata
+            }).Take(10).ToList() // Show first 10
+        });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"[MEMORY DEBUG] Error getting memory counts: {ex.Message}", ex);
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.RequireCors("CorsPolicy");
+
 // Fallback to index.html for SPA routes - CRITICAL for React Router to work
-app.MapFallbackToFile("index.html");
+// Use a pattern that excludes API routes
+logger.LogInfo("[ROUTING] Setting up SPA fallback...");
+app.MapFallback(context =>
+{
+    var path = context.Request.Path.Value;
+    logger.LogInfo($"[FALLBACK] Processing path: {path}");
+
+    // Don't fallback for API routes, hubs, or static files
+    if (path != null && (path.StartsWith("/api/") || path.StartsWith("/hubs/") || path.Contains('.')))
+    {
+        logger.LogInfo($"[FALLBACK] Rejecting path (API/hub/static): {path}");
+        context.Response.StatusCode = 404;
+        return Task.CompletedTask;
+    }
+
+    logger.LogInfo($"[FALLBACK] Serving index.html for SPA route: {path}");
+    // Serve index.html for SPA routes
+    context.Response.ContentType = "text/html";
+    return context.Response.SendFileAsync("wwwroot/index.html");
+});
+logger.LogInfo("[ROUTING] SPA fallback configured");
 
 // Set URLs explicitly
 if (app.Urls.Count == 0)
@@ -638,4 +985,20 @@ else
     logger.LogInfo("Application URLs: " + string.Join(", ", app.Urls));
     app.Run();
     logger.LogInfo("Application has stopped");
+}
+
+/// <summary>
+/// Request model for memory search debugging
+/// </summary>
+public class MemorySearchRequest
+{
+    /// <summary>
+    /// The search query to test
+    /// </summary>
+    public required string Query { get; set; }
+    
+    /// <summary>
+    /// Maximum number of results to return (optional, defaults to 5)
+    /// </summary>
+    public int? Limit { get; set; }
 }

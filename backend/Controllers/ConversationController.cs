@@ -274,6 +274,26 @@ namespace SwAIvyn.Controllers
         {
             try
             {
+                _logger.LogInfo($"[CHAT] Chat endpoint called");
+
+                if (request == null)
+                {
+                    _logger.LogError($"[CHAT] Request is null");
+                    return BadRequest("Request body is null");
+                }
+
+                _logger.LogInfo($"[CHAT] Request received - ConversationId: {request.ConversationId}, UserId: {request.UserId}, Message: '{request.Message}', CharacterId: '{request.CharacterId ?? "null"}'");
+
+                if (!ModelState.IsValid)
+                {
+                    _logger.LogError($"[CHAT] Model validation failed");
+                    foreach (var error in ModelState)
+                    {
+                        _logger.LogError($"[CHAT] Validation error - {error.Key}: {string.Join(", ", error.Value.Errors.Select(e => e.ErrorMessage))}");
+                    }
+                    return BadRequest(ModelState);
+                }
+
                 _logger.LogInfo($"[CHAT] Received chat message for conversation {request.ConversationId}, user {request.UserId}, characterId: '{request.CharacterId ?? "null"}'");
 
                 // Load character system prompt if characterId is provided
@@ -283,9 +303,9 @@ namespace SwAIvyn.Controllers
                     await LoadCharacterIntoConversationAsync(request.ConversationId, request.CharacterId, request.UserId);
                 }
 
-                // Generate and store the AI response
+                // Generate and store the AI response (with auto-memory support)
                 var aiResponse = await _aiChatService.GenerateAndStoreResponseAsync(
-                    request.ConversationId, request.UserId, request.Message);
+                    request.ConversationId, request.UserId, request.Message, request.SaveMemory, request.MemoryCategory);
 
                 _logger.LogInfo($"[CHAT] Successfully generated AI response for conversation {request.ConversationId}");
                 return Ok(new { response = aiResponse });
@@ -563,6 +583,16 @@ You must respond as this character at all times. Stay in character and respond a
         /// Gets or sets the character ID (optional)
         /// </summary>
         public string? CharacterId { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether to automatically save this conversation as a memory (optional)
+        /// </summary>
+        public bool SaveMemory { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets the memory category for auto-saved memories (optional)
+        /// </summary>
+        public string? MemoryCategory { get; set; } = "conversation";
     }
 
     /// <summary>

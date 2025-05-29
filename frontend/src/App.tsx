@@ -40,7 +40,7 @@ function AppContent() {
         <Route path="/" element={<Layout />}>
           <Route index element={<DashboardPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="chat" element={<ChatPage />} />
+          <Route path="chat/:sessionCharacter?" element={<ChatPage />} />
           <Route path="voice-room" element={<VoiceRoomPage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="modules" element={<ModulesPage />} />

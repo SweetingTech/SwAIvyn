@@ -20,7 +20,7 @@ namespace SwAIvyn.Services
         /// <param name="metadata">Optional metadata</param>
         /// <param name="scope">Vector scope</param>
         /// <returns>True if successful</returns>
-        Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string> metadata = null, VectorScope scope = VectorScope.Core);
+        Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string>? metadata = null, VectorScope scope = VectorScope.Core);
 
         /// <summary>
         /// Searches the brain for similar memories
@@ -44,56 +44,68 @@ namespace SwAIvyn.Services
         /// </summary>
         /// <returns>Status information</returns>
         Task<Dictionary<string, object>> GetStatusAsync();
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// Service that manages the brain functionality
     /// </summary>
     public class BrainService : IBrainService
     {
-        private readonly IVectorStore _vectorStore;
+        private readonly IVectorRouter _vectorRouter;
         private readonly IEmbeddingService _embeddingService;
         private readonly ISimpleLoggerService _logger;
         private readonly bool _vectorServerAvailable;
 
+        // Default user ID for single-user application
+        private static readonly Guid DefaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         /// <summary>
         /// Initializes a new instance of the BrainService
         /// </summary>
-        /// <param name="vectorStore">Vector store</param>
+        /// <param name="vectorRouter">Vector router</param>
         /// <param name="embeddingService">Embedding service</param>
         /// <param name="logger">Logger service</param>
         /// <param name="configuration">Application configuration</param>
         public BrainService(
-            IVectorStore vectorStore,
+            IVectorRouter vectorRouter,
             IEmbeddingService embeddingService,
             ISimpleLoggerService logger,
             IConfiguration configuration)
         {
-            _vectorStore = vectorStore;
+            _vectorRouter = vectorRouter;
             _embeddingService = embeddingService;
             _logger = logger;
             _vectorServerAvailable = configuration.GetValue<bool>("AppSettings:VectorServerAvailable", false);
-        }
-
-        /// <inheritdoc/>
-        public async Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string> metadata = null, VectorScope scope = VectorScope.Core)
+        }        /// <inheritdoc/>
+        public async Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string>? metadata = null, VectorScope scope = VectorScope.Core)
         {
             try
             {
+                // Ensure metadata exists and has userId
+                metadata ??= new Dictionary<string, string>();
+                
+                // Extract userId from metadata or use default
+                var userId = DefaultUserId;
+                if (metadata.ContainsKey("userId") && Guid.TryParse(metadata["userId"], out var parsedUserId))
+                {
+                    userId = parsedUserId;
+                }
+                else
+                {
+                    // Add userId to metadata if not present
+                    metadata["userId"] = userId.ToString();
+                }
+
                 // Generate embedding for the text
                 var embedding = await _embeddingService.EmbedTextAsync(text);
 
-                // Store the embedding in the vector store
-                return await _vectorStore.StoreVectorAsync(id, embedding, metadata, scope);
+                // Store the memory in Neo4j through the router
+                return await _vectorRouter.StoreMemoryAsync(id, embedding, metadata);
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to add memory {id}", ex);
                 return false;
             }
-        }
-
-        /// <inheritdoc/>
+        }        /// <inheritdoc/>
         public async Task<List<SearchHit>> SearchAsync(string query, int limit = 10, VectorScope scope = VectorScope.All)
         {
             try
@@ -105,39 +117,40 @@ namespace SwAIvyn.Services
                     _logger.LogWarning("Vector server is not available. Falling back to local search only.");
                 }
 
-                // Generate embedding for the query
-                var queryEmbedding = await _embeddingService.EmbedTextAsync(query);
-
-                // Search the vector store
-                return await _vectorStore.SearchAsync(queryEmbedding, limit, scope);
+                // For the router, we search memories in Neo4j (which represents "core" memories)
+                // Use the default user ID for single-user application
+                var userId = DefaultUserId;
+                
+                // Search memories through the router
+                var results = await _vectorRouter.SearchMemoryAsync(userId, query, limit);
+                
+                // Convert IReadOnlyList<SearchHit> to List<SearchHit>
+                return results.ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to search brain", ex);
                 return new List<SearchHit>();
             }
-        }
-
-        /// <inheritdoc/>
+        }        /// <inheritdoc/>
         public async Task<bool> DeleteMemoryAsync(Guid id, VectorScope scope = VectorScope.Core)
         {
             try
             {
-                return await _vectorStore.DeleteVectorAsync(id, scope);
+                // Delete memory from Neo4j through the router
+                return await _vectorRouter.DeleteMemoryAsync(id);
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to delete memory {id}", ex);
                 return false;
             }
-        }
-
-        /// <inheritdoc/>
+        }        /// <inheritdoc/>
         public async Task<Dictionary<string, object>> GetStatusAsync()
         {
             try
             {
-                var status = await _vectorStore.GetStatusAsync();
+                var status = await _vectorRouter.GetStatusAsync();
                 status["VectorServerAvailable"] = _vectorServerAvailable;
                 status["EmbeddingDimensions"] = _embeddingService.Dimensions;
                 return status;

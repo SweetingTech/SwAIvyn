@@ -18,13 +18,15 @@ namespace SwAIvyn.Controllers
         private readonly IVectorStore _vectorStore;
         private readonly INeo4jService _neo4jService;
         private readonly IDatabaseInitializer _dbInitializer;
+        private readonly WeaviateVectorStore _weaviateVectorStore;
 
         // Constructor injects required services for health checks
-        public HealthCheckController(IVectorStore vectorStore, INeo4jService neo4jService, IDatabaseInitializer dbInitializer)
+        public HealthCheckController(IVectorStore vectorStore, INeo4jService neo4jService, IDatabaseInitializer dbInitializer, WeaviateVectorStore weaviateVectorStore)
         {
             _vectorStore = vectorStore; // Used to check vector store health
             _neo4jService = neo4jService; // Used to check Neo4j health
             _dbInitializer = dbInitializer; // Used to check SQLite health
+            _weaviateVectorStore = weaviateVectorStore; // Used for specific Weaviate health checks
         }
 
         // GET /api/healthcheck/sqlite
@@ -74,6 +76,44 @@ namespace SwAIvyn.Controllers
                 details = status,
                 isEmbedded = mode == "Embedded",
                 uri
+            });
+        }
+
+        // GET /api/healthcheck/weaviate
+        // Checks if the Weaviate vector database is available with detailed information
+        [HttpGet("weaviate")]
+        public async Task<IActionResult> Weaviate()
+        {
+            // Get detailed status information
+            var status = await _weaviateVectorStore.GetStatusAsync();
+
+            // Check if Weaviate is reachable
+            var isOnline = await _weaviateVectorStore.HealthCheckAsync();
+
+            // Return detailed status information
+            string? baseUrl = null;
+            bool? initialized = null;
+            string? memoryClass = null;
+            string? documentClass = null;
+
+            // Extract status details safely
+            status.TryGetValue("baseUrl", out var baseUrlObj);
+            status.TryGetValue("initialized", out var initializedObj);
+            status.TryGetValue("memoryClass", out var memoryClassObj);
+            status.TryGetValue("documentClass", out var documentClassObj);
+
+            if (baseUrlObj != null) baseUrl = baseUrlObj.ToString();
+            if (initializedObj != null) initialized = (bool?)initializedObj;
+            if (memoryClassObj != null) memoryClass = memoryClassObj.ToString();
+            if (documentClassObj != null) documentClass = documentClassObj.ToString();
+
+            return Ok(new {
+                status = isOnline ? "online" : "offline",
+                details = status,
+                baseUrl,
+                initialized,
+                memoryClass,
+                documentClass
             });
         }
     }

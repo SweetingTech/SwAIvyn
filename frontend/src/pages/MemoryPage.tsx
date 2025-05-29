@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Search, Plus, BookOpen, User, Calendar, Globe, Filter } from 'lucide-react';
+import MemorySyncStatus from '../components/MemorySyncStatus';
 
 interface Memory {
   id: string;
@@ -162,9 +163,11 @@ const MemoryPage = () => {
             onClick={() => setShowAddModal(true)}
           >
             <Plus size={16} className="mr-1.5" />
-            Add Memory
-          </button>
+            Add Memory          </button>
         </div>
+
+        {/* Memory Sync Status */}
+        <MemorySyncStatus userId="00000000-0000-0000-0000-000000000001" />
 
         <div className="bg-white rounded-lg shadow-soft">
           {/* Search and Filter */}

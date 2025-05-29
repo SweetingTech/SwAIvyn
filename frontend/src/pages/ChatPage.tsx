@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Paperclip, Camera, Mic, Plus } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
 
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatSidebar from '../components/chat/ChatSidebar';
@@ -9,14 +10,23 @@ import BrainExplorer from '../components/BrainExplorer';
 
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
+import apiService from '../services/apiService';
 import { Message } from '../types/chat';
 import { USER_ID, USER_NAME } from '../constants';
+import { parseChatUrl, generateChatUrl, createDefaultChatUrl } from '../utils/chatUrls';
 
 /**
  * ChatPage component manages the chat interface including message display,
  * input area, and integration with the AI chat service.
  */
 const ChatPage = () => {
+  // URL parameters and navigation
+  const { sessionCharacter } = useParams<{ sessionCharacter?: string }>();
+  const navigate = useNavigate();
+
+  // Parse URL to get conversation and character info
+  const urlInfo = parseChatUrl(sessionCharacter);
+
   // Local state for the input text
   const [inputText, setInputText] = useState<string>('');
 
@@ -31,7 +41,7 @@ const ChatPage = () => {
     id: string;
     title: string;
   }>({
-    id: '',
+    id: urlInfo.conversationId || '',
     title: 'New Chat'
   });
 
@@ -39,7 +49,57 @@ const ChatPage = () => {
   const [selectedCharacter, setSelectedCharacter] = useState<any>(null);
 
   // Reference to track if this is the first message in a new conversation
-  const isFirstMessage = useRef(true);
+  const isFirstMessage = useRef(urlInfo.isNewConversation);
+
+  // Load character based on URL parameter
+  useEffect(() => {
+    const loadCharacterFromUrl = async () => {
+      try {
+        // Load all available characters
+        const characters = await apiService.get(`/api/character/user/${USER_ID}`);
+
+        if (urlInfo.characterName) {
+          // Find character by name from URL
+          const character = characters.find(c =>
+            c.name.toLowerCase() === urlInfo.characterName.toLowerCase()
+          );
+
+          if (character) {
+            setSelectedCharacter(character);
+            console.log('ChatPage: Loaded character from URL:', character.name, 'ID:', character.id);
+            console.log('ChatPage: Full character object:', character);
+            return;
+          } else {
+            console.warn('Character not found:', urlInfo.characterName);
+          }
+        }
+
+        // Fallback: use first available character or redirect to default
+        if (characters.length > 0) {
+          const defaultCharacter = characters[0];
+          setSelectedCharacter(defaultCharacter);
+
+          // Update URL to include the default character
+          const newUrl = generateChatUrl({
+            conversationId: urlInfo.conversationId || 'new',
+            characterName: defaultCharacter.name
+          });
+          navigate(newUrl, { replace: true });
+          console.log('ChatPage: Using default character:', defaultCharacter.name);
+        } else {
+          // No characters available, redirect to create GLaDOS
+          console.log('No characters found, redirecting to default');
+          navigate(createDefaultChatUrl(), { replace: true });
+        }
+      } catch (error) {
+        console.error('Error loading character:', error);
+        // Fallback to default URL
+        navigate(createDefaultChatUrl(), { replace: true });
+      }
+    };
+
+    loadCharacterFromUrl();
+  }, [sessionCharacter, navigate]);
 
   // Load the most recent conversation or start a new one
   useEffect(() => {
@@ -98,14 +158,17 @@ const ChatPage = () => {
   }, []);
 
   // Handle character selection
-  const handleCharacterSelect = (character: any) => {
+  const handleCharacterSelect = async (character: any) => {
     setSelectedCharacter(character);
 
-    // Persist selection to sessionStorage for the browser session
+    // Update URL to reflect character selection
     if (character) {
-      sessionStorage.setItem('selectedCharacterId', character.id);
-    } else {
-      sessionStorage.removeItem('selectedCharacterId');
+      const newUrl = generateChatUrl({
+        conversationId: currentConversation.id || 'new',
+        characterName: character.name
+      });
+      navigate(newUrl, { replace: true });
+      console.log('Updated URL for character selection:', character.name);
     }
   };
   /**
@@ -125,6 +188,13 @@ const ChatPage = () => {
         id: '',
         title: 'New Chat'
       });
+
+      // Update URL for new conversation while keeping character
+      const newUrl = generateChatUrl({
+        conversationId: 'new',
+        characterName: selectedCharacter?.name
+      });
+      navigate(newUrl, { replace: true });
 
       isFirstMessage.current = true;
       setInputText('');
@@ -160,6 +230,13 @@ const ChatPage = () => {
 
       setMessages(formattedMessages);
       isFirstMessage.current = false;
+
+      // Update URL to reflect conversation selection
+      const newUrl = generateChatUrl({
+        conversationId: conversationId,
+        characterName: selectedCharacter?.name
+      });
+      navigate(newUrl, { replace: true });
 
       // Update last open time
       await conversationService.updateLastOpenTime(conversationId);
@@ -213,6 +290,13 @@ const ChatPage = () => {
           title: newConversation.title
         });
 
+        // Update URL to reflect new conversation
+        const newUrl = generateChatUrl({
+          conversationId: newConversation.id,
+          characterName: selectedCharacter?.name
+        });
+        navigate(newUrl, { replace: true });
+
         // Set character context if we have a selected character
         if (selectedCharacter && selectedCharacter.systemPrompt) {
           try {
@@ -244,6 +328,7 @@ const ChatPage = () => {
       );
 
       // Send message to API and get AI response (include character ID if selected)
+      console.log('ChatPage: Sending message with character ID:', selectedCharacter?.id, 'Character name:', selectedCharacter?.name);
       const aiResponse = await chatService.sendMessage(
         conversationId,
         USER_ID,
