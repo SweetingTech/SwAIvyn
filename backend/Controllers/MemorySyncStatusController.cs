@@ -371,16 +371,25 @@ namespace SwAIvyn.Controllers
                 dynamic initialStatus = initialStatusResult.Value;
                 int missingCount = initialStatus.MissingInNeo4j.Count;
 
-                _logger.LogInfo($"📊 Initial status - Missing in Neo4j: {missingCount}");
-
-                if (missingCount == 0)
+                _logger.LogInfo($"📊 Initial status - Missing in Neo4j: {missingCount}");                if (missingCount == 0)
                 {
                     return Ok(new
                     {
                         message = "Already in sync - no repairs needed",
+                        userId = userId,
+                        summary = new
+                        {
+                            wasInSync = true,
+                            isNowInSync = true,
+                            improvementMade = false,
+                            totalInitialIssues = 0,
+                            totalRemainingIssues = 0,
+                            issuesResolved = 0
+                        },
                         initialStatus,
-                        repairResults = new { message = "No repairs performed" },
-                        finalStatus = initialStatus
+                        repairResult = new { message = "No repairs performed" },
+                        finalStatus = initialStatus,
+                        timestamp = DateTime.UtcNow
                     });
                 }
 
@@ -402,23 +411,21 @@ namespace SwAIvyn.Controllers
                 }
 
                 dynamic finalStatus = finalStatusResult.Value;
-                int remainingMissing = finalStatus.MissingInNeo4j.Count;
-
-                var result = new
+                int remainingMissing = finalStatus.MissingInNeo4j.Count;                var result = new
                 {
                     message = $"Full sync completed: {missingCount} → {remainingMissing} missing rows",
                     userId = userId,
                     summary = new
                     {
-                        initialMissingCount = missingCount,
-                        repairedCount = repairData.SuccessfulRepairs,
-                        failedRepairCount = repairData.FailedRepairs,
-                        finalMissingCount = remainingMissing,
-                        syncImprovement = missingCount - remainingMissing,
-                        isFullySynced = remainingMissing == 0
+                        wasInSync = missingCount == 0,
+                        isNowInSync = remainingMissing == 0,
+                        improvementMade = missingCount > remainingMissing,
+                        totalInitialIssues = missingCount,
+                        totalRemainingIssues = remainingMissing,
+                        issuesResolved = missingCount - remainingMissing
                     },
                     initialStatus,
-                    repairResults = repairData,
+                    repairResult = repairData,
                     finalStatus,
                     timestamp = DateTime.UtcNow
                 };

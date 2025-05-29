@@ -420,11 +420,10 @@ namespace SwAIvyn.Services
                 _logger.LogError("Error setting LLM settings", ex);
                 return false;
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Processes auto-memory logic for chat messages
-        /// </summary>        private async Task ProcessAutoMemoryAsync(string userMessage, string aiResponse, Guid userId, bool saveMemory, string memoryCategory)
+        /// </summary>
+        private async Task ProcessAutoMemoryAsync(string userMessage, string aiResponse, Guid userId, bool saveMemory, string memoryCategory)
         {
             try
             {
