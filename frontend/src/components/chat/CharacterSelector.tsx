@@ -48,7 +48,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
     loadCharacters();
   }, []);
 
-  // Auto-select character from sessionStorage when characters are loaded
+  // Validate current selection when characters are loaded
   useEffect(() => {
     if (characters.length === 0) {
       return;
@@ -60,25 +60,12 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
       if (!currentCharacter) {
         // Current selected character ID is invalid, clear it
         console.warn('Current selected character ID not found in database, clearing:', selectedCharacterId);
-        sessionStorage.removeItem('selectedCharacterId');
         onCharacterSelect(null);
         return;
       }
-      // Current selection is valid, no need to auto-select
-      return;
-    }
-
-    // No character selected, try to auto-select from sessionStorage
-    const storedCharacterId = sessionStorage.getItem('selectedCharacterId');
-    if (storedCharacterId && storedCharacterId !== 'null') {
-      const storedCharacter = characters.find(c => c.id === storedCharacterId);
-      if (storedCharacter) {
-        console.log('Auto-selecting character from session:', storedCharacter.name);
-        onCharacterSelect(storedCharacter);
-      } else {
-        // Character ID in sessionStorage doesn't exist anymore, clear it
-        console.warn('Stored character ID not found in current characters, clearing sessionStorage:', storedCharacterId);
-        sessionStorage.removeItem('selectedCharacterId');
+      // Current selection is valid, make sure we have full character data
+      if (currentCharacter) {
+        onCharacterSelect(currentCharacter);
       }
     }
   }, [characters, selectedCharacterId, onCharacterSelect]);

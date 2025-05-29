@@ -348,5 +348,90 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, new { error = ex.Message });
             }
         }
+
+        /// <summary>
+        /// Performs a full sync operation: checks status, repairs missing memories, and returns final status
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>Complete sync operation results</returns>
+        [HttpPost("full/{userId}")]
+        public async Task<IActionResult> FullSync(Guid userId)
+        {
+            try
+            {
+                _logger.LogInfo($"🚀 Starting full sync for user {userId}");
+
+                // 1. Get current status
+                var initialStatusResult = await GetSyncStatus(userId) as OkObjectResult;
+                if (initialStatusResult?.Value == null)
+                {
+                    return StatusCode(500, "Failed to compute initial sync status");
+                }
+
+                dynamic initialStatus = initialStatusResult.Value;
+                int missingCount = initialStatus.MissingInNeo4j.Count;
+
+                _logger.LogInfo($"📊 Initial status - Missing in Neo4j: {missingCount}");
+
+                if (missingCount == 0)
+                {
+                    return Ok(new
+                    {
+                        message = "Already in sync - no repairs needed",
+                        initialStatus,
+                        repairResults = new { message = "No repairs performed" },
+                        finalStatus = initialStatus
+                    });
+                }
+
+                // 2. Perform repair
+                var repairResult = await RepairMemories(userId) as OkObjectResult;
+                if (repairResult?.Value == null)
+                {
+                    return StatusCode(500, "Repair operation failed");
+                }
+
+                dynamic repairData = repairResult.Value;
+                _logger.LogInfo($"🔧 Repair completed - Success: {repairData.SuccessfulRepairs}, Failed: {repairData.FailedRepairs}");
+
+                // 3. Get final status to verify sync
+                var finalStatusResult = await GetSyncStatus(userId) as OkObjectResult;
+                if (finalStatusResult?.Value == null)
+                {
+                    return StatusCode(500, "Failed to compute final sync status");
+                }
+
+                dynamic finalStatus = finalStatusResult.Value;
+                int remainingMissing = finalStatus.MissingInNeo4j.Count;
+
+                var result = new
+                {
+                    message = $"Full sync completed: {missingCount} → {remainingMissing} missing rows",
+                    userId = userId,
+                    summary = new
+                    {
+                        initialMissingCount = missingCount,
+                        repairedCount = repairData.SuccessfulRepairs,
+                        failedRepairCount = repairData.FailedRepairs,
+                        finalMissingCount = remainingMissing,
+                        syncImprovement = missingCount - remainingMissing,
+                        isFullySynced = remainingMissing == 0
+                    },
+                    initialStatus,
+                    repairResults = repairData,
+                    finalStatus,
+                    timestamp = DateTime.UtcNow
+                };
+
+                _logger.LogInfo($"🎉 Full sync completed for user {userId} - Improved by {missingCount - remainingMissing} items");
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"🚨 Error during full sync for user {userId}: {ex.Message}");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
     }
 }

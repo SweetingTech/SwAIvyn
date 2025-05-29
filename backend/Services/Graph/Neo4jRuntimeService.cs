@@ -107,6 +107,8 @@ namespace SwAIvyn.Services.Graph
 
                 if (Directory.Exists(_neo4jHomePath) && Directory.Exists(_neo4jBinPath))
                 {
+                    // Clean up any existing lock files before starting
+                    CleanupLockFiles();
                     await StartNeo4jAsync();
                 }
                 else
@@ -207,26 +209,11 @@ namespace SwAIvyn.Services.Graph
                 sb.AppendLine($"server.http.listen_address=127.0.0.1:{_httpPort}");
                 sb.AppendLine($"server.windows_service_name=SwAIvynNeo");
 
-                // Authentication settings
-                sb.AppendLine("dbms.security.auth_enabled=true");
+                // Authentication settings - disable for embedded mode to avoid credential issues
+                sb.AppendLine("dbms.security.auth_enabled=false");
 
-                // Authentication configuration - get from configuration
-                string neo4jUser = _configuration["AppSettings:Neo4jUser"] ?? "neo4j";
-                string neo4jPassword = _configuration["AppSettings:Neo4jPassword"] ?? "password";
-
-                // Create auth file if it doesn't exist
-                string authFilePath = Path.Combine(_neo4jHomePath, "conf", "auth");
-                Directory.CreateDirectory(Path.GetDirectoryName(authFilePath)!);
-
-                if (!File.Exists(authFilePath))
-                {
-                    _logger.LogInfo("Creating Neo4j auth file with credentials from settings");
-                    File.WriteAllText(authFilePath, $"{neo4jUser}:{neo4jPassword}");
-                }
-
-                // Enable authentication - using newer Neo4j 2025.04.0 settings
-                sb.AppendLine("server.config.strict_validation.enabled=false");
-                sb.AppendLine("dbms.security.auth_enabled=true");
+                // Note: Authentication disabled for embedded Neo4j to simplify setup
+                _logger.LogInfo("Neo4j authentication disabled for embedded mode");
 
                 File.WriteAllText(_neo4jConfPath, sb.ToString());
                 _logger.LogInfo("Neo4j configuration updated successfully");
@@ -286,7 +273,7 @@ namespace SwAIvyn.Services.Graph
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = javaPath,
-                    Arguments = $"-cp \"{classpath}\" -Dbasedir=\"{_neo4jHomePath}\" org.neo4j.server.startup.Neo4jCommand console",
+                    Arguments = $"-cp \"{classpath}\" -Dbasedir=\"{_neo4jHomePath}\" org.neo4j.server.startup.Neo4jCommand console --verbose",
                     WorkingDirectory = _neo4jHomePath,
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -295,7 +282,7 @@ namespace SwAIvyn.Services.Graph
                 };
 
                 // Log the command we're using
-                _logger.LogInfo($"Starting Neo4j with direct Java command: {javaPath} -cp \"{classpath}\" -Dbasedir=\"{_neo4jHomePath}\" org.neo4j.server.startup.Neo4jCommand console");
+                _logger.LogInfo($"Starting Neo4j with direct Java command: {javaPath} -cp \"{classpath}\" -Dbasedir=\"{_neo4jHomePath}\" org.neo4j.server.startup.Neo4jCommand console --verbose");
 
                 var jdkPath = _configuration["AppSettings:Neo4jJavaHome"];
                 if (!string.IsNullOrEmpty(jdkPath))
@@ -408,24 +395,38 @@ namespace SwAIvyn.Services.Graph
                 }
                 catch (ObjectDisposedException) { /* Already disposed */ }
 
-
                 if (_neo4jProcess != null && !_neo4jProcess.HasExited)
                 {
-                    _logger.LogInfo("Stopping embedded Neo4j process...");
+                    _logger.LogInfo("Stopping embedded Neo4j process gracefully...");
                     try
                     {
-                        _neo4jProcess.Kill(true); // Force kill
-                        _neo4jProcess.WaitForExit(5000); // Wait for 5 seconds
-                        if (!_neo4jProcess.HasExited)
+                        // First try graceful shutdown by sending Ctrl+C
+                        _logger.LogInfo("Attempting graceful Neo4j shutdown...");
+                        _neo4jProcess.CloseMainWindow();
+
+                        // Wait for graceful shutdown
+                        if (_neo4jProcess.WaitForExit(10000)) // Wait 10 seconds
                         {
-                             _logger.LogWarning("Neo4j process did not exit after kill signal and wait.");
+                            _logger.LogInfo("Neo4j shut down gracefully");
                         }
+                        else
+                        {
+                            _logger.LogWarning("Neo4j did not shut down gracefully, forcing termination...");
+                            _neo4jProcess.Kill(true); // Force kill
+                            _neo4jProcess.WaitForExit(5000); // Wait for 5 seconds
+
+                            if (!_neo4jProcess.HasExited)
+                            {
+                                _logger.LogWarning("Neo4j process did not exit after kill signal and wait.");
+                            }
+                        }
+
                         _neo4jProcess.Dispose();
                         _logger.LogInfo("Embedded Neo4j process stopped and disposed.");
                     }
                     catch (InvalidOperationException ex)
                     {
-                        _logger.LogWarning($"Could not kill Neo4j process, it might have already exited: {ex.Message}");
+                        _logger.LogWarning($"Could not stop Neo4j process, it might have already exited: {ex.Message}");
                     }
                     catch (Exception ex)
                     {
@@ -436,12 +437,15 @@ namespace SwAIvyn.Services.Graph
                 {
                      _logger.LogInfo("Embedded Neo4j process was not running or already exited.");
                 }
+
+                // Clean up lock files if they exist
+                CleanupLockFiles();
             }
             else
             {
                 _logger.LogInfo("Disposing Neo4jRuntimeService (no embedded instance to stop).");
             }
-            
+
             try
             {
                  _httpClient?.Dispose();
@@ -450,7 +454,7 @@ namespace SwAIvyn.Services.Graph
             {
                 _logger.LogError("Error disposing HttpClient in Neo4jRuntimeService", ex);
             }
-           
+
             try
             {
                  _shutdownTokenSource?.Dispose();
@@ -461,6 +465,46 @@ namespace SwAIvyn.Services.Graph
             }
 
             GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Cleans up Neo4j lock files that might prevent restart
+        /// </summary>
+        private void CleanupLockFiles()
+        {
+            try
+            {
+                _logger.LogInfo("Cleaning up Neo4j lock files...");
+
+                var lockFiles = new[]
+                {
+                    Path.Combine(_neo4jHomePath, "data", "databases", "store_lock"),
+                    Path.Combine(_neo4jHomePath, "data", "databases", "neo4j", "store_lock"),
+                    Path.Combine(_neo4jHomePath, "run", "neo4j.pid")
+                };
+
+                foreach (var lockFile in lockFiles)
+                {
+                    if (File.Exists(lockFile))
+                    {
+                        try
+                        {
+                            File.Delete(lockFile);
+                            _logger.LogInfo($"Deleted lock file: {lockFile}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning($"Could not delete lock file {lockFile}: {ex.Message}");
+                        }
+                    }
+                }
+
+                _logger.LogInfo("Lock file cleanup completed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error during lock file cleanup", ex);
+            }
         }
     }
 }

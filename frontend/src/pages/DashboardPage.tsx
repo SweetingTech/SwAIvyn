@@ -224,7 +224,7 @@ const DashboardPage = () => {
               title="Start Chat"
               description="Begin a new conversation"
               icon={<MessageSquare size={20} />}
-              href="/chat"
+              href="/chat/new"
             />
             <QuickActionCard
               title="Manage Characters"

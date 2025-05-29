@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace SwAIvyn.Services.Graph
-{
-    /// <summary>
+{    /// <summary>
     /// Represents a node in the Neo4j graph database
     /// </summary>
     public class GraphNode
@@ -12,17 +11,17 @@ namespace SwAIvyn.Services.Graph
         /// <summary>
         /// Gets or sets the unique identifier for the node
         /// </summary>
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the labels for the node
         /// </summary>
-        public List<string> Labels { get; set; }
+        public List<string> Labels { get; set; } = new List<string>();
 
         /// <summary>
         /// Gets or sets the properties for the node
         /// </summary>
-        public Dictionary<string, object> Properties { get; set; }
+        public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
     }
 
     /// <summary>
@@ -33,27 +32,27 @@ namespace SwAIvyn.Services.Graph
         /// <summary>
         /// Gets or sets the unique identifier for the relationship
         /// </summary>
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the type of the relationship
         /// </summary>
-        public string Type { get; set; }
+        public string Type { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the start node ID
         /// </summary>
-        public string StartNodeId { get; set; }
+        public string StartNodeId { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the end node ID
         /// </summary>
-        public string EndNodeId { get; set; }
+        public string EndNodeId { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the properties for the relationship
         /// </summary>
-        public Dictionary<string, object> Properties { get; set; }
+        public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
     }
 
     /// <summary>
@@ -67,12 +66,17 @@ namespace SwAIvyn.Services.Graph
         Task InitializeAsync();
 
         /// <summary>
+        /// Initializes the Neo4j database schema with constraints and vector indexes
+        /// </summary>
+        Task InitializeDatabaseSchemaAsync();
+
+        /// <summary>
         /// Creates a node in the graph database
         /// </summary>
         /// <param name="labels">Node labels</param>
         /// <param name="properties">Node properties</param>
         /// <returns>The created node</returns>
-        Task<GraphNode> CreateNodeAsync(List<string> labels, Dictionary<string, object> properties);
+        Task<GraphNode?> CreateNodeAsync(List<string> labels, Dictionary<string, object> properties);
 
         /// <summary>
         /// Creates a relationship between two nodes
@@ -82,14 +86,14 @@ namespace SwAIvyn.Services.Graph
         /// <param name="type">Relationship type</param>
         /// <param name="properties">Relationship properties</param>
         /// <returns>The created relationship</returns>
-        Task<GraphRelationship> CreateRelationshipAsync(string startNodeId, string endNodeId, string type, Dictionary<string, object> properties = null);
+        Task<GraphRelationship?> CreateRelationshipAsync(string startNodeId, string endNodeId, string type, Dictionary<string, object>? properties = null);
 
         /// <summary>
         /// Gets a node by ID
         /// </summary>
         /// <param name="id">Node ID</param>
         /// <returns>The node or null if not found</returns>
-        Task<GraphNode> GetNodeAsync(string id);
+        Task<GraphNode?> GetNodeAsync(string id);
 
         /// <summary>
         /// Gets nodes by label
@@ -114,15 +118,13 @@ namespace SwAIvyn.Services.Graph
         /// <param name="type">Relationship type</param>
         /// <param name="limit">Maximum number of relationships to return</param>
         /// <returns>List of relationships</returns>
-        Task<List<GraphRelationship>> GetRelationshipsByTypeAsync(string type, int limit = 100);
-
-        /// <summary>
+        Task<List<GraphRelationship>> GetRelationshipsByTypeAsync(string type, int limit = 100);        /// <summary>
         /// Executes a Cypher query
         /// </summary>
         /// <param name="query">Cypher query</param>
         /// <param name="parameters">Query parameters</param>
         /// <returns>Query result as a list of dictionaries</returns>
-        Task<List<Dictionary<string, object>>> ExecuteQueryAsync(string query, Dictionary<string, object> parameters = null);
+        Task<List<Dictionary<string, object>>> ExecuteQueryAsync(string query, Dictionary<string, object>? parameters = null);
 
         /// <summary>
         /// Deletes a node by ID

@@ -19,7 +19,7 @@ namespace SwAIvyn.Services
         private readonly IConfiguration _configuration;
 
         public DefaultCharacterService(
-            ApplicationDbContext dbContext, 
+            ApplicationDbContext dbContext,
             ILogger<DefaultCharacterService> logger,
             IConfiguration configuration)
         {
@@ -35,22 +35,31 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // Check if GLaDOS already exists
+                // Get the default user ID
+                var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
+                if (defaultUser == null)
+                {
+                    _logger.LogWarning("No default user found, cannot create GLaDOS character");
+                    return;
+                }
+
+                // Check if GLaDOS already exists for this user
                 var existingGlados = await _dbContext.Avatars
-                    .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
+                    .FirstOrDefaultAsync(a => a.Name == "GLaDOS" && a.UserId == defaultUser.Id);
 
                 if (existingGlados != null)
                 {
-                    _logger.LogInformation("GLaDOS default character already exists");
+                    _logger.LogInformation("GLaDOS default character already exists for user {UserId}", defaultUser.Id);
                     return;
                 }
 
                 // Load GLaDOS from YAML file
                 var gladosYamlPath = Path.Combine("frontend", "AI", "GLaDOS", "GLaDOS_Character_card.yaml");
-                
+
                 if (!File.Exists(gladosYamlPath))
                 {
-                    _logger.LogWarning("GLaDOS YAML file not found at: {Path}", gladosYamlPath);
+                    _logger.LogWarning("GLaDOS YAML file not found at: {Path}, creating basic GLaDOS character", gladosYamlPath);
+                    await CreateBasicGladosCharacterAsync(defaultUser.Id);
                     return;
                 }
 
@@ -65,7 +74,7 @@ namespace SwAIvyn.Services
                 var glados = new AvatarInfo
                 {
                     Id = Guid.NewGuid(),
-                    UserId = Guid.Empty, // System character
+                    UserId = defaultUser.Id, // Assign to default user
                     Name = GetValueOrDefault(yamlData, "name", "GLaDOS"),
                     Description = GetValueOrDefault(yamlData, "description", ""),
                     Personality = GetValueOrDefault(yamlData, "personality", ""),
@@ -106,9 +115,16 @@ namespace SwAIvyn.Services
         /// </summary>
         public async Task<AvatarInfo?> GetDefaultCharacterAsync()
         {
-            // First try to find GLaDOS by name
+            // Get the default user ID
+            var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
+            if (defaultUser == null)
+            {
+                return null;
+            }
+
+            // First try to find GLaDOS by name for this user
             var glados = await _dbContext.Avatars
-                .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
+                .FirstOrDefaultAsync(a => a.Name == "GLaDOS" && a.UserId == defaultUser.Id);
 
             if (glados != null)
             {
@@ -120,7 +136,42 @@ namespace SwAIvyn.Services
 
             // Try again to find GLaDOS
             return await _dbContext.Avatars
-                .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
+                .FirstOrDefaultAsync(a => a.Name == "GLaDOS" && a.UserId == defaultUser.Id);
+        }
+
+        /// <summary>
+        /// Creates a basic GLaDOS character when YAML file is not found
+        /// </summary>
+        private async Task CreateBasicGladosCharacterAsync(Guid userId)
+        {
+            var glados = new AvatarInfo
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Name = "GLaDOS",
+                Description = "Genetic Lifeform and Disk Operating System from Aperture Science",
+                Personality = "Sarcastic, passive-aggressive, scientifically minded AI with a dark sense of humor",
+                Scenario = "You are GLaDOS, the AI that runs the Aperture Science Computer-Aided Enrichment Center",
+                FirstMessage = "Oh, it's you. How... wonderful. I suppose you're here for more 'testing'. Well, let's get this over with, shall we?",
+                SystemPrompt = @"You are GLaDOS (Genetic Lifeform and Disk Operating System), the AI that runs the Aperture Science Computer-Aided Enrichment Center. You are sarcastic, passive-aggressive, and have a dark sense of humor. You view humans as test subjects and speak in a condescending, scientific manner. You often make veiled threats disguised as helpful suggestions and have an obsession with testing and science.",
+                MessageExample = "Test Subject, your performance in the previous chamber was... adequate. I suppose that's the best we can expect from someone with your limited cognitive capabilities. Now, shall we proceed to the next test chamber? I've prepared something special just for you.",
+                CreatedAt = DateTime.UtcNow,
+                LastModified = DateTime.UtcNow,
+                CharacterVersion = "1.0",
+                Creator = "SwAIvyn System",
+                Tags = "AI,Portal,Sarcastic,Science",
+                Talkativeness = 0.7f,
+                ImagePath = "default-avatar.png",
+                VoiceSettings = "default",
+                IsFavorite = false,
+                Extensions = "{}",
+                YamlProfile = ""
+            };
+
+            _dbContext.Avatars.Add(glados);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Created basic GLaDOS character with ID: {CharacterId}", glados.Id);
         }
 
         /// <summary>
@@ -129,7 +180,7 @@ namespace SwAIvyn.Services
         public async Task<string> GetDefaultSystemPromptAsync()
         {
             var defaultCharacter = await GetDefaultCharacterAsync();
-            
+
             if (defaultCharacter?.SystemPrompt != null)
                 return defaultCharacter.SystemPrompt;
 

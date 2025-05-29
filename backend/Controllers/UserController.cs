@@ -83,11 +83,26 @@ namespace SwAIvyn.Controllers
                 await _dbContext.SaveChangesAsync();
             }
 
+            // Validate lastSelectedCharacterId - clear if character doesn't exist
+            if (user.LastSelectedCharacterId.HasValue)
+            {
+                var characterExists = await _dbContext.Avatars
+                    .AnyAsync(a => a.Id == user.LastSelectedCharacterId.Value && a.UserId == user.Id);
+
+                if (!characterExists)
+                {
+                    Console.WriteLine($"User {user.Id} has invalid lastSelectedCharacterId {user.LastSelectedCharacterId}, clearing it");
+                    user.LastSelectedCharacterId = null;
+                    await _dbContext.SaveChangesAsync();
+                }
+            }
+
             return Ok(new {
                 id = user.Id,
                 username = user.Username,
                 createdAt = user.CreatedAt,
-                lastLogin = user.LastLogin
+                lastLogin = user.LastLogin,
+                lastSelectedCharacterId = user.LastSelectedCharacterId
             });
         }
 
@@ -109,6 +124,56 @@ namespace SwAIvyn.Controllers
                 username = user.Username,
                 createdAt = user.CreatedAt,
                 lastLogin = user.LastLogin
+            });
+        }
+
+        /// <summary>
+        /// Updates a user by ID (in single-user mode, updates the default user)
+        /// </summary>
+        [HttpPut("{userId}")]
+        public async Task<IActionResult> UpdateUser(Guid userId, [FromBody] UpdateUserRequest request)
+        {
+            var user = await _dbContext.Users.FirstOrDefaultAsync();
+
+            if (user == null)
+            {
+                return NotFound("No user found.");
+            }
+
+            // Update last selected character if provided
+            if (request.LastSelectedCharacterId.HasValue)
+            {
+                // Validate that the character exists for this user
+                var characterExists = await _dbContext.Avatars
+                    .AnyAsync(a => a.Id == request.LastSelectedCharacterId.Value && a.UserId == user.Id);
+
+                if (characterExists)
+                {
+                    user.LastSelectedCharacterId = request.LastSelectedCharacterId.Value;
+                }
+                else
+                {
+                    Console.WriteLine($"Attempted to set invalid character ID {request.LastSelectedCharacterId.Value} for user {user.Id}");
+                    return BadRequest($"Character with ID {request.LastSelectedCharacterId.Value} not found for this user");
+                }
+            }
+
+            // Update username if provided
+            if (!string.IsNullOrWhiteSpace(request.Username))
+            {
+                user.Username = request.Username.Trim();
+            }
+
+            user.LastLogin = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new {
+                id = user.Id,
+                username = user.Username,
+                createdAt = user.CreatedAt,
+                lastLogin = user.LastLogin,
+                lastSelectedCharacterId = user.LastSelectedCharacterId
             });
         }
 
@@ -142,6 +207,15 @@ namespace SwAIvyn.Controllers
                 lastLogin = user.LastLogin
             });
         }
+    }
+
+    /// <summary>
+    /// Request model for updating user data
+    /// </summary>
+    public class UpdateUserRequest
+    {
+        public Guid? LastSelectedCharacterId { get; set; }
+        public string Username { get; set; }
     }
 
     /// <summary>

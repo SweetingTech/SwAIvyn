@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -28,6 +30,7 @@ namespace SwAIvyn.Services
             _dbContext = dbContext;
             _logger = logger;
             _yamlDeserializer = new DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
                 .IgnoreUnmatchedProperties()
                 .Build();
 
@@ -122,14 +125,27 @@ namespace SwAIvyn.Services
                     return;
                 }
 
+                // Calculate hash of YAML content for comparison
+                string yamlHash = CalculateHash(yamlContent);
+
                 // Check if character already exists (case-insensitive)
                 var existingCharacter = await _dbContext.Avatars
                     .FirstOrDefaultAsync(a => a.Name.ToLower() == characterData.Name.ToLower() && a.UserId == defaultUser.Id);
 
                 if (existingCharacter != null)
                 {
-                    _logger.LogInformation("Character {CharacterName} already exists (case-insensitive match with '{ExistingName}'), updating...", characterData.Name, existingCharacter.Name);
-                    await UpdateExistingCharacterAsync(existingCharacter, characterData, yamlContent, imagePath);
+                    // Check if content has changed by comparing hashes
+                    string existingHash = existingCharacter.YamlProfile != null ? CalculateHash(existingCharacter.YamlProfile) : "";
+
+                    if (yamlHash != existingHash)
+                    {
+                        _logger.LogInformation("Character {CharacterName} content changed (hash mismatch), updating...", characterData.Name);
+                        await UpdateExistingCharacterAsync(existingCharacter, characterData, yamlContent, imagePath);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Character {CharacterName} unchanged (hash match), skipping...", characterData.Name);
+                    }
                 }
                 else
                 {
@@ -188,24 +204,60 @@ namespace SwAIvyn.Services
         /// </summary>
         private async Task UpdateExistingCharacterAsync(AvatarInfo existingCharacter, CharacterCardData characterData, string yamlContent, string imagePath)
         {
-            existingCharacter.Name = characterData.Name ?? existingCharacter.Name;
-            existingCharacter.Description = characterData.Description ?? existingCharacter.Description;
-            existingCharacter.Personality = characterData.Personality ?? existingCharacter.Personality;
-            existingCharacter.YamlProfile = yamlContent;
-            existingCharacter.LastModified = DateTime.UtcNow;
-            existingCharacter.IsFavorite = characterData.Favorite;
-
-            if (!string.IsNullOrEmpty(imagePath))
+            try
             {
-                existingCharacter.ImagePath = imagePath;
+                // Reload the character to get the latest version and avoid concurrency issues
+                var characterToUpdate = await _dbContext.Avatars
+                    .FirstOrDefaultAsync(a => a.Id == existingCharacter.Id && a.UserId == existingCharacter.UserId);
+
+                if (characterToUpdate == null)
+                {
+                    _logger.LogWarning("Character {CharacterName} with ID {CharacterId} not found for update, creating new character instead", existingCharacter.Name, existingCharacter.Id);
+
+                    // Character is corrupted/missing, create a new one
+                    await CreateNewCharacterAsync(existingCharacter.UserId, characterData, yamlContent, imagePath);
+                    return;
+                }
+
+                characterToUpdate.Name = characterData.Name ?? characterToUpdate.Name;
+                characterToUpdate.Description = characterData.Description ?? characterToUpdate.Description;
+                characterToUpdate.Personality = characterData.Personality ?? characterToUpdate.Personality;
+                characterToUpdate.YamlProfile = yamlContent;
+                characterToUpdate.LastModified = DateTime.UtcNow;
+                characterToUpdate.IsFavorite = characterData.Favorite;
+
+                if (!string.IsNullOrEmpty(imagePath))
+                {
+                    characterToUpdate.ImagePath = imagePath;
+                }
+
+                // Update system prompt
+                characterToUpdate.SystemPrompt = GenerateSystemPrompt(characterData);
+
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("Updated character: {CharacterName} with ID: {CharacterId}", characterToUpdate.Name, characterToUpdate.Id);
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update character {CharacterName}: {ErrorMessage}", existingCharacter.Name, ex.Message);
+                // Don't rethrow - continue with other characters
+            }
+        }
 
-            // Update system prompt
-            existingCharacter.SystemPrompt = GenerateSystemPrompt(characterData);
+        /// <summary>
+        /// Calculates SHA256 hash of a string for content comparison
+        /// </summary>
+        private string CalculateHash(string content)
+        {
+            if (string.IsNullOrEmpty(content))
+                return "";
 
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("Updated character: {CharacterName}", existingCharacter.Name);
+            using (var sha256 = SHA256.Create())
+            {
+                byte[] hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(content));
+                return Convert.ToBase64String(hashBytes);
+            }
         }
 
         /// <summary>

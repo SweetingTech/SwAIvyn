@@ -21,7 +21,7 @@ const Navigation = () => {
 
           <nav className="hidden md:flex space-x-1">
             <NavItem to="/dashboard" icon={<BarChart3 size={18} />} label={t('navigation.dashboard')} />
-            <NavItem to="/chat" icon={<MessageSquare size={18} />} label={t('navigation.chat')} />
+            <NavItem to="/chat/new" icon={<MessageSquare size={18} />} label={t('navigation.chat')} />
             <NavItem to="/voice-room" icon={<Headphones size={18} />} label={t('navigation.voiceRoom')} />
             <NavItem to="/memory" icon={<Brain size={18} />} label={t('navigation.memory')} />
             <NavItem to="/modules" icon={<Puzzle size={18} />} label={t('navigation.modules')} />
