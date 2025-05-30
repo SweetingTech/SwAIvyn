@@ -31,10 +31,6 @@ jobs:
     env:
       Solution_Name: SwAIvyn.sln
       Test_Project_Path: backend/Tests/SwAIvyn.Tests.csproj
-      # If you don't have a WAP project, you can comment out or remove these lines
-      # Wap_Project_Directory: your-wap-project-directory-name
-      # Wap_Project_Path: your-wap-project-path
-
     steps:
     - name: Checkout
       uses: actions/checkout@v4
