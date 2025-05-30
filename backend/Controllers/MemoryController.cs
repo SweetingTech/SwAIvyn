@@ -1,216 +1,150 @@
+// SPDX-License-Identifier: MIT
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using SwAIvyn.Data;
 using SwAIvyn.Data.Entities;
-using SwAIvyn.Services;
-using SwAIvyn.Services.Graph;
+using SwAIvyn.Enums;
+using SwAIvyn.Services.Interfaces;
 using System;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace SwAIvyn.Controllers
 {
-    /// <summary>
-    /// Controller for managing AI memory items.
-    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class MemoryController : ControllerBase
     {
-        private readonly ApplicationDbContext _dbContext;
-        private readonly IBrainGraphService _brainGraphService;
+        private readonly IMemoryService _memoryService;
 
-        public MemoryController(ApplicationDbContext dbContext, IBrainGraphService brainGraphService)
+        public MemoryController(IMemoryService memoryService)
         {
-            _dbContext = dbContext;
-            _brainGraphService = brainGraphService;
+            _memoryService = memoryService;
         }
 
-        /// <summary>
-        /// Gets all memory items for a user.
-        /// </summary>
-        /// <param name="userId">User ID</param>
-        /// <returns>List of memory items</returns>
-        [HttpGet("{userId}")]
-        public async Task<IActionResult> GetMemories(Guid userId)
+        // GET api/memory?userId={userId}&category={category}
+        [HttpGet]
+        public async Task<IActionResult> GetMemories([FromQuery] Guid userId, [FromQuery] string? category = null)
         {
-            var memories = await _dbContext.Memories
-                .Where(m => m.UserId == userId)
-                .ToListAsync();
-
+            var memories = await _memoryService.GetMemoriesAsync(userId, category);
             return Ok(memories);
         }
 
-        /// <summary>
-        /// Creates a new memory item.
-        /// </summary>
-        /// <param name="request">Memory creation request</param>
-        /// <returns>Created memory item</returns>
+        // GET api/memory/graph?userId={userId}&category={category}&maxResults={maxResults}
+        [HttpGet("graph")]
+        public async Task<IActionResult> GetGraphMemories(
+            [FromQuery] Guid userId,
+            [FromQuery] string? category = null,
+            [FromQuery] int maxResults = 50)
+        {
+            var memories = await _memoryService.GetGraphMemoriesAsync(userId, category, maxResults);
+            return Ok(new { source = "neo4j", memories });
+        }
+
+        // GET api/memory/documents?userId={userId}&maxResults={maxResults}
+        [HttpGet("documents")]
+        public async Task<IActionResult> GetDocumentMemories(
+            [FromQuery] Guid userId,
+            [FromQuery] int maxResults = 50)
+        {
+            var memories = await _memoryService.GetDocumentMemoriesAsync(userId, maxResults);
+            return Ok(new { source = "weaviate", memories });
+        }
+
+        // GET api/memory/search?userId={userId}&query={query}&maxResults={maxResults}&targetStore={targetStore}
+        [HttpGet("search")]
+        public async Task<IActionResult> SearchMemories(
+            [FromQuery] Guid userId,
+            [FromQuery] string query,
+            [FromQuery] int maxResults = 10,
+            [FromQuery] VectorTarget? targetStore = null)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                return BadRequest("Query parameter is required");
+
+            var results = await _memoryService.SearchMemoriesAsync(userId, query, maxResults, targetStore);
+            var response = results.Select(r => new
+            {
+                Memory = r.Memory,
+                Similarity = r.Similarity
+            });
+            return Ok(response);
+        }
+
+        // POST api/memory?userId={userId}
         [HttpPost]
-        public async Task<IActionResult> CreateMemory([FromBody] CreateMemoryRequest request)
+        public async Task<IActionResult> CreateMemory(
+            [FromQuery] Guid userId,
+            [FromBody] CreateMemoryRequest request)
         {
             var memory = new MemoryItem
             {
                 Id = Guid.NewGuid(),
-                UserId = request.UserId,
+                UserId = userId,
                 Content = request.Content,
                 Category = request.Category,
                 IsShared = request.IsShared,
                 CreatedAt = DateTime.UtcNow,
-                LastAccessed = DateTime.UtcNow
+                LastAccessed = DateTime.UtcNow,
+                TargetStore = request.TargetStore ?? VectorTarget.Neo4j
             };
 
-            // Save to database
-            _dbContext.Memories.Add(memory);
-            await _dbContext.SaveChangesAsync();
+            var (success, created) = await _memoryService.CreateMemoryAsync(memory);
+            if (!success || created == null)
+                return BadRequest("Memory creation failed");
 
-            // Add to Neo4j graph database for persistent memory and relationships
-            try
-            {
-                var metadata = new Dictionary<string, string>
-                {
-                    { "category", memory.Category },
-                    { "userId", memory.UserId.ToString() },
-                    { "isShared", memory.IsShared.ToString() },
-                    { "createdAt", memory.CreatedAt.ToString("O") }
-                };
-
-                await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
-            }
-            catch (Exception ex)
-            {
-                // Log error but don't fail the request - memory is still saved to database
-                Console.WriteLine($"Warning: Failed to add memory to graph database: {ex.Message}");
-            }
-
-            return Ok(memory);
+            return CreatedAtAction(nameof(GetMemories),
+                new { userId, category = (string?)null },
+                created);
         }
 
-        /// <summary>
-        /// Updates an existing memory item.
-        /// </summary>
-        /// <param name="id">Memory ID</param>
-        /// <param name="request">Memory update request</param>
-        /// <returns>Updated memory item</returns>
+        // PUT api/memory/{id}?userId={userId}
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateMemory(Guid id, [FromBody] UpdateMemoryRequest request)
+        public async Task<IActionResult> UpdateMemory(
+            Guid id,
+            [FromQuery] Guid userId,
+            [FromBody] UpdateMemoryRequest request)
         {
-            var memory = await _dbContext.Memories.FindAsync(id);
-            if (memory == null)
-            {
-                return NotFound();
-            }
+            var success = await _memoryService.UpdateMemoryAsync(
+                id,
+                request.Content,
+                request.Category,
+                request.IsShared,
+                request.TargetStore);
 
-            memory.Content = request.Content;
-            memory.Category = request.Category;
-            memory.IsShared = request.IsShared;
-            memory.LastAccessed = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            return Ok(memory);
-        }
-
-        /// <summary>
-        /// Deletes a memory item.
-        /// </summary>
-        /// <param name="id">Memory ID</param>
-        /// <returns>Action result</returns>
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteMemory(Guid id)
-        {
-            var memory = await _dbContext.Memories.FindAsync(id);
-            if (memory == null)
-            {
-                return NotFound();
-            }
-
-            // Remove from database
-            _dbContext.Memories.Remove(memory);
-            await _dbContext.SaveChangesAsync();
-
-            // Remove from graph database
-            try
-            {
-                await _brainGraphService.DeleteMemoryAsync(id);
-            }
-            catch (Exception ex)
-            {
-                // Log error but don't fail the request - memory is already deleted from database
-                Console.WriteLine($"Warning: Failed to delete memory from graph database: {ex.Message}");
-            }
-
+            if (!success) return NotFound();
             return NoContent();
         }
 
-        /// <summary>
-        /// Rebuilds the graph database by adding all existing memories to it.
-        /// This is useful for migrating existing memories to the graph database.
-        /// </summary>
-        /// <param name="userId">User ID to rebuild memories for</param>
-        /// <returns>Number of memories processed</returns>
-        [HttpPost("rebuild-graph/{userId}")]
-        public async Task<IActionResult> RebuildGraph(Guid userId)
+        // DELETE api/memory/{id}?userId={userId}
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteMemory(Guid id)
         {
-            try
-            {
-                var memories = await _dbContext.Memories
-                    .Where(m => m.UserId == userId)
-                    .ToListAsync();
+            var success = await _memoryService.DeleteMemoryAsync(id);
+            if (!success) return NotFound();
+            return NoContent();
+        }
 
-                int processed = 0;
-                int errors = 0;
-
-                foreach (var memory in memories)
-                {
-                    try
-                    {
-                        var metadata = new Dictionary<string, string>
-                        {
-                            { "category", memory.Category },
-                            { "userId", memory.UserId.ToString() },
-                            { "isShared", memory.IsShared.ToString() },
-                            { "createdAt", memory.CreatedAt.ToString("O") }
-                        };
-
-                        await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
-                        processed++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Failed to add memory {memory.Id} to graph database: {ex.Message}");
-                        errors++;
-                    }
-                }
-
-                return Ok(new { processed, errors, total = memories.Count });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Error rebuilding graph: {ex.Message}");
-            }
+        // POST api/memory/reconcile?userId={userId}
+        [HttpPost("reconcile")]
+        public async Task<IActionResult> ReconcileMemories([FromQuery] Guid? userId = null)
+        {
+            var report = await _memoryService.ReconcileMemoriesAsync(userId);
+            return Ok(report);
         }
     }
 
-    /// <summary>
-    /// Request model for creating a memory item.
-    /// </summary>
     public class CreateMemoryRequest
     {
-        public Guid UserId { get; set; }
-        public string Content { get; set; }
-        public string Category { get; set; }
-        public bool IsShared { get; set; }
+        public string Content { get; set; } = string.Empty;
+        public string Category { get; set; } = "general";
+        public bool IsShared { get; set; } = false;
+        public VectorTarget? TargetStore { get; set; }
     }
 
-    /// <summary>
-    /// Request model for updating a memory item.
-    /// </summary>
     public class UpdateMemoryRequest
     {
-        public string Content { get; set; }
-        public string Category { get; set; }
-        public bool IsShared { get; set; }
+        public string? Content { get; set; }
+        public string? Category { get; set; }
+        public bool? IsShared { get; set; }
+        public VectorTarget? TargetStore { get; set; }
     }
 }

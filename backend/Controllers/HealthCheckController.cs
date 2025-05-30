@@ -1,32 +1,70 @@
 // HealthCheckController.cs
-// Provides API endpoints for health checks of core backend services (SQLite, Vector Store, Neo4j)
+// Provides API endpoints for health checks of the three-database harmony architecture:
+// SQLite (source of truth), Neo4j (brain memories), and Weaviate (document knowledge)
 
 using Microsoft.AspNetCore.Mvc;
 using SwAIvyn.Services;
 using SwAIvyn.Services.VectorStore;
 using SwAIvyn.Services.Graph;
+using SwAIvyn.Services.Interfaces;
 using System.Threading.Tasks;
 
 namespace SwAIvyn.Controllers
-{
-    // Marks this class as an API controller and sets the route to /api/healthcheck
+{    // Marks this class as an API controller and sets the route to /api/healthcheck
     [ApiController]
     [Route("api/[controller]")]
     public class HealthCheckController : ControllerBase
     {
-        // Dependencies for checking health of vector store, Neo4j, and SQLite
+        // Dependencies for checking health of the three-database harmony architecture
         private readonly IVectorStore _vectorStore;
         private readonly INeo4jService _neo4jService;
         private readonly IDatabaseInitializer _dbInitializer;
         private readonly WeaviateVectorStore _weaviateVectorStore;
+        private readonly IMemoryService _memoryService;
 
         // Constructor injects required services for health checks
-        public HealthCheckController(IVectorStore vectorStore, INeo4jService neo4jService, IDatabaseInitializer dbInitializer, WeaviateVectorStore weaviateVectorStore)
+        public HealthCheckController(
+            IVectorStore vectorStore, 
+            INeo4jService neo4jService, 
+            IDatabaseInitializer dbInitializer, 
+            WeaviateVectorStore weaviateVectorStore,
+            IMemoryService memoryService)
         {
             _vectorStore = vectorStore; // Used to check vector store health
             _neo4jService = neo4jService; // Used to check Neo4j health
             _dbInitializer = dbInitializer; // Used to check SQLite health
             _weaviateVectorStore = weaviateVectorStore; // Used for specific Weaviate health checks
+            _memoryService = memoryService; // Used for overall harmony system health
+        }
+
+        // GET /api/healthcheck
+        // Comprehensive health check for the three-database harmony architecture
+        [HttpGet]
+        public async Task<IActionResult> Overall()
+        {
+            var sqliteOk = await _dbInitializer.CanConnectAsync();
+            var vectorOk = await _vectorStore.HealthCheckAsync();
+            var neo4jStatus = await _neo4jService.GetStatusAsync();
+            var neo4jOk = await _neo4jService.PingAsync();
+            var weaviateOk = await _weaviateVectorStore.HealthCheckAsync();
+
+            var allHealthy = sqliteOk && vectorOk && neo4jOk && weaviateOk;
+
+            var response = new
+            {
+                status = allHealthy ? "healthy" : "degraded",
+                timestamp = DateTime.UtcNow,
+                services = new
+                {
+                    sqlite = new { status = sqliteOk ? "ok" : "unavailable", role = "source_of_truth" },
+                    neo4j = new { status = neo4jOk ? "online" : "offline", role = "brain_memories" },
+                    weaviate = new { status = weaviateOk ? "online" : "offline", role = "document_knowledge" },
+                    vector_legacy = new { status = vectorOk ? "ok" : "unavailable", role = "legacy_vector_store" }
+                },
+                architecture = "three_database_harmony"
+            };
+
+            return allHealthy ? Ok(response) : StatusCode(503, response);
         }
 
         // GET /api/healthcheck/sqlite

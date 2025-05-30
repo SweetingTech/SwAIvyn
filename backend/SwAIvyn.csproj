@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -13,18 +12,24 @@
     <Company>SwAIvyn</Company>
     <Authors>SwAIvyn</Authors>
     <Version>1.0.0</Version>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.5">
+    <!-- Exclude test files from main project compilation -->
+    <Compile Remove="Tests\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ASP.NET Core already includes SignalR -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.5" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.5" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
     <!-- Add SQLitePCLRaw bundles to enable extension loading -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
@@ -41,7 +46,7 @@
     </None>
   </ItemGroup>
 
-  <!-- Post-build event to copy executable to root directory -->
+  <!-- Post-build event to copy executable to root -->
   <Target Name="CopyToRoot" AfterTargets="Build">
     <ItemGroup>
       <FilesToCopy Include="$(OutputPath)*.exe;$(OutputPath)*.dll;$(OutputPath)*.pdb;$(OutputPath)*.json;$(OutputPath)sqlite-vss.dll" />
@@ -49,5 +54,4 @@
     <Copy SourceFiles="@(FilesToCopy)" DestinationFolder="$(ProjectDir)..\" OverwriteReadOnlyFiles="true" />
     <Message Text="Copied build output to root directory" Importance="high" />
   </Target>
-
 </Project>
