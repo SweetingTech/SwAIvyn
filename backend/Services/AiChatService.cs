@@ -5,8 +5,10 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
+using SwAIvyn.Services.Interfaces;
+using SwAIvyn.Data.Entities;
+using SwAIvyn.Enums;
 using SwAIvyn.Services.Graph;
-using SwAIvyn.Services.VectorStore;
 using YamlDotNet.Serialization;
 
 namespace SwAIvyn.Services
@@ -57,16 +59,14 @@ namespace SwAIvyn.Services
     /// Service for AI chat functionality
     /// </summary>
     public class AiChatService : IAiChatService
-    {
-        private readonly ILlmConnectorService _llmConnector;
+    {        private readonly ILlmConnectorService _llmConnector;
         private readonly IConversationService _conversationService;
         private readonly ISettingsService _settingsService;
         private readonly ISimpleLoggerService _logger;
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _dbContext;
-        // REMOVED: IDefaultCharacterService - database-only approach
+        private readonly IMemoryService _memoryService;
         private readonly IBrainGraphService _brainGraphService;
-        private readonly IVectorRouter _vectorRouter;
 
         // Setting keys
         private const string DEFAULT_LLM_ENGINE_KEY = "DefaultLlmEngine";
@@ -81,8 +81,7 @@ namespace SwAIvyn.Services
         /// <param name="logger">Logger service</param>
         /// <param name="configuration">Configuration</param>
         /// <param name="dbContext">Database context</param>
-        /// <param name="brainGraphService">Brain graph service for memory search</param>
-        /// <param name="vectorRouter">Vector router for upload search</param>
+        /// <param name="memoryService">Memory service for three-database harmony</param>
         public AiChatService(
             ILlmConnectorService llmConnector,
             IConversationService conversationService,
@@ -90,8 +89,8 @@ namespace SwAIvyn.Services
             ISimpleLoggerService logger,
             IConfiguration configuration,
             ApplicationDbContext dbContext,
-            IBrainGraphService brainGraphService,
-            IVectorRouter vectorRouter)
+            IMemoryService memoryService,
+            IBrainGraphService brainGraphService)
         {
             _llmConnector = llmConnector;
             _conversationService = conversationService;
@@ -99,8 +98,8 @@ namespace SwAIvyn.Services
             _logger = logger;
             _configuration = configuration;
             _dbContext = dbContext;
+            _memoryService = memoryService;
             _brainGraphService = brainGraphService;
-            _vectorRouter = vectorRouter;
         }
 
         /// <inheritdoc/>
@@ -185,36 +184,16 @@ namespace SwAIvyn.Services
                 }
 
                 // Search for relevant context from multiple sources
-                string contextualInformation = "";
-
-                // 1. Search for relevant memories (Neo4j)
+                string contextualInformation = "";                // 1. Search for relevant memories using MemoryService fan-out
                 try
                 {
-                    _logger.LogInfo("🧠 Searching for relevant memories in graph database...");
-                    var memoryResults = await _brainGraphService.SearchAsync(userMessage, limit: 3);
+                    _logger.LogInfo("🧠 Searching for relevant memories using MemoryService...");
+var memoryResults = await _memoryService.SearchMemoriesAsync(userId, userMessage, maxResults: 3);
 
                     if (memoryResults.Any())
                     {
                         _logger.LogInfo($"✅ Found {memoryResults.Count} relevant memories");
-                        var memoryTexts = new List<string>();
-
-                        foreach (var result in memoryResults)
-                        {
-                            var hit = result.Hit;
-                            if (hit.Metadata != null && hit.Metadata.ContainsKey("userId"))
-                            {
-                                // Only include memories from the same user
-                                if (hit.Metadata["userId"] == userId.ToString())
-                                {
-                                    // Get the actual memory content from the database using the ID
-                                    var memory = await _dbContext.Memories.FindAsync(hit.Id);
-                                    if (memory != null)
-                                    {
-                                        memoryTexts.Add($"- {memory.Content}");
-                                    }
-                                }
-                            }
-                        }
+var memoryTexts = memoryResults.Select(m => $"- {m.Memory.Content}").ToList();
 
                         if (memoryTexts.Any())
                         {
@@ -231,35 +210,16 @@ namespace SwAIvyn.Services
                 {
                     _logger.LogWarning($"⚠️ Failed to search memories: {ex.Message}");
                     // Continue without memories - don't fail the entire request
-                }
-
-                // 2. Search for relevant conversation chunks (Neo4j)
+                }                // 2. Search for relevant conversation chunks using MemoryService
                 try
                 {
                     _logger.LogInfo("💬 Searching for relevant conversation chunks...");
-                    var conversationResults = await _brainGraphService.SearchConversationAsync(userMessage, limit: 3);
+var conversationResults = await _memoryService.GetGraphMemoriesAsync(userId, userMessage, maxResults: 3);
 
                     if (conversationResults.Any())
                     {
                         _logger.LogInfo($"✅ Found {conversationResults.Count} relevant conversation chunks");
-                        var conversationTexts = new List<string>();
-
-                        foreach (var result in conversationResults)
-                        {
-                            var hit = result.Hit;
-                            if (hit.Metadata != null && hit.Metadata.ContainsKey("userId"))
-                            {
-                                // Only include conversations from the same user
-                                if (hit.Metadata["userId"] == userId.ToString())
-                                {
-                                    var content = hit.Metadata.GetValueOrDefault("content", "");
-                                    if (!string.IsNullOrEmpty(content))
-                                    {
-                                        conversationTexts.Add($"- {content}");
-                                    }
-                                }
-                            }
-                        }
+var conversationTexts = conversationResults.Select(m => $"- {m.Content}").ToList();
 
                         if (conversationTexts.Any())
                         {
@@ -276,29 +236,16 @@ namespace SwAIvyn.Services
                 {
                     _logger.LogWarning($"⚠️ Failed to search conversation chunks: {ex.Message}");
                     // Continue without conversation chunks - don't fail the entire request
-                }
-
-                // 3. Search for relevant uploaded documents (Weaviate)
+                }                // 3. Search for relevant uploaded documents using MemoryService
                 try
                 {
                     _logger.LogInfo("📄 Searching for relevant uploaded documents...");
-                    var uploadResults = await _vectorRouter.SearchUploadsAsync(userId, userMessage, k: 3);
+var uploadResults = await _memoryService.GetDocumentMemoriesAsync(userId, maxResults: 3);
 
                     if (uploadResults.Any())
                     {
                         _logger.LogInfo($"✅ Found {uploadResults.Count} relevant upload chunks");
-                        var uploadTexts = new List<string>();
-
-                        foreach (var hit in uploadResults)
-                        {
-                            var content = hit.Metadata?.GetValueOrDefault("content", "");
-                            var fileName = hit.Metadata?.GetValueOrDefault("fileName", "Unknown File");
-
-                            if (!string.IsNullOrEmpty(content))
-                            {
-                                uploadTexts.Add($"- From {fileName}: {content}");
-                            }
-                        }
+var uploadTexts = uploadResults.Select(m => $"- {m.Content}").ToList();
 
                         if (uploadTexts.Any())
                         {
@@ -420,11 +367,10 @@ namespace SwAIvyn.Services
                 _logger.LogError("Error setting LLM settings", ex);
                 return false;
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Processes auto-memory logic for chat messages
-        /// </summary>        private async Task ProcessAutoMemoryAsync(string userMessage, string aiResponse, Guid userId, bool saveMemory, string memoryCategory)
+        /// </summary>
+        private async Task ProcessAutoMemoryAsync(string userMessage, string aiResponse, Guid userId, bool saveMemory, string memoryCategory)
         {
             try
             {
@@ -458,54 +404,40 @@ namespace SwAIvyn.Services
                     memoryContent = $"User: {userMessage}\nAI: {aiResponse}";
                     actualCategory = "auto-detected";
                     _logger.LogInfo($"🧠 Auto-detected memorable content");
-                }
-
-                // Save memory if we have content to save
+                }                // Save memory if we have content to save
                 if (!string.IsNullOrEmpty(memoryContent))
                 {
-                    var memoryId = Guid.NewGuid();
-                    var metadata = new Dictionary<string, string>
+                    // Use MemoryService facade for unified memory creation across all three databases
+                    var memory = new MemoryItem
                     {
-                        { "userId", userId.ToString() },
-                        { "category", actualCategory },
-                        { "timestamp", DateTime.UtcNow.ToString("O") },
-                        { "source", "auto-chat" }
-                    };
-
-                    // Save to both SQL database and vector store
-                    var memoryItem = new Data.Entities.MemoryItem
-                    {
-                        Id = memoryId,
+                        Id = Guid.NewGuid(),
                         UserId = userId,
                         Content = memoryContent,
                         Category = actualCategory,
                         IsShared = false,
                         CreatedAt = DateTime.UtcNow,
-                        LastAccessed = DateTime.UtcNow
+                        LastAccessed = DateTime.UtcNow,
+                        TargetStore = VectorTarget.Neo4j
                     };
-
-                    _dbContext.Memories.Add(memoryItem);
-                    await _dbContext.SaveChangesAsync();
-
-                    // Add to vector store for semantic search
-                    var success = await _brainGraphService.AddMemoryAsync(memoryId, memoryContent, metadata);
+                    var (success, createdMemory) = await _memoryService.CreateMemoryAsync(memory);
 
                     if (success)
                     {
-                        _logger.LogInfo($"✅ Auto-memory saved successfully - ID: {memoryId}, Category: {actualCategory}");
+                        _logger.LogInfo($"✅ Auto-memory saved successfully through MemoryService - Category: {actualCategory}");
                     }
                     else
                     {
-                        _logger.LogWarning($"⚠️ Failed to save memory to vector store - ID: {memoryId}");
+                        _logger.LogWarning($"⚠️ Failed to save memory through MemoryService - Category: {actualCategory}");
                     }
                 }
-            }
-            catch (Exception ex)
+            }            catch (Exception ex)
             {
                 _logger.LogError($"🚨 Error processing auto-memory: {ex.Message}", ex);
                 // Don't throw - auto-memory failure shouldn't break chat
             }
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Determines if content is memorable using heuristics
         /// </summary>
         private static bool IsMemorableContent(string userMessage, string aiResponse)

@@ -10,6 +10,7 @@ using SwAIvyn.Services.VectorStore;
 using SwAIvyn.Services.Graph;
 using SwAIvyn.Hubs;
 using SwAIvyn.Middleware;
+using SwAIvyn.Services.Interfaces;
 using System;
 using System.IO;
 using System.Text;
@@ -22,6 +23,9 @@ using Microsoft.Extensions.Configuration;
 using YamlDotNet.Serialization;
 using System.Linq;
 using System.Collections.Generic;
+
+// Fix ambiguous reference by using fully qualified name with alias
+using IVectorRouterInterface = SwAIvyn.Services.Interfaces.IVectorRouter;
 
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
@@ -194,7 +198,10 @@ builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
 
 // Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
-builder.Services.AddScoped<IVectorRouter, VectorRouter>();
+builder.Services.AddScoped<IVectorRouterInterface, SwAIvyn.Services.VectorRouter>();
+
+// Register the unified MemoryService facade for three-database harmony architecture
+builder.Services.AddScoped<IMemoryService, MemoryService>();
 
 // Register BrainService with IVectorRouter instead of IVectorStore
 builder.Services.AddScoped<IBrainService, BrainService>();
@@ -221,6 +228,9 @@ builder.Services.AddSwaggerGen();
 
 // Register the application monitor service
 builder.Services.AddHostedService<ApplicationMonitorService>();
+
+// Register the triple store reconciliation background service
+builder.Services.AddHostedService<TripleStoreReconcileJob>();
 
 // Make the logger available via dependency injection
 builder.Services.AddTransient<ILogger>(sp => sp.GetRequiredService<ILogger<Program>>());
