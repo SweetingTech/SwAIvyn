@@ -201,11 +201,11 @@ namespace SwAIvyn.Services
                         // Use SearchAsync with correct parameters
                         var neoResults = await _brainGraphService.SearchAsync(query, maxResults);
                         return neoResults
-                            .Where(r => r.Id.Contains(userId.ToString())) // Filter by ID containing userId as a fallback
+                            .Where(r => r.Hit.Metadata?.GetValueOrDefault("userId") == userId.ToString())
                             .Select(r => (
-                                MemoryId: Guid.Parse(r.Id), 
-                                Content: r.Content ?? "", 
-                                Similarity: r.Score
+                                MemoryId: r.Hit.Id, 
+                                Content: r.Hit.Metadata?.GetValueOrDefault("content", "") ?? "", 
+                                Similarity: r.Hit.Score
                             ))
                             .ToList();
 
@@ -215,7 +215,7 @@ namespace SwAIvyn.Services
                         return weaviateResults
                             .Where(r => r.Metadata?.GetValueOrDefault("userId") == userId.ToString())
                             .Select(r => (
-                                MemoryId: Guid.Parse(r.Id), // Use Parse instead of constructor
+                                MemoryId: r.Id, // Already a Guid, don't use Parse
                                 Content: r.Metadata?.GetValueOrDefault("content", "") ?? "", 
                                 Similarity: r.Score
                             ))

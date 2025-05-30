@@ -769,7 +769,7 @@ app.MapPost("/api/debug/memory-search", async (
     HttpContext context,
     [FromBody] MemorySearchRequest request,
     IBrainService brainService,
-    IVectorRouter vectorRouter,
+    IVectorRouterInterface vectorRouter,
     Neo4jVectorStore neo4jStore,
     IEmbeddingService embeddingService,
     ISimpleLoggerService logger) =>
@@ -792,46 +792,46 @@ app.MapPost("/api/debug/memory-search", async (
         var neo4jResults = await neo4jStore.SearchAsync(queryEmbedding, request.Limit ?? 5);
         logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore returned {neo4jResults.Count()} results");
         
-        // Test VectorRouter
-        logger.LogInfo("[MEMORY DEBUG] Testing VectorRouter.SearchMemoryAsync...");
-        var routerResults = await vectorRouter.SearchMemoryAsync(testUserId, request.Query, request.Limit ?? 5);
-        logger.LogInfo($"[MEMORY DEBUG] VectorRouter returned {routerResults.Count()} results");        
-        return Results.Ok(new
+// Test VectorRouter
+logger.LogInfo("[MEMORY DEBUG] Testing VectorRouter.FanOutSearchAsync...");
+var routerResults = await vectorRouter.FanOutSearchAsync(request.Query, testUserId, request.Limit ?? 5);
+logger.LogInfo($"[MEMORY DEBUG] VectorRouter returned {routerResults.Count()} results");        
+return Results.Ok(new
+{
+    query = request.Query,
+    brainService = new
+    {
+        count = brainResults.Count(),
+        results = brainResults.Select(r => new
         {
-            query = request.Query,
-            brainService = new
-            {
-                count = brainResults.Count(),
-                results = brainResults.Select(r => new
-                {
-                    id = r.Id,
-                    score = r.Score,
-                    content = r.Metadata?.GetValueOrDefault("content", ""),
-                    metadata = r.Metadata
-                }).ToList()
-            },
-            neo4jVectorStore = new
-            {
-                count = neo4jResults.Count(),
-                results = neo4jResults.Select(r => new
-                {
-                    id = r.Id,
-                    score = r.Score,
-                    content = r.Metadata?.GetValueOrDefault("content", ""),
-                    metadata = r.Metadata
-                }).ToList()
-            },
-            vectorRouter = new
-            {
-                count = routerResults.Count(),
-                results = routerResults.Select(r => new
-                {
-                    id = r.Id,
-                    score = r.Score,
-                    content = r.Metadata?.GetValueOrDefault("content", ""),
-                    metadata = r.Metadata
-                }).ToList()
-            }
+            id = r.Id,
+            score = r.Score,
+            content = r.Metadata?.GetValueOrDefault("content", ""),
+            metadata = r.Metadata
+        }).ToList()
+    },
+    neo4jVectorStore = new
+    {
+        count = neo4jResults.Count(),
+        results = neo4jResults.Select(r => new
+        {
+            id = r.Id,
+            score = r.Score,
+            content = r.Metadata?.GetValueOrDefault("content", ""),
+            metadata = r.Metadata
+        }).ToList()
+    },
+    vectorRouter = new
+    {
+        count = routerResults.Count(),
+        results = routerResults.Select(r => new
+        {
+            id = r.MemoryId,
+            score = r.Similarity,
+            content = r.Content,
+            source = r.Source
+        }).ToList()
+    }
         });
     }
     catch (Exception ex)
