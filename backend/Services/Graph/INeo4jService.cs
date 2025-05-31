@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Neo4j.Driver; // Added for IResultSummary
 
 namespace SwAIvyn.Services.Graph
 {    /// <summary>
@@ -117,50 +118,58 @@ namespace SwAIvyn.Services.Graph
         /// </summary>
         /// <param name="type">Relationship type</param>
         /// <param name="limit">Maximum number of relationships to return</param>
-        /// <returns>List of relationships</returns>
+        /// <returns>A list of relationships</returns>
         Task<List<GraphRelationship>> GetRelationshipsByTypeAsync(string type, int limit = 100);        /// <summary>
-        /// Executes a Cypher query
+        /// Executes a Cypher query and returns the results.
+        /// Primarily uses the HTTP endpoint.
         /// </summary>
-        /// <param name="query">Cypher query</param>
-        /// <param name="parameters">Query parameters</param>
-        /// <returns>Query result as a list of dictionaries</returns>
+        /// <param name="query">The Cypher query to execute.</param>
+        /// <param name="parameters">Parameters for the Cypher query.</param>
+        /// <returns>A list of dictionaries, where each dictionary represents a row in the result set.</returns>
         Task<List<Dictionary<string, object>>> ExecuteQueryAsync(string query, Dictionary<string, object>? parameters = null);
 
         /// <summary>
-        /// Deletes a node by ID
+        /// Executes a write query against Neo4j with parameters using the Bolt driver.
         /// </summary>
-        /// <param name="id">Node ID</param>
-        /// <returns>True if successful</returns>
-        Task<bool> DeleteNodeAsync(string id);
+        /// <param name="query">The Cypher query to execute.</param>
+        /// <param name="parameters">Parameters for the query.</param>
+        /// <returns>A summary of the query execution.</returns>
+        Task<List<Dictionary<string, object>>> ExecuteWriteQueryAsync(string query, Dictionary<string, object> parameters);
 
         /// <summary>
-        /// Deletes a relationship by ID
+        /// Deletes a node from Neo4j by its internal ID.
         /// </summary>
-        /// <param name="id">Relationship ID</param>
-        /// <returns>True if successful</returns>
-        Task<bool> DeleteRelationshipAsync(string id);
+        /// <param name="nodeId">The internal Neo4j ID of the node to delete.</param>
+        /// <returns>True if deletion was successful, false otherwise.</returns>
+        Task<bool> DeleteNodeAsync(string nodeId);
 
         /// <summary>
-        /// Gets the status of the Neo4j service
+        /// Deletes a relationship from Neo4j by its internal ID.
         /// </summary>
-        /// <returns>Status information</returns>
-        Task<Dictionary<string, object>> GetStatusAsync();
+        /// <param name="relationshipId">The internal Neo4j ID of the relationship to delete.</param>
+        /// <returns>True if deletion was successful, false otherwise.</returns>
+        Task<bool> DeleteRelationshipAsync(string relationshipId);
 
         /// <summary>
-        /// Performs a health check on the Neo4j service
+        /// Pings the Neo4j server to check its availability.
         /// </summary>
-        /// <returns>True if the service is healthy</returns>
-        Task<bool> HealthCheckAsync();
-
-        /// <summary>
-        /// Pings the Neo4j service to check if it's available
-        /// </summary>
-        /// <returns>True if the service is available</returns>
+        /// <returns>True if the server is available, false otherwise.</returns>
         Task<bool> PingAsync();
 
         /// <summary>
-        /// Gets a value indicating whether the Neo4j service is online
+        /// Checks the connection status to Neo4j.
         /// </summary>
-        bool IsOnline { get; }
+        /// <returns>True if connected, false otherwise.</returns>
+        Task<bool> CheckConnectionAsync();        /// <summary>
+        /// Gets the current status of the Neo4j service.
+        /// </summary>
+        /// <returns>A dictionary containing status information.</returns>
+        Dictionary<string, object> GetStatus();
+
+        /// <summary>
+        /// Gets the current status of the Neo4j service asynchronously.
+        /// </summary>
+        /// <returns>A task that returns a dictionary containing status information.</returns>
+        Task<Dictionary<string, object>> GetStatusAsync();
     }
 }

@@ -313,26 +313,17 @@ const ChatPage = () => {
         }
 
         isFirstMessage.current = false;
-      }
-
-      if (!conversationId) {
+      }      if (!conversationId) {
         throw new Error('No conversation ID available');
       }
 
-      // Store the user message in the database
-      await conversationService.appendMessage(
-        conversationId,
-        USER_ID,
-        'user',
-        userMessage.text
-      );
-
       // Send message to API and get AI response (include character ID if selected)
+      // Note: The backend handles storing both user and AI messages in the database
       console.log('ChatPage: Sending message with character ID:', selectedCharacter?.id, 'Character name:', selectedCharacter?.name);
       const aiResponse = await chatService.sendMessage(
         conversationId,
         USER_ID,
-        inputText,
+        userMessage.text,
         selectedCharacter?.id || null
       );
 
@@ -342,18 +333,8 @@ const ChatPage = () => {
         sender: 'ai',
         text: aiResponse,
         timestamp: new Date().toISOString()
-      };
-
-      // Add AI message to messages
+      };      // Add AI message to messages
       setMessages(prev => [...prev, aiMessage]);
-
-      // Store the AI response in the database
-      await conversationService.appendMessage(
-        conversationId,
-        USER_ID,
-        'assistant',
-        aiResponse
-      );
     } catch (error) {
       console.error('Error sending message:', error);
 

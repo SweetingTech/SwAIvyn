@@ -272,20 +272,15 @@ class HybridSearchEngine:
                 },
             )
             for i in range(count)
-        ]
-
-    async def neo4j_search(
+        ]    async def neo4j_search(
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
         """
-        Graph-based search using Neo4j - Updated for actual database structure
+        Graph-based search using Neo4j - PRIMARY memory search
         """
         try:
-            if features.entity_mentions:
-                results = await self.entity_graph_search(query, features.entity_mentions, filters)
-            else:
-                results = await self.general_graph_search(query, features, filters)
-
+            # Use a flexible search approach since we don't know the exact node structure
+            results = await self.flexible_graph_search(query, features, filters)
             self.logger.info(f"Neo4j search returned {len(results)} results")
             return results
 
@@ -293,57 +288,123 @@ class HybridSearchEngine:
             self.logger.error(f"Neo4j search error: {str(e)}")
             return self._get_mock_neo4j_results(query, [], 3)
 
-    async def entity_graph_search(
+    async def flexible_graph_search(
+        self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
+    ) -> List[SearchResult]:
+        """Flexible search that works with any Neo4j node structure"""
+        if not self.neo4j:
+            self.logger.warning("Neo4j driver not available, using mock data")
+            return self._get_mock_neo4j_results(query, [], 3)
+
+        try:
+            # First, let's see what's actually in the database
+            with self.neo4j.session() as session:
+                # Get sample of all nodes with their properties
+                cypher_query = """
+                MATCH (n)
+                WHERE ANY(prop IN keys(n) WHERE toString(n[prop]) CONTAINS $search_text)
+                OPTIONAL MATCH (n)-[r]-(related)
+                RETURN n, labels(n) as node_labels, count(related) as connections
+                ORDER BY connections DESC
+                LIMIT 50
+                """
+                
+                result = session.run(cypher_query, search_text=query)
+                records = list(result)
+
+            results = []
+            for i, record in enumerate(records):
+                node = record["n"]
+                node_labels = record["node_labels"]
+                connections = record["connections"]
+                
+                # Extract relevant content from the node
+                content_parts = []
+                node_props = dict(node)
+                
+                # Look for common content properties
+                for prop in ["content", "text", "message", "body", "description", "name", "title"]:
+                    if prop in node_props and node_props[prop]:
+                        content_parts.append(str(node_props[prop]))
+                
+                if not content_parts:
+                    # If no common properties, use all string properties
+                    content_parts = [str(v) for v in node_props.values() if isinstance(v, str) and len(str(v)) > 2]
+                
+                content = " | ".join(content_parts[:3])  # Limit to first 3 meaningful properties
+                
+                # Score based on connections and content relevance
+                base_score = min(1.0, 0.3 + (connections * 0.1))
+                if query.lower() in content.lower():
+                    base_score += 0.4
+                
+                results.append(
+                    SearchResult(
+                        id=str(node.element_id) if hasattr(node, 'element_id') else f"neo4j_{i}",
+                        title=f"{'/'.join(node_labels)} Node" if node_labels else f"Graph Node {i+1}",
+                        content=content[:200] + "..." if len(content) > 200 else content,
+                        score=base_score,
+                        source="neo4j",
+                        metadata={
+                            "node_labels": node_labels,
+                            "connections": connections,
+                            "properties": list(node_props.keys()),
+                            "search_type": "flexible_graph",
+                        },
+                    )
+                )
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Neo4j flexible search error: {str(e)}")
+            return self._get_mock_neo4j_results(query, [], 2)async def entity_graph_search(
         self, query: str, entities: List[str], filters: Optional[Dict] = None
     ) -> List[SearchResult]:
-        """Search for specific entities by name in the knowledge graph"""
+        """Search based on entity relationships in the graph"""
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, using mock data")
             return self._get_mock_neo4j_results(query, entities, 3)
 
         try:
-            # Search for entities that match the query entities by name
+            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
+            
+            # Flexible query to find any nodes that might contain the entities
             cypher_query = """
-            MATCH (e)
-            WHERE e.type = 'entity' AND e.name IN $entity_list
-            OPTIONAL MATCH (e)-[r]-(related)
-            WHERE related.type = 'entity'
-            UNWIND e.observations AS obs
-            RETURN e.name, e.entityType, obs as observation, 
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_names
+            MATCH (n)
+            WHERE ANY(prop IN keys(n) WHERE toString(n[prop]) CONTAINS $search_text)
+            OPTIONAL MATCH (n)-[r]-(related)
+            RETURN n, labels(n) as node_labels, count(related) as connections
             ORDER BY connections DESC
             LIMIT 50
             """
 
             with self.neo4j.session() as session:
-                result = session.run(cypher_query, entity_list=entities)
+                result = session.run(cypher_query, search_text=query)
                 records = list(result)
 
             results = []
-            for i, record in enumerate(records):
-                # Score based on entity matches and connections
-                connections = record["connections"] or 0
-                base_score = min(1.0, 0.7 + (connections * 0.03))
-
-                # Create content from observations
-                observation = record["observation"] or ""
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_names = record["related_names"] or []
+            for record in records:
+                # Score based on entity matches and recency
+                entity_matches = record["entity_matches"]
+                base_score = min(1.0, entity_matches / len(entities))
 
                 results.append(
                     SearchResult(
-                        id=f"neo4j_entity_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
-                        content=observation[:500] + "..." if len(observation) > 500 else observation,
+                        id=str(record["m.id"]),
+                        title=f"Memory with {entity_matches} entity matches",
+                        content=(
+                            record["m.content"][:200] + "..."
+                            if len(record["m.content"]) > 200
+                            else record["m.content"]
+                        ),
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
-                            "connections": connections,
-                            "related_entities": related_names,
+                            "category": record["m.category"],
+                            "user_id": record["m.userId"],
+                            "created_at": record["m.createdAt"],
+                            "entity_matches": entity_matches,
                             "search_type": "entity_graph",
                         },
                     )
@@ -358,63 +419,51 @@ class HybridSearchEngine:
     async def general_graph_search(
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
-        """General search across all entities and observations in the knowledge graph"""
+        """General graph search for memories and patterns"""
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, using mock data")
             return self._get_mock_neo4j_results(query, [], 2)
 
         try:
-            # Extract keywords for searching observations
-            keywords = features.keywords or [query.lower()]
+            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
             
-            # Search for entities whose observations contain keywords
+            # General search in graph database for memories
             cypher_query = """
-            MATCH (e)
-            WHERE e.type = 'entity'
-            UNWIND e.observations AS obs
-            WHERE ANY(keyword IN $keywords WHERE toLower(obs) CONTAINS toLower(keyword))
-            OPTIONAL MATCH (e)-[r]-(related)
-            WHERE related.type = 'entity'
-            RETURN e.name, e.entityType, obs as observation,
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_entities
-            ORDER BY connections DESC
+            MATCH (m:Memory)
+            WHERE m.content CONTAINS $search_query AND m.userId = $user_id
+            OPTIONAL MATCH (m)-[r]->(related)
+            RETURN m.id, m.content, m.category, m.userId, m.createdAt,
+                   count(related) as related_count
+            ORDER BY related_count DESC, m.createdAt DESC
             LIMIT 50
             """
 
             with self.neo4j.session() as session:
-                result = session.run(cypher_query, keywords=keywords)
+                result = session.run(cypher_query, search_query=query, user_id=user_id)
                 records = list(result)
 
             results = []
-            for i, record in enumerate(records):
-                # Score based on keyword relevance and connections
-                connections = record["connections"] or 0
-                base_score = min(1.0, 0.6 + (connections * 0.02))
-
-                # Boost score if multiple keywords match
-                observation = record["observation"] or ""
-                keyword_matches = sum(1 for kw in keywords if kw.lower() in observation.lower())
-                if keyword_matches > 1:
-                    base_score = min(1.0, base_score * (1 + keyword_matches * 0.1))
-
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_entities = record["related_entities"] or []
+            for record in records:
+                # Score based on relationship connections
+                related_count = record["related_count"] or 0
+                base_score = min(1.0, 0.5 + (related_count * 0.1))
 
                 results.append(
                     SearchResult(
-                        id=f"neo4j_general_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
-                        content=observation[:500] + "..." if len(observation) > 500 else observation,
+                        id=str(record["m.id"]),
+                        title=f"Memory ({related_count} connections)",
+                        content=(
+                            record["m.content"][:200] + "..."
+                            if len(record["m.content"]) > 200
+                            else record["m.content"]
+                        ),
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
-                            "connections": connections,
-                            "related_entities": related_entities,
-                            "keyword_matches": keyword_matches,
+                            "category": record["m.category"],
+                            "user_id": record["m.userId"],
+                            "created_at": record["m.createdAt"],
+                            "related_count": related_count,
                             "search_type": "general_graph",
                         },
                     )
@@ -430,13 +479,13 @@ class HybridSearchEngine:
         """Fallback mock Neo4j results"""
         return [
             SearchResult(
-                id=f"neo4j_mock_{i}",
-                title=f"SwAIvyn Knowledge {i+1}",
-                content=f"Knowledge about '{query}' related to entities {entities} from Neo4j knowledge graph...",
+                id=f"neo4j_{i}",
+                title=f"Memory {i+1}",
+                content=f"Memory content related to '{query}' with entities {entities} from Neo4j graph database...",
                 score=0.8 - (i * 0.1),
                 source="neo4j",
                 metadata={
-                    "content_type": "knowledge",
+                    "content_type": "memory",
                     "origin": "neo4j_db",
                     "connections": 5 - i,
                     "method": "mock",

@@ -67,12 +67,11 @@ namespace SwAIvyn.Services
         private readonly ApplicationDbContext _dbContext;
         private readonly IMemoryService _memoryService;
         private readonly IBrainGraphService _brainGraphService;
+        private readonly IHybridSearchService _hybridSearchService;
 
         // Setting keys
         private const string DEFAULT_LLM_ENGINE_KEY = "DefaultLlmEngine";
-        private const string DEFAULT_LLM_MODEL_KEY = "DefaultLlmModel";
-
-        /// <summary>
+        private const string DEFAULT_LLM_MODEL_KEY = "DefaultLlmModel";        /// <summary>
         /// Initializes a new instance of the AiChatService
         /// </summary>
         /// <param name="llmConnector">LLM connector service</param>
@@ -82,6 +81,8 @@ namespace SwAIvyn.Services
         /// <param name="configuration">Configuration</param>
         /// <param name="dbContext">Database context</param>
         /// <param name="memoryService">Memory service for three-database harmony</param>
+        /// <param name="brainGraphService">Brain graph service</param>
+        /// <param name="hybridSearchService">Hybrid search service</param>
         public AiChatService(
             ILlmConnectorService llmConnector,
             IConversationService conversationService,
@@ -90,7 +91,8 @@ namespace SwAIvyn.Services
             IConfiguration configuration,
             ApplicationDbContext dbContext,
             IMemoryService memoryService,
-            IBrainGraphService brainGraphService)
+            IBrainGraphService brainGraphService,
+            IHybridSearchService hybridSearchService)
         {
             _llmConnector = llmConnector;
             _conversationService = conversationService;
@@ -99,6 +101,8 @@ namespace SwAIvyn.Services
             _configuration = configuration;
             _dbContext = dbContext;
             _memoryService = memoryService;
+            _brainGraphService = brainGraphService;
+            _hybridSearchService = hybridSearchService;
             _brainGraphService = brainGraphService;
         }
 
@@ -181,87 +185,68 @@ namespace SwAIvyn.Services
                 else
                 {
                     _logger.LogWarning("⚠️ No system prompt available - using no character context");
-                }
-
-                // Search for relevant context from multiple sources
-                string contextualInformation = "";                // 1. Search for relevant memories using MemoryService fan-out
+                }                // Search for relevant context from multiple sources using hybrid search
+                string contextualInformation = "";
+                
                 try
                 {
-                    _logger.LogInfo("🧠 Searching for relevant memories using MemoryService...");
-var memoryResults = await _memoryService.SearchMemoriesAsync(userId, userMessage, maxResults: 3);
-
-                    if (memoryResults.Any())
+                    _logger.LogInfo("🔍 Searching for relevant context using hybrid search...");
+                    
+                    var hybridResults = await _hybridSearchService.SearchAsync(userId, userMessage, maxResults: 10);
+                    
+                    if (hybridResults.Any())
                     {
-                        _logger.LogInfo($"✅ Found {memoryResults.Count} relevant memories");
-var memoryTexts = memoryResults.Select(m => $"- {m.Memory.Content}").ToList();
-
-                        if (memoryTexts.Any())
+                        _logger.LogInfo($"✅ Hybrid search found {hybridResults.Count} total results");
+                        
+                        // Group results by type for better context organization
+                        var memoryResults = hybridResults.Where(r => r.Source == "memory").Take(3).ToList();
+                        var chatResults = hybridResults.Where(r => r.Source == "chat").Take(3).ToList();
+                        var documentResults = hybridResults.Where(r => r.Source == "document").Take(3).ToList();
+                        
+                        // Add memory context
+                        if (memoryResults.Any())
                         {
+                            var memoryTexts = memoryResults.Select(r => $"- {r.Content}").ToList();
                             contextualInformation += $"\n\nRelevant memories from previous conversations:\n{string.Join("\n", memoryTexts)}";
-                            _logger.LogInfo($"✅ Including {memoryTexts.Count} user memories in context");
+                            _logger.LogInfo($"✅ Including {memoryTexts.Count} memories in context");
                         }
-                    }
-                    else
-                    {
-                        _logger.LogInfo("ℹ️ No relevant memories found");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"⚠️ Failed to search memories: {ex.Message}");
-                    // Continue without memories - don't fail the entire request
-                }                // 2. Search for relevant conversation chunks using MemoryService
-                try
-                {
-                    _logger.LogInfo("💬 Searching for relevant conversation chunks...");
-var conversationResults = await _memoryService.GetGraphMemoriesAsync(userId, userMessage, maxResults: 3);
-
-                    if (conversationResults.Any())
-                    {
-                        _logger.LogInfo($"✅ Found {conversationResults.Count} relevant conversation chunks");
-var conversationTexts = conversationResults.Select(m => $"- {m.Content}").ToList();
-
-                        if (conversationTexts.Any())
+                        
+                        // Add chat context
+                        if (chatResults.Any())
                         {
-                            contextualInformation += $"\n\nRelevant past conversations:\n{string.Join("\n", conversationTexts)}";
-                            _logger.LogInfo($"✅ Including {conversationTexts.Count} conversation chunks in context");
+                            var chatTexts = chatResults.Select(r => $"- {r.Content}").ToList();
+                            contextualInformation += $"\n\nRelevant past conversations:\n{string.Join("\n", chatTexts)}";
+                            _logger.LogInfo($"✅ Including {chatTexts.Count} conversation chunks in context");
                         }
-                    }
-                    else
-                    {
-                        _logger.LogInfo("ℹ️ No relevant conversation chunks found");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"⚠️ Failed to search conversation chunks: {ex.Message}");
-                    // Continue without conversation chunks - don't fail the entire request
-                }                // 3. Search for relevant uploaded documents using MemoryService
-                try
-                {
-                    _logger.LogInfo("📄 Searching for relevant uploaded documents...");
-var uploadResults = await _memoryService.GetDocumentMemoriesAsync(userId, maxResults: 3);
-
-                    if (uploadResults.Any())
-                    {
-                        _logger.LogInfo($"✅ Found {uploadResults.Count} relevant upload chunks");
-var uploadTexts = uploadResults.Select(m => $"- {m.Content}").ToList();
-
-                        if (uploadTexts.Any())
+                        
+                        // Add document context
+                        if (documentResults.Any())
                         {
-                            contextualInformation += $"\n\nRelevant information from uploaded documents:\n{string.Join("\n", uploadTexts)}";
-                            _logger.LogInfo($"✅ Including {uploadTexts.Count} upload chunks in context");
+                            var documentTexts = documentResults.Select(r => $"- {r.Content}").ToList();
+                            contextualInformation += $"\n\nRelevant information from uploaded documents:\n{string.Join("\n", documentTexts)}";
+                            _logger.LogInfo($"✅ Including {documentTexts.Count} document chunks in context");
+                        }
+                        
+                        if (string.IsNullOrEmpty(contextualInformation))
+                        {
+                            _logger.LogInfo("ℹ️ No relevant context found in hybrid search results");
                         }
                     }
                     else
                     {
-                        _logger.LogInfo("ℹ️ No relevant uploaded documents found");
+                        _logger.LogInfo("ℹ️ No relevant context found in hybrid search");
+                        
+                        // Fallback to individual searches if hybrid search returns no results
+                        _logger.LogInfo("🔄 Falling back to individual database searches...");
+                        contextualInformation = await FallbackContextSearchAsync(userId, userMessage);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"⚠️ Failed to search uploaded documents: {ex.Message}");
-                    // Continue without uploads - don't fail the entire request
+                    _logger.LogWarning($"⚠️ Failed to perform hybrid search: {ex.Message}");
+                    // Fallback to individual searches
+                    _logger.LogInfo("🔄 Falling back to individual database searches...");
+                    contextualInformation = await FallbackContextSearchAsync(userId, userMessage);
                 }
 
                 // Add instruction for using contextual information
@@ -584,6 +569,100 @@ Example conversation:
                 _logger.LogError($"🚨 Error processing conversation chunk: {ex.Message}", ex);
                 // Don't throw - conversation chunk failure shouldn't break chat
             }
+        }
+
+        /// <summary>
+        /// Fallback context search using individual database calls when hybrid search is unavailable
+        /// </summary>
+        private async Task<string> FallbackContextSearchAsync(Guid userId, string userMessage)
+        {
+            string contextualInformation = "";
+            
+            // 1. Search for relevant memories using MemoryService fan-out
+            try
+            {
+                _logger.LogInfo("🧠 Fallback: Searching for relevant memories using MemoryService...");
+                var memoryResults = await _memoryService.SearchMemoriesAsync(userId, userMessage, maxResults: 3);
+
+                if (memoryResults.Any())
+                {
+                    _logger.LogInfo($"✅ Found {memoryResults.Count} relevant memories");
+                    var memoryTexts = memoryResults.Select(m => $"- {m.Memory.Content}").ToList();
+
+                    if (memoryTexts.Any())
+                    {
+                        contextualInformation += $"\n\nRelevant memories from previous conversations:\n{string.Join("\n", memoryTexts)}";
+                        _logger.LogInfo($"✅ Including {memoryTexts.Count} user memories in context");
+                    }
+                }
+                else
+                {
+                    _logger.LogInfo("ℹ️ No relevant memories found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"⚠️ Failed to search memories: {ex.Message}");
+                // Continue without memories - don't fail the entire request
+            }
+
+            // 2. Search for relevant conversation chunks using MemoryService
+            try
+            {
+                _logger.LogInfo("💬 Fallback: Searching for relevant conversation chunks...");
+                var conversationResults = await _memoryService.GetGraphMemoriesAsync(userId, userMessage, maxResults: 3);
+
+                if (conversationResults.Any())
+                {
+                    _logger.LogInfo($"✅ Found {conversationResults.Count} relevant conversation chunks");
+                    var conversationTexts = conversationResults.Select(m => $"- {m.Content}").ToList();
+
+                    if (conversationTexts.Any())
+                    {
+                        contextualInformation += $"\n\nRelevant past conversations:\n{string.Join("\n", conversationTexts)}";
+                        _logger.LogInfo($"✅ Including {conversationTexts.Count} conversation chunks in context");
+                    }
+                }
+                else
+                {
+                    _logger.LogInfo("ℹ️ No relevant conversation chunks found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"⚠️ Failed to search conversation chunks: {ex.Message}");
+                // Continue without conversation chunks - don't fail the entire request
+            }
+
+            // 3. Search for relevant uploaded documents using MemoryService
+            try
+            {
+                _logger.LogInfo("📄 Fallback: Searching for relevant uploaded documents...");
+                var uploadResults = await _memoryService.GetDocumentMemoriesAsync(userId, maxResults: 3);
+
+                if (uploadResults.Any())
+                {
+                    _logger.LogInfo($"✅ Found {uploadResults.Count} relevant upload chunks");
+                    var uploadTexts = uploadResults.Select(m => $"- {m.Content}").ToList();
+
+                    if (uploadTexts.Any())
+                    {
+                        contextualInformation += $"\n\nRelevant information from uploaded documents:\n{string.Join("\n", uploadTexts)}";
+                        _logger.LogInfo($"✅ Including {uploadTexts.Count} upload chunks in context");
+                    }
+                }
+                else
+                {
+                    _logger.LogInfo("ℹ️ No relevant uploaded documents found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"⚠️ Failed to search uploaded documents: {ex.Message}");
+                // Continue without uploads - don't fail the entire request
+            }
+            
+            return contextualInformation;
         }
     }
 }

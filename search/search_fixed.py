@@ -152,9 +152,7 @@ class HybridSearchEngine:
             "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
         }
         words = re.findall(r"\b\w+\b", query.lower())
-        return [word for word in words if word not in stop_words and len(word) > 2]
-
-    async def weaviate_search(
+        return [word for word in words if word not in stop_words and len(word) > 2]    async def weaviate_search(
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
         """
@@ -165,91 +163,120 @@ class HybridSearchEngine:
             return self._get_mock_weaviate_results(query, 5)
 
         try:
-            # Get available collections
-            collections = self.weaviate.collections.list_all()
-            available_collections = [collection.name for collection in collections]
-            
-            if not available_collections:
-                self.logger.warning("No Weaviate collections found, using mock data")
-                return self._get_mock_weaviate_results(query, 5)
+            # Try the older Weaviate client API first
+            try:
+                # Check if Weaviate is ready
+                if not self.weaviate.is_ready():
+                    self.logger.warning("Weaviate not ready, using mock data")
+                    return self._get_mock_weaviate_results(query, 5)
+                
+                # Get schema to see available classes
+                schema = self.weaviate.schema.get()
+                available_classes = [cls['class'] for cls in schema.get('classes', [])]
+                
+                if not available_classes:
+                    self.logger.warning("No Weaviate classes found, using mock data")
+                    return self._get_mock_weaviate_results(query, 5)
 
-            self.logger.info(f"Available Weaviate collections: {available_collections}")
+                self.logger.info(f"Available Weaviate classes: {available_classes}")
 
-            # Try to use the most appropriate collection
-            target_collection = None
-            for preferred in ["Document", "Content", "Message", "Chat"]:
-                if preferred in available_collections:
-                    target_collection = preferred
-                    break
-            
-            if not target_collection:
-                target_collection = available_collections[0]
-            
-            self.logger.info(f"Using Weaviate collection: {target_collection}")
+                # Try to use the most appropriate class
+                target_class = None
+                for preferred in ["Document", "Content", "Message", "Chat", "Memory"]:
+                    if preferred in available_classes:
+                        target_class = preferred
+                        break
+                
+                if not target_class:
+                    target_class = available_classes[0]
+                
+                self.logger.info(f"Using Weaviate class: {target_class}")
 
-            # Get the collection
-            collection = self.weaviate.collections.get(target_collection)
-
-            # Build where filter for userId if provided
-            where_filter = None
-            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
-            if user_id:
-                try:
-                    where_filter = wvc.query.Filter.by_property("userId").equal(str(user_id))
-                except Exception as filter_error:
-                    self.logger.warning(f"Could not apply userId filter: {filter_error}")
-                    where_filter = None
-
-            # Perform semantic search using v4 API
-            if where_filter:
-                response = collection.query.near_text(
-                    query=query,
-                    limit=50,
-                    where=where_filter,
-                    return_metadata=wvc.query.MetadataQuery(distance=True, score=True),
-                )
-            else:
-                response = collection.query.near_text(
-                    query=query,
-                    limit=50,
-                    return_metadata=wvc.query.MetadataQuery(distance=True, score=True),
+                # Perform semantic search using older API
+                result = (
+                    self.weaviate.query
+                    .get(target_class, ["*"])
+                    .with_near_text({"concepts": [query]})
+                    .with_additional(["distance", "id"])
+                    .with_limit(50)
+                    .do()
                 )
 
-            results = []
-            for i, obj in enumerate(response.objects):
-                # Calculate similarity score from distance
-                distance = obj.metadata.distance if obj.metadata.distance else 0.5
-                similarity_score = max(0.0, 1.0 - distance)
+                results = []
+                objects = result.get("data", {}).get("Get", {}).get(target_class, [])
+                
+                for i, obj in enumerate(objects):
+                    # Calculate similarity score from distance
+                    additional = obj.get("_additional", {})
+                    distance = additional.get("distance", 0.5)
+                    similarity_score = max(0.0, 1.0 - distance)
 
-                # Get content from various possible property names
-                content = (
-                    obj.properties.get("content") or 
-                    obj.properties.get("text") or 
-                    obj.properties.get("message") or 
-                    obj.properties.get("body") or 
-                    str(obj.properties)
-                )
+                    # Get content from various possible property names
+                    content_candidates = []
+                    for prop in ["content", "text", "message", "body", "description"]:
+                        if obj.get(prop):
+                            content_candidates.append(str(obj[prop]))
+                    
+                    content = content_candidates[0] if content_candidates else str(obj)
 
-                results.append(
-                    SearchResult(
-                        id=str(obj.uuid),
-                        title=obj.properties.get("title", f"Weaviate Document {i+1}"),
-                        content=content[:200] + "..." if len(content) > 200 else content,
-                        score=similarity_score,
-                        source="weaviate",
-                        metadata={
-                            "content_type": obj.properties.get("contentType", "unknown"),
-                            "origin": obj.properties.get("source", "weaviate_db"),
-                            "user_id": obj.properties.get("userId", ""),
-                            "distance": distance,
-                            "search_type": "semantic",
-                            "collection": target_collection,
-                        },
+                    results.append(
+                        SearchResult(
+                            id=additional.get("id", f"weaviate_{i}"),
+                            title=obj.get("title", f"Weaviate Document {i+1}"),
+                            content=content[:200] + "..." if len(content) > 200 else content,
+                            score=similarity_score,
+                            source="weaviate",
+                            metadata={
+                                "content_type": obj.get("contentType", "unknown"),
+                                "origin": obj.get("source", "weaviate_db"),
+                                "user_id": obj.get("userId", ""),
+                                "distance": distance,
+                                "search_type": "semantic",
+                                "class": target_class,
+                            },
+                        )
                     )
+
+                self.logger.info(f"Weaviate search returned {len(results)} results")
+                return results
+
+            except Exception as v3_error:
+                self.logger.warning(f"Weaviate v3 API failed: {v3_error}, trying v4 API")
+                
+                # Fallback to v4 API
+                collections = self.weaviate.collections.list_all()
+                available_collections = [collection.name for collection in collections]
+                
+                if not available_collections:
+                    self.logger.warning("No Weaviate collections found, using mock data")
+                    return self._get_mock_weaviate_results(query, 5)
+
+                target_collection = available_collections[0]
+                collection = self.weaviate.collections.get(target_collection)
+
+                response = collection.query.near_text(
+                    query=query,
+                    limit=50
                 )
 
-            self.logger.info(f"Weaviate search returned {len(results)} results")
-            return results
+                results = []
+                for i, obj in enumerate(response.objects):
+                    content = str(obj.properties)
+                    results.append(
+                        SearchResult(
+                            id=str(obj.uuid),
+                            title=f"Document {i+1}",
+                            content=content[:200] + "..." if len(content) > 200 else content,
+                            score=0.8,
+                            source="weaviate",
+                            metadata={
+                                "collection": target_collection,
+                                "search_type": "semantic_v4",
+                            },
+                        )
+                    )
+
+                return results
 
         except Exception as e:
             self.logger.error(f"Weaviate search error: {str(e)}")
@@ -278,14 +305,11 @@ class HybridSearchEngine:
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
         """
-        Graph-based search using Neo4j - Updated for actual database structure
+        Graph-based search using Neo4j - PRIMARY memory search
         """
         try:
-            if features.entity_mentions:
-                results = await self.entity_graph_search(query, features.entity_mentions, filters)
-            else:
-                results = await self.general_graph_search(query, features, filters)
-
+            # Use a flexible search approach since we don't know the exact node structure
+            results = await self.flexible_graph_search(query, features, filters)
             self.logger.info(f"Neo4j search returned {len(results)} results")
             return results
 
@@ -293,129 +317,68 @@ class HybridSearchEngine:
             self.logger.error(f"Neo4j search error: {str(e)}")
             return self._get_mock_neo4j_results(query, [], 3)
 
-    async def entity_graph_search(
-        self, query: str, entities: List[str], filters: Optional[Dict] = None
-    ) -> List[SearchResult]:
-        """Search for specific entities by name in the knowledge graph"""
-        if not self.neo4j:
-            self.logger.warning("Neo4j driver not available, using mock data")
-            return self._get_mock_neo4j_results(query, entities, 3)
-
-        try:
-            # Search for entities that match the query entities by name
-            cypher_query = """
-            MATCH (e)
-            WHERE e.type = 'entity' AND e.name IN $entity_list
-            OPTIONAL MATCH (e)-[r]-(related)
-            WHERE related.type = 'entity'
-            UNWIND e.observations AS obs
-            RETURN e.name, e.entityType, obs as observation, 
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_names
-            ORDER BY connections DESC
-            LIMIT 50
-            """
-
-            with self.neo4j.session() as session:
-                result = session.run(cypher_query, entity_list=entities)
-                records = list(result)
-
-            results = []
-            for i, record in enumerate(records):
-                # Score based on entity matches and connections
-                connections = record["connections"] or 0
-                base_score = min(1.0, 0.7 + (connections * 0.03))
-
-                # Create content from observations
-                observation = record["observation"] or ""
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_names = record["related_names"] or []
-
-                results.append(
-                    SearchResult(
-                        id=f"neo4j_entity_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
-                        content=observation[:500] + "..." if len(observation) > 500 else observation,
-                        score=base_score,
-                        source="neo4j",
-                        metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
-                            "connections": connections,
-                            "related_entities": related_names,
-                            "search_type": "entity_graph",
-                        },
-                    )
-                )
-
-            return results
-
-        except Exception as e:
-            self.logger.error(f"Neo4j entity search error: {str(e)}")
-            return self._get_mock_neo4j_results(query, entities, 3)
-
-    async def general_graph_search(
+    async def flexible_graph_search(
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
-        """General search across all entities and observations in the knowledge graph"""
+        """Flexible search that works with any Neo4j node structure"""
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, using mock data")
-            return self._get_mock_neo4j_results(query, [], 2)
+            return self._get_mock_neo4j_results(query, [], 3)
 
         try:
-            # Extract keywords for searching observations
-            keywords = features.keywords or [query.lower()]
-            
-            # Search for entities whose observations contain keywords
-            cypher_query = """
-            MATCH (e)
-            WHERE e.type = 'entity'
-            UNWIND e.observations AS obs
-            WHERE ANY(keyword IN $keywords WHERE toLower(obs) CONTAINS toLower(keyword))
-            OPTIONAL MATCH (e)-[r]-(related)
-            WHERE related.type = 'entity'
-            RETURN e.name, e.entityType, obs as observation,
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_entities
-            ORDER BY connections DESC
-            LIMIT 50
-            """
-
+            # First, let's see what's actually in the database
             with self.neo4j.session() as session:
-                result = session.run(cypher_query, keywords=keywords)
+                # Get sample of all nodes with their properties containing the search text
+                cypher_query = """
+                MATCH (n)
+                WHERE ANY(prop IN keys(n) WHERE toString(n[prop]) CONTAINS $search_text)
+                OPTIONAL MATCH (n)-[r]-(related)
+                RETURN n, labels(n) as node_labels, count(related) as connections
+                ORDER BY connections DESC
+                LIMIT 50
+                """
+                
+                result = session.run(cypher_query, search_text=query)
                 records = list(result)
 
             results = []
             for i, record in enumerate(records):
-                # Score based on keyword relevance and connections
-                connections = record["connections"] or 0
-                base_score = min(1.0, 0.6 + (connections * 0.02))
-
-                # Boost score if multiple keywords match
-                observation = record["observation"] or ""
-                keyword_matches = sum(1 for kw in keywords if kw.lower() in observation.lower())
-                if keyword_matches > 1:
-                    base_score = min(1.0, base_score * (1 + keyword_matches * 0.1))
-
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_entities = record["related_entities"] or []
-
+                node = record["n"]
+                node_labels = record["node_labels"]
+                connections = record["connections"]
+                
+                # Extract relevant content from the node
+                content_parts = []
+                node_props = dict(node)
+                
+                # Look for common content properties
+                for prop in ["content", "text", "message", "body", "description", "name", "title"]:
+                    if prop in node_props and node_props[prop]:
+                        content_parts.append(str(node_props[prop]))
+                
+                if not content_parts:
+                    # If no common properties, use all string properties
+                    content_parts = [str(v) for v in node_props.values() if isinstance(v, str) and len(str(v)) > 2]
+                
+                content = " | ".join(content_parts[:3])  # Limit to first 3 meaningful properties
+                
+                # Score based on connections and content relevance
+                base_score = min(1.0, 0.3 + (connections * 0.1))
+                if query.lower() in content.lower():
+                    base_score += 0.4
+                
                 results.append(
                     SearchResult(
-                        id=f"neo4j_general_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
-                        content=observation[:500] + "..." if len(observation) > 500 else observation,
+                        id=str(node.element_id) if hasattr(node, 'element_id') else f"neo4j_{i}",
+                        title=f"{'/'.join(node_labels)} Node" if node_labels else f"Graph Node {i+1}",
+                        content=content[:200] + "..." if len(content) > 200 else content,
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
+                            "node_labels": node_labels,
                             "connections": connections,
-                            "related_entities": related_entities,
-                            "keyword_matches": keyword_matches,
-                            "search_type": "general_graph",
+                            "properties": list(node_props.keys()),
+                            "search_type": "flexible_graph",
                         },
                     )
                 )
@@ -423,20 +386,20 @@ class HybridSearchEngine:
             return results
 
         except Exception as e:
-            self.logger.error(f"Neo4j general search error: {str(e)}")
+            self.logger.error(f"Neo4j flexible search error: {str(e)}")
             return self._get_mock_neo4j_results(query, [], 2)
 
     def _get_mock_neo4j_results(self, query: str, entities: List[str], count: int) -> List[SearchResult]:
         """Fallback mock Neo4j results"""
         return [
             SearchResult(
-                id=f"neo4j_mock_{i}",
-                title=f"SwAIvyn Knowledge {i+1}",
-                content=f"Knowledge about '{query}' related to entities {entities} from Neo4j knowledge graph...",
+                id=f"neo4j_{i}",
+                title=f"Memory {i+1}",
+                content=f"Memory content related to '{query}' with entities {entities} from Neo4j graph database...",
                 score=0.8 - (i * 0.1),
                 source="neo4j",
                 metadata={
-                    "content_type": "knowledge",
+                    "content_type": "memory",
                     "origin": "neo4j_db",
                     "connections": 5 - i,
                     "method": "mock",

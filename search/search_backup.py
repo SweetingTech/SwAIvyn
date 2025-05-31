@@ -1,4 +1,4 @@
-# Updated hybrid search implementation focused on Weaviate and Neo4j
+# Updated hybrid search implementation with real database queries
 import asyncio
 import re
 import logging
@@ -36,8 +36,7 @@ class QueryFeatures:
 
 class HybridSearchEngine:
     """
-    Hybrid search engine that focuses on Weaviate (vector) and Neo4j (graph) databases
-    SQLite is used minimally for metadata only
+    Hybrid search engine that combines SQL, Weaviate (vector), and Neo4j (graph) databases
     """
 
     def __init__(self, sql_connection, weaviate_client, neo4j_driver):
@@ -47,31 +46,33 @@ class HybridSearchEngine:
 
         self.logger = logging.getLogger(__name__)
 
-        # Search weights - Weaviate and Neo4j are primary, SQL minimal
-        self.db_weights = {"sql": 0.1, "weaviate": 0.5, "neo4j": 0.4}
+        # Search weights for different databases
+        self.db_weights = {"sql": 0.3, "weaviate": 0.4, "neo4j": 0.3}
 
     async def search(
         self, query: str, top_k: int = 20, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
         """
-        Main search method focusing on Weaviate and Neo4j
+        Main search method that orchestrates hybrid search across all databases
         """
         try:
             # 1. Query Analysis & Routing
             query_features = self.analyze_query(query)
             self.logger.info(f"Query analysis: {query_features}")
 
-            # 2. Parallel Retrieval - Focus on Weaviate and Neo4j
+            # 2. Parallel Retrieval with different strategies
             tasks = [
+                self.sql_search(query, query_features, filters),
                 self.weaviate_search(query, query_features, filters),
                 self.neo4j_search(query, query_features, filters),
             ]
 
-            vector_results, graph_results = await asyncio.gather(*tasks)
+            sql_results, vector_results, graph_results = await asyncio.gather(*tasks)
 
             # 3. Score Normalization
             normalized_results = self.normalize_scores(
                 [
+                    ("sql", sql_results),
                     ("weaviate", vector_results),
                     ("neo4j", graph_results),
                 ]
@@ -98,10 +99,10 @@ class HybridSearchEngine:
             re.search(r"\b(after|before|from|to|type|category):", query, re.IGNORECASE)
         )
 
-        # Simple entity extraction
+        # Simple entity extraction (replace with NER model)
         entities = self.extract_entities(query)
 
-        # Measure semantic complexity
+        # Measure semantic complexity (word count, complexity indicators)
         complexity = min(1.0, len(query.split()) / 20.0)
 
         # Classify query type
@@ -152,40 +153,177 @@ class HybridSearchEngine:
             "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
         }
         words = re.findall(r"\b\w+\b", query.lower())
-        return [word for word in words if word not in stop_words and len(word) > 2]
+        return [word for word in words if word not in stop_words and len(word) > 2]    async def sql_search(
+        self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
+    ) -> List[SearchResult]:
+        """
+        SQL database search - minimal role, just basic metadata if needed
+        """
+        try:
+            # SQLite is mainly for configuration/metadata, not primary content search
+            # Return empty results or basic user info if needed
+            self.logger.info("SQL search: Using minimal metadata search")
+            return []
+
+        except Exception as e:
+            self.logger.error(f"SQL search error: {str(e)}")
+            return []
+
+    async def structured_sql_search(
+        self, query: str, features: QueryFeatures, filters: Optional[Dict]
+    ) -> List[SearchResult]:
+        """Handle structured SQL queries with filters"""
+        if not self.sql:
+            self.logger.warning("SQL connection not available, using mock data")
+            return self._get_mock_sql_results(query, 2)
+
+        try:
+            # Use default user ID from database export if not provided
+            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
+            search_pattern = f"%{query}%"
+
+            # Query memories and chat messages from actual database structure
+            base_query = """
+            SELECT m.Id, 'Memory' as title, m.Content, m.CreatedAt, m.Category, 'memory' as source, 1.0 as score
+            FROM Memories m 
+            WHERE m.Content LIKE ? AND m.UserId = ?
+            
+            UNION ALL
+            
+            SELECT ci.Id, 'Chat Message' as title, ci.Content, ci.CreatedUtc, ci.ContentType, 'chat' as source, 0.8 as score
+            FROM ChatIndices ci
+            JOIN Conversations c ON ci.ConversationId = c.Id
+            WHERE ci.Content LIKE ? AND c.UserId = ?
+            
+            ORDER BY score DESC LIMIT 50
+            """
+
+            params = [search_pattern, user_id, search_pattern, user_id]
+            cursor = self.sql.execute(base_query, params)
+            rows = cursor.fetchall()
+
+            results = []
+            for row in rows:
+                results.append(
+                    SearchResult(
+                        id=str(row[0]),
+                        title=row[1],
+                        content=row[2][:200] + "..." if len(row[2]) > 200 else row[2],
+                        score=float(row[6]),
+                        source="sql",
+                        metadata={
+                            "created_at": row[3],
+                            "content_type": row[4],
+                            "origin": row[5],
+                            "search_type": "structured",
+                        },
+                    )
+                )
+
+            self.logger.info(f"SQL structured search returned {len(results)} results")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"SQL structured search error: {str(e)}")
+            return self._get_mock_sql_results(query, 2)
+
+    async def full_text_sql_search(
+        self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
+    ) -> List[SearchResult]:
+        """Handle full-text SQL search"""
+        if not self.sql:
+            self.logger.warning("SQL connection not available, using mock data")
+            return self._get_mock_sql_results(query, 3)
+
+        try:
+            # Use default user ID from database export if not provided
+            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
+            search_pattern = f"%{query}%"
+
+            # SQLite search across memories and chat content
+            sql_query = """
+            SELECT m.Id, 'Memory' as title, m.Content, m.CreatedAt, m.Category, 'memory' as source, 1.0 as score
+            FROM Memories m 
+            WHERE m.Content LIKE ? AND m.UserId = ?
+            
+            UNION ALL
+            
+            SELECT ci.Id, 'Chat Message' as title, ci.Content, ci.CreatedUtc, ci.ContentType, 'chat' as source, 0.9 as score
+            FROM ChatIndices ci
+            JOIN Conversations c ON ci.ConversationId = c.Id
+            WHERE ci.Content LIKE ? AND c.UserId = ?
+            
+            ORDER BY score DESC LIMIT 50
+            """
+
+            params = [search_pattern, user_id, search_pattern, user_id]
+            cursor = self.sql.execute(sql_query, params)
+            rows = cursor.fetchall()
+
+            results = []
+            for row in rows:
+                results.append(
+                    SearchResult(
+                        id=str(row[0]),
+                        title=row[1],
+                        content=row[2][:200] + "..." if len(row[2]) > 200 else row[2],
+                        score=float(row[6]),
+                        source="sql",
+                        metadata={
+                            "created_at": row[3],
+                            "content_type": row[4],
+                            "origin": row[5],
+                            "search_type": "full_text",
+                        },
+                    )
+                )
+
+            self.logger.info(f"SQL full-text search returned {len(results)} results")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"SQL full-text search error: {str(e)}")
+            return self._get_mock_sql_results(query, 3)
+
+    def _get_mock_sql_results(self, query: str, count: int) -> List[SearchResult]:
+        """Fallback mock SQL results"""
+        return [
+            SearchResult(
+                id=f"sql_{i}",
+                title=f"SQL Document {i}",
+                content=f"Content related to {query}...",
+                score=0.9 - (i * 0.1),
+                source="sql",
+                metadata={"content_type": "document", "method": "mock"},
+            )
+            for i in range(count)
+        ]
 
     async def weaviate_search(
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
         """
-        Vector similarity search using Weaviate - PRIMARY content search
+        Vector similarity search using Weaviate
         """
         if not self.weaviate:
             self.logger.warning("Weaviate client not available, using mock data")
-            return self._get_mock_weaviate_results(query, 5)
+            return self._get_mock_weaviate_results(query, 4)
 
         try:
-            # Get available collections
+            # Use Weaviate v4 API for semantic search with skip_init_checks for gRPC issues
             collections = self.weaviate.collections.list_all()
             available_collections = [collection.name for collection in collections]
-            
-            if not available_collections:
-                self.logger.warning("No Weaviate collections found, using mock data")
-                return self._get_mock_weaviate_results(query, 5)
 
-            self.logger.info(f"Available Weaviate collections: {available_collections}")
-
-            # Try to use the most appropriate collection
-            target_collection = None
-            for preferred in ["Document", "Content", "Message", "Chat"]:
-                if preferred in available_collections:
-                    target_collection = preferred
-                    break
-            
-            if not target_collection:
+            # Use Document collection if available, otherwise use available collections
+            target_collection = "Document"
+            if "Document" not in available_collections and available_collections:
                 target_collection = available_collections[0]
-            
-            self.logger.info(f"Using Weaviate collection: {target_collection}")
+                self.logger.info(
+                    f"Using collection '{target_collection}' instead of 'Document'"
+                )
+            elif not available_collections:
+                self.logger.warning("No Weaviate collections found, using mock data")
+                return self._get_mock_weaviate_results(query, 4)
 
             # Get the collection
             collection = self.weaviate.collections.get(target_collection)
@@ -194,11 +332,7 @@ class HybridSearchEngine:
             where_filter = None
             user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
             if user_id:
-                try:
-                    where_filter = wvc.query.Filter.by_property("userId").equal(str(user_id))
-                except Exception as filter_error:
-                    self.logger.warning(f"Could not apply userId filter: {filter_error}")
-                    where_filter = None
+                where_filter = wvc.query.Filter.by_property("userId").equal(str(user_id))
 
             # Perform semantic search using v4 API
             if where_filter:
@@ -221,20 +355,15 @@ class HybridSearchEngine:
                 distance = obj.metadata.distance if obj.metadata.distance else 0.5
                 similarity_score = max(0.0, 1.0 - distance)
 
-                # Get content from various possible property names
-                content = (
-                    obj.properties.get("content") or 
-                    obj.properties.get("text") or 
-                    obj.properties.get("message") or 
-                    obj.properties.get("body") or 
-                    str(obj.properties)
-                )
-
                 results.append(
                     SearchResult(
                         id=str(obj.uuid),
-                        title=obj.properties.get("title", f"Weaviate Document {i+1}"),
-                        content=content[:200] + "..." if len(content) > 200 else content,
+                        title=obj.properties.get("title", "Untitled Document"),
+                        content=(
+                            obj.properties.get("content", "")[:200] + "..."
+                            if len(obj.properties.get("content", "")) > 200
+                            else obj.properties.get("content", "")
+                        ),
                         score=similarity_score,
                         source="weaviate",
                         metadata={
@@ -243,7 +372,6 @@ class HybridSearchEngine:
                             "user_id": obj.properties.get("userId", ""),
                             "distance": distance,
                             "search_type": "semantic",
-                            "collection": target_collection,
                         },
                     )
                 )
@@ -253,7 +381,7 @@ class HybridSearchEngine:
 
         except Exception as e:
             self.logger.error(f"Weaviate search error: {str(e)}")
-            return self._get_mock_weaviate_results(query, 3)
+            return self._get_mock_weaviate_results(query, 4)
 
     def _get_mock_weaviate_results(self, query: str, count: int) -> List[SearchResult]:
         """Fallback mock Weaviate results"""
@@ -261,7 +389,7 @@ class HybridSearchEngine:
             SearchResult(
                 id=f"weaviate_{i}",
                 title=f"Vector Document {i}",
-                content=f"Semantically similar content to '{query}' from Weaviate database...",
+                content=f"Semantically similar content to {query}...",
                 score=0.9 - (i * 0.05),
                 source="weaviate",
                 metadata={
@@ -278,7 +406,7 @@ class HybridSearchEngine:
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
         """
-        Graph-based search using Neo4j - Updated for actual database structure
+        Graph-based search using Neo4j for relationship discovery
         """
         try:
             if features.entity_mentions:
@@ -291,59 +419,55 @@ class HybridSearchEngine:
 
         except Exception as e:
             self.logger.error(f"Neo4j search error: {str(e)}")
-            return self._get_mock_neo4j_results(query, [], 3)
+            return []
 
     async def entity_graph_search(
         self, query: str, entities: List[str], filters: Optional[Dict] = None
     ) -> List[SearchResult]:
-        """Search for specific entities by name in the knowledge graph"""
+        """Search based on entity relationships in the graph"""
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, using mock data")
             return self._get_mock_neo4j_results(query, entities, 3)
 
         try:
-            # Search for entities that match the query entities by name
+            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
+            
+            # Cypher query to find documents/memories related to entities
             cypher_query = """
-            MATCH (e)
-            WHERE e.type = 'entity' AND e.name IN $entity_list
-            OPTIONAL MATCH (e)-[r]-(related)
-            WHERE related.type = 'entity'
-            UNWIND e.observations AS obs
-            RETURN e.name, e.entityType, obs as observation, 
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_names
-            ORDER BY connections DESC
+            MATCH (m:Memory)-[:MENTIONS|:RELATED_TO]-(e:Entity)
+            WHERE e.name IN $entities AND m.userId = $user_id
+            RETURN m.id, m.content, m.category, m.userId, m.createdAt,
+                   count(e) as entity_matches
+            ORDER BY entity_matches DESC, m.createdAt DESC
             LIMIT 50
             """
 
             with self.neo4j.session() as session:
-                result = session.run(cypher_query, entity_list=entities)
+                result = session.run(cypher_query, entities=entities, user_id=user_id)
                 records = list(result)
 
             results = []
-            for i, record in enumerate(records):
-                # Score based on entity matches and connections
-                connections = record["connections"] or 0
-                base_score = min(1.0, 0.7 + (connections * 0.03))
-
-                # Create content from observations
-                observation = record["observation"] or ""
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_names = record["related_names"] or []
+            for record in records:
+                # Score based on entity matches and recency
+                entity_matches = record["entity_matches"]
+                base_score = min(1.0, entity_matches / len(entities))
 
                 results.append(
                     SearchResult(
-                        id=f"neo4j_entity_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
-                        content=observation[:500] + "..." if len(observation) > 500 else observation,
+                        id=str(record["m.id"]),
+                        title=f"Memory with {entity_matches} entity matches",
+                        content=(
+                            record["m.content"][:200] + "..."
+                            if len(record["m.content"]) > 200
+                            else record["m.content"]
+                        ),
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
-                            "connections": connections,
-                            "related_entities": related_names,
+                            "category": record["m.category"],
+                            "user_id": record["m.userId"],
+                            "created_at": record["m.createdAt"],
+                            "entity_matches": entity_matches,
                             "search_type": "entity_graph",
                         },
                     )
@@ -358,63 +482,51 @@ class HybridSearchEngine:
     async def general_graph_search(
         self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
     ) -> List[SearchResult]:
-        """General search across all entities and observations in the knowledge graph"""
+        """General graph search for relationships and patterns"""
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, using mock data")
             return self._get_mock_neo4j_results(query, [], 2)
 
         try:
-            # Extract keywords for searching observations
-            keywords = features.keywords or [query.lower()]
+            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
             
-            # Search for entities whose observations contain keywords
+            # General search in graph database
             cypher_query = """
-            MATCH (e)
-            WHERE e.type = 'entity'
-            UNWIND e.observations AS obs
-            WHERE ANY(keyword IN $keywords WHERE toLower(obs) CONTAINS toLower(keyword))
-            OPTIONAL MATCH (e)-[r]-(related)
-            WHERE related.type = 'entity'
-            RETURN e.name, e.entityType, obs as observation,
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_entities
-            ORDER BY connections DESC
+            MATCH (m:Memory)
+            WHERE m.content CONTAINS $query AND m.userId = $user_id
+            OPTIONAL MATCH (m)-[r]->(related)
+            RETURN m.id, m.content, m.category, m.userId, m.createdAt,
+                   count(related) as related_count
+            ORDER BY related_count DESC, m.createdAt DESC
             LIMIT 50
             """
 
             with self.neo4j.session() as session:
-                result = session.run(cypher_query, keywords=keywords)
+                result = session.run(cypher_query, query=query, user_id=user_id)
                 records = list(result)
 
             results = []
-            for i, record in enumerate(records):
-                # Score based on keyword relevance and connections
-                connections = record["connections"] or 0
-                base_score = min(1.0, 0.6 + (connections * 0.02))
-
-                # Boost score if multiple keywords match
-                observation = record["observation"] or ""
-                keyword_matches = sum(1 for kw in keywords if kw.lower() in observation.lower())
-                if keyword_matches > 1:
-                    base_score = min(1.0, base_score * (1 + keyword_matches * 0.1))
-
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_entities = record["related_entities"] or []
+            for record in records:
+                # Score based on relationship connections
+                related_count = record["related_count"] or 0
+                base_score = min(1.0, 0.5 + (related_count * 0.1))
 
                 results.append(
                     SearchResult(
-                        id=f"neo4j_general_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
-                        content=observation[:500] + "..." if len(observation) > 500 else observation,
+                        id=str(record["m.id"]),
+                        title=f"Graph Memory ({related_count} connections)",
+                        content=(
+                            record["m.content"][:200] + "..."
+                            if len(record["m.content"]) > 200
+                            else record["m.content"]
+                        ),
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
-                            "connections": connections,
-                            "related_entities": related_entities,
-                            "keyword_matches": keyword_matches,
+                            "category": record["m.category"],
+                            "user_id": record["m.userId"],
+                            "created_at": record["m.createdAt"],
+                            "related_count": related_count,
                             "search_type": "general_graph",
                         },
                     )
@@ -430,13 +542,13 @@ class HybridSearchEngine:
         """Fallback mock Neo4j results"""
         return [
             SearchResult(
-                id=f"neo4j_mock_{i}",
-                title=f"SwAIvyn Knowledge {i+1}",
-                content=f"Knowledge about '{query}' related to entities {entities} from Neo4j knowledge graph...",
+                id=f"neo4j_{i}",
+                title=f"Graph Document {i}",
+                content=f"Graph-connected content about {query} and {entities}...",
                 score=0.8 - (i * 0.1),
                 source="neo4j",
                 metadata={
-                    "content_type": "knowledge",
+                    "content_type": "graph_node",
                     "origin": "neo4j_db",
                     "connections": 5 - i,
                     "method": "mock",
@@ -507,4 +619,5 @@ class HybridSearchEngine:
     async def cross_encoder_rerank(self, query: str, results: List[SearchResult]) -> List[SearchResult]:
         """Re-rank results using cross-encoder (currently just returns as-is)"""
         # Placeholder for cross-encoder re-ranking
+        # In a full implementation, this would use a trained cross-encoder model
         return results

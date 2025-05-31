@@ -64,7 +64,7 @@ if (-not (Test-Path $iconPath)) {
 }
 
 # Publish the backend as a self-contained application
-dotnet publish "SwAIvyn.csproj" `
+$publishOutput = (dotnet publish "SwAIvyn.csproj" `
     --configuration $Configuration `
     --runtime $Runtime `
     --self-contained true `
@@ -72,7 +72,12 @@ dotnet publish "SwAIvyn.csproj" `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:PublishTrimmed=false `
-    -p:EnableCompressionInSingleFile=true
+    -p:EnableCompressionInSingleFile=true *>&1 | Out-String)
+
+$publishResult = $LASTEXITCODE
+
+Write-Host "Raw Publish Output:"
+Write-Host $publishOutput
 
 # Copy SQLite-VSS and its dependencies from build_files directory
 $buildFilesDir = Join-Path $rootDir "build_files"
@@ -88,20 +93,18 @@ foreach ($dllFile in $dllFiles) {
         # Only copy if source and destination are different
         if ($sourceDll -ne $destDll) {
             Copy-Item $sourceDll -Destination $destDll -Force
-            Write-Host "✓ Copied $dllFile from build_files" -ForegroundColor Green
-        } else {
-            Write-Host "✓ $dllFile already in correct location" -ForegroundColor Green
+            Write-Host "Copied $dllFile from build_files" -ForegroundColor Green
         }
     } else {
         Write-Warning "⚠ $dllFile not found in build_files directory"
     }
 }
 
-$buildResult = $LASTEXITCODE
 Pop-Location
 
-if ($buildResult -ne 0) {
-    Write-Error "Backend build failed with exit code $buildResult"
+if ($publishResult -ne 0) {
+    Write-Error "Backend build failed with exit code $publishResult. Details:"
+    Write-Error ($publishOutput | Out-String)
     exit 1
 }
 

@@ -3,6 +3,8 @@ using SwAIvyn.Services.VectorStore;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Text; // Added for StringBuilder
+using System.Linq;  // Added for LINQ extension methods
 
 namespace SwAIvyn.Services.Graph
 {
@@ -23,7 +25,7 @@ namespace SwAIvyn.Services.Graph
         /// <param name="text">Memory text</param>
         /// <param name="metadata">Optional metadata</param>
         /// <returns>True if successful</returns>
-        Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string> metadata = null);
+        Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string>? metadata = null);
 
         /// <summary>
         /// Adds a relationship between two nodes
@@ -33,7 +35,7 @@ namespace SwAIvyn.Services.Graph
         /// <param name="relationshipType">Relationship type</param>
         /// <param name="properties">Optional relationship properties</param>
         /// <returns>True if successful</returns>
-        Task<bool> AddRelationshipAsync(Guid sourceId, Guid targetId, string relationshipType, Dictionary<string, object> properties = null);
+        Task<bool> AddRelationshipAsync(Guid sourceId, Guid targetId, string relationshipType, Dictionary<string, object>? properties = null);
 
         /// <summary>
         /// Searches the brain graph for related memories
@@ -58,7 +60,7 @@ namespace SwAIvyn.Services.Graph
         /// <param name="text">Conversation text</param>
         /// <param name="metadata">Optional metadata</param>
         /// <returns>True if successful</returns>
-        Task<bool> AddConversationChunkAsync(Guid id, string text, Dictionary<string, string> metadata = null);
+        Task<bool> AddConversationChunkAsync(Guid id, string text, Dictionary<string, string>? metadata = null);
 
         /// <summary>
         /// Gets the graph visualization data for a memory
@@ -95,17 +97,17 @@ namespace SwAIvyn.Services.Graph
         /// <summary>
         /// Gets or sets the search hit
         /// </summary>
-        public SearchHit Hit { get; set; }
+        public SearchHit? Hit { get; set; }
 
         /// <summary>
         /// Gets or sets the related nodes
         /// </summary>
-        public List<GraphNode> RelatedNodes { get; set; }
+        public List<GraphNode> RelatedNodes { get; set; } = new List<GraphNode>();
 
         /// <summary>
         /// Gets or sets the relationships
         /// </summary>
-        public List<GraphRelationship> Relationships { get; set; }
+        public List<GraphRelationship> Relationships { get; set; } = new List<GraphRelationship>();
     }
 
     /// <summary>
@@ -116,12 +118,12 @@ namespace SwAIvyn.Services.Graph
         /// <summary>
         /// Gets or sets the nodes
         /// </summary>
-        public List<GraphNode> Nodes { get; set; }
+        public List<GraphNode> Nodes { get; set; } = new List<GraphNode>();
 
         /// <summary>
         /// Gets or sets the relationships
         /// </summary>
-        public List<GraphRelationship> Relationships { get; set; }
+        public List<GraphRelationship> Relationships { get; set; } = new List<GraphRelationship>();
     }
 
     /// <summary>
@@ -179,7 +181,7 @@ namespace SwAIvyn.Services.Graph
         }
 
         /// <inheritdoc/>
-        public async Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string> metadata = null)
+        public async Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string>? metadata = null)
         {
             if (!_isInitialized)
                 await InitializeAsync();
@@ -192,43 +194,87 @@ namespace SwAIvyn.Services.Graph
                 // Store the embedding in Neo4j vector store
                 var vectorStoreSuccess = await _neo4jVectorStore.StoreVectorAsync(id, embedding, metadata);
 
-                try
+                // Prepare parameters for the Cypher query
+                var cypherParams = new Dictionary<string, object>
                 {
-                    // Create a node in Neo4j (this will be skipped if Neo4j is not available)
-                    var properties = new Dictionary<string, object>
-                    {
-                        { "id", id.ToString() },
-                        { "text", text }
-                    };
+                    { "id", id.ToString() }, // Used for MERGE matching
+                    { "text", text }
+                };
 
-                    // Add metadata to properties
-                    if (metadata != null)
+                if (metadata != null)
+                {
+                    foreach (var kvp in metadata)
                     {
-                        foreach (var kvp in metadata)
+                        // Attempt to parse timestamp string to DateTimeOffset for Neo4j compatibility
+                        if (kvp.Key == "original_timestamp" && DateTimeOffset.TryParse(kvp.Value, out var dtoValue))
                         {
-                            properties[kvp.Key] = kvp.Value;
+                            cypherParams[kvp.Key] = dtoValue;
+                        }
+                        else
+                        {
+                            cypherParams[kvp.Key] = kvp.Value;
                         }
                     }
+                }
 
-                    await _neo4jService.CreateNodeAsync(new List<string> { "Memory" }, properties);
+                var mergeQuery = new StringBuilder();
+                mergeQuery.AppendLine("MERGE (m:Memory {id: $id})");
+
+                // ON CREATE: Set all provided properties (text, and everything from metadata)
+                var createSetParts = new List<string>();
+                foreach(var paramKey in cypherParams.Keys)
+                {
+                    if (paramKey == "id") continue; // 'id' is in the MERGE pattern, not SET
+                    createSetParts.Add($"m.{paramKey} = ${paramKey}");
+                }
+
+                if (createSetParts.Any())
+                {
+                    mergeQuery.AppendLine("ON CREATE SET " + string.Join(", ", createSetParts));
+                }
+
+                // ON MATCH: Update mutable properties.
+                var matchSetParts = new List<string>();
+                foreach(var paramKey in cypherParams.Keys)
+                {
+                    // Do not update 'id' (used in MERGE) or 'userId' (typically immutable) on MATCH
+                    if (paramKey == "id" || paramKey == "userId") continue; 
+                    matchSetParts.Add($"m.{paramKey} = ${paramKey}");
+                }
+
+                if (matchSetParts.Any())
+                {
+                    mergeQuery.AppendLine("ON MATCH SET " + string.Join(", ", matchSetParts));
+                }
+
+                mergeQuery.AppendLine("RETURN m.id as memoryId");
+
+                try
+                {
+                    var result = await _neo4jService.ExecuteQueryAsync(mergeQuery.ToString(), cypherParams);
+                    if (result != null && result.Any() && result[0].TryGetValue("memoryId", out var mergedIdObj) && mergedIdObj != null) {
+                        _logger.LogInfo($"Successfully merged Memory node. ID: {mergedIdObj}");
+                    } else {
+                         _logger.LogInfo($"Successfully executed MERGE for Memory node ID: {id}. Neo4j query completed; specific ID not in return or result was empty/null.");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    // Just log the error and continue
-                    _logger.LogError($"Failed to create Neo4j node for memory {id}: {ex.Message}");
+                    _logger.LogError($"Failed to MERGE Neo4j node for memory {id}: {ex.Message}", ex);
+                    // Maintaining original behavior: log and continue, success depends on vectorStoreSuccess
                 }
 
                 return vectorStoreSuccess;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to add memory {id}", ex);
+                _logger.LogError($"Failed to add memory {id}: {ex.Message}", ex);
                 return false;
             }
         }
 
         /// <inheritdoc/>
-        public async Task<bool> AddRelationshipAsync(Guid sourceId, Guid targetId, string relationshipType, Dictionary<string, object> properties = null)
+        public async Task<bool> AddRelationshipAsync(Guid sourceId, Guid targetId, string relationshipType, Dictionary<string, object>? properties = null)
         {
             if (!_isInitialized)
                 await InitializeAsync();
@@ -276,13 +322,12 @@ namespace SwAIvyn.Services.Graph
                 var results = new List<BrainSearchResult>();
                 foreach (var hit in hits)
                 {
-                    var relatedNodes = new List<GraphNode>();
-                    var relationships = new List<GraphRelationship>();
+                    var searchResult = new BrainSearchResult { Hit = hit };
 
                     try
                     {
                         // Get related nodes and relationships from Neo4j (this will be skipped if Neo4j is not available)
-                        var cypher = "MATCH (m:Memory {id: $id})-[r]-(n) RETURN m, r, n";
+                        var cypher = "MATCH (m:Memory {id: $id})-[r]-(n) RETURN m, r, n, id(m) as m_neoId, labels(m) as m_labels, id(n) as n_neoId, labels(n) as n_labels, id(r) as r_neoId, type(r) as r_type, startNode(r).id as r_startId, endNode(r).id as r_endId";
                         var parameters = new Dictionary<string, object>
                         {
                             { "id", hit.Id.ToString() }
@@ -293,29 +338,28 @@ namespace SwAIvyn.Services.Graph
                         // Process query results
                         foreach (var row in queryResult)
                         {
-                            if (row.ContainsKey("n"))
+                            if (row.TryGetValue("n", out var nodeObj) && nodeObj is Dictionary<string, object> nodeData)
                             {
-                                var nodeData = row["n"] as Dictionary<string, object>;
                                 var node = new GraphNode
                                 {
-                                    Id = nodeData["id"].ToString(),
+                                    Id = row.TryGetValue("n_neoId", out var nId) && nId != null ? nId.ToString()! : string.Empty,
+                                    Labels = row.TryGetValue("n_labels", out var nLabels) && nLabels is List<object> nLabelList ? nLabelList.ConvertAll(l => l?.ToString() ?? string.Empty) : new List<string>(),
                                     Properties = nodeData
                                 };
-                                relatedNodes.Add(node);
+                                searchResult.RelatedNodes.Add(node);
                             }
 
-                            if (row.ContainsKey("r"))
+                            if (row.TryGetValue("r", out var relObj) && relObj is Dictionary<string, object> relData)
                             {
-                                var relData = row["r"] as Dictionary<string, object>;
                                 var rel = new GraphRelationship
                                 {
-                                    Id = relData["id"].ToString(),
-                                    Type = relData["type"].ToString(),
-                                    StartNodeId = relData["startId"].ToString(),
-                                    EndNodeId = relData["endId"].ToString(),
+                                    Id = row.TryGetValue("r_neoId", out var rId) && rId != null ? rId.ToString()! : string.Empty,
+                                    Type = row.TryGetValue("r_type", out var rType) && rType != null ? rType.ToString()! : string.Empty,
+                                    StartNodeId = row.TryGetValue("r_startId", out var rStartId) && rStartId != null ? rStartId.ToString()! : string.Empty,
+                                    EndNodeId = row.TryGetValue("r_endId", out var rEndId) && rEndId != null ? rEndId.ToString()! : string.Empty,
                                     Properties = relData
                                 };
-                                relationships.Add(rel);
+                                searchResult.Relationships.Add(rel);
                             }
                         }
                     }
@@ -324,13 +368,7 @@ namespace SwAIvyn.Services.Graph
                         // Just log the error and continue
                         _logger.LogError($"Failed to get Neo4j data for memory {hit.Id}: {ex.Message}");
                     }
-
-                    results.Add(new BrainSearchResult
-                    {
-                        Hit = hit,
-                        RelatedNodes = relatedNodes,
-                        Relationships = relationships
-                    });
+                    results.Add(searchResult);
                 }
 
                 return results;
@@ -347,82 +385,76 @@ namespace SwAIvyn.Services.Graph
         {
             if (!_isInitialized)
                 await InitializeAsync();
+            
+            var vizData = new GraphVisualizationData();
 
             try
             {
-                var nodes = new List<GraphNode>();
-                var relationships = new List<GraphRelationship>();
-
-                try
+                // Get graph visualization data from Neo4j (this will be skipped if Neo4j is not available)
+                var cypher = @"
+                    MATCH path = (m:Memory {id: $id})-[*1..$depth]-(n)
+                    WITH nodes(path) as pathNodes, relationships(path) as pathRels
+                    UNWIND pathNodes as node
+                    UNWIND pathRels as rel
+                    RETURN DISTINCT 
+                           node, id(node) as nodeId, labels(node) as nodeLabels, 
+                           rel,  id(rel) as relId, type(rel) as relType, startNode(rel).id as relStartNodeId, endNode(rel).id as relEndNodeId";
+                var parameters = new Dictionary<string, object>
                 {
-                    // Get graph visualization data from Neo4j (this will be skipped if Neo4j is not available)
-                    var cypher = @"
-                        MATCH path = (m:Memory {id: $id})-[*1..$depth]-(n)
-                        RETURN nodes(path) as nodes, relationships(path) as rels";
-                    var parameters = new Dictionary<string, object>
-                    {
-                        { "id", memoryId.ToString() },
-                        { "depth", depth }
-                    };
+                    { "id", memoryId.ToString() },
+                    { "depth", depth }
+                };
 
-                    var queryResult = await _neo4jService.ExecuteQueryAsync(cypher, parameters);
+                var queryResult = await _neo4jService.ExecuteQueryAsync(cypher, parameters);
+                var uniqueNodes = new Dictionary<string, GraphNode>();
+                var uniqueRels = new Dictionary<string, GraphRelationship>();
 
-                    // Process query results
-                    foreach (var row in queryResult)
+                // Process query results
+                foreach (var row in queryResult)
+                {
+                    if (row.TryGetValue("node", out var nodeObj) && nodeObj is Dictionary<string, object> nodeData &&
+                        row.TryGetValue("nodeId", out var nodeIdObj) && nodeIdObj != null)
                     {
-                        if (row.ContainsKey("nodes"))
+                        string nodeId = nodeIdObj.ToString()!;
+                        if (!uniqueNodes.ContainsKey(nodeId))
                         {
-                            var nodesList = row["nodes"] as List<Dictionary<string, object>>;
-                            foreach (var nodeData in nodesList)
+                            var node = new GraphNode
                             {
-                                var node = new GraphNode
-                                {
-                                    Id = nodeData["id"].ToString(),
-                                    Properties = nodeData
-                                };
-                                nodes.Add(node);
-                            }
+                                Id = nodeId,
+                                Labels = row.TryGetValue("nodeLabels", out var nodeLabelsObj) && nodeLabelsObj is List<object> labelList ? labelList.ConvertAll(l => l?.ToString() ?? string.Empty) : new List<string>(),
+                                Properties = nodeData
+                            };
+                            uniqueNodes[nodeId] = node;
                         }
+                    }
 
-                        if (row.ContainsKey("rels"))
+                    if (row.TryGetValue("rel", out var relObj) && relObj is Dictionary<string, object> relData &&
+                        row.TryGetValue("relId", out var relIdObj) && relIdObj != null)
+                    {
+                        string relId = relIdObj.ToString()!;
+                        if (!uniqueRels.ContainsKey(relId))
                         {
-                            var relsList = row["rels"] as List<Dictionary<string, object>>;
-                            foreach (var relData in relsList)
+                            var rel = new GraphRelationship
                             {
-                                var rel = new GraphRelationship
-                                {
-                                    Id = relData["id"].ToString(),
-                                    Type = relData["type"].ToString(),
-                                    StartNodeId = relData["startId"].ToString(),
-                                    EndNodeId = relData["endId"].ToString(),
-                                    Properties = relData
-                                };
-                                relationships.Add(rel);
-                            }
+                                Id = relId,
+                                Type = row.TryGetValue("relType", out var relTypeObj) && relTypeObj != null ? relTypeObj.ToString()! : string.Empty,
+                                StartNodeId = row.TryGetValue("relStartNodeId", out var relStartIdObj) && relStartIdObj != null ? relStartIdObj.ToString()! : string.Empty,
+                                EndNodeId = row.TryGetValue("relEndNodeId", out var relEndIdObj) && relEndIdObj != null ? relEndIdObj.ToString()! : string.Empty,
+                                Properties = relData
+                            };
+                            uniqueRels[relId] = rel;
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    // Just log the error and continue
-                    _logger.LogError($"Failed to get Neo4j graph visualization for memory {memoryId}: {ex.Message}");
-                }
-
-                return new GraphVisualizationData
-                {
-                    Nodes = nodes,
-                    Relationships = relationships
-                };
+                vizData.Nodes.AddRange(uniqueNodes.Values);
+                vizData.Relationships.AddRange(uniqueRels.Values);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to get graph visualization for memory {memoryId}", ex);
-                return new GraphVisualizationData
-                {
-                    Nodes = new List<GraphNode>(),
-                    Relationships = new List<GraphRelationship>()
-                };
+                // Just log the error and continue
+                _logger.LogError($"Failed to get Neo4j graph visualization for memory {memoryId}: {ex.Message}");
             }
+            return vizData;
         }
 
         /// <inheritdoc/>
@@ -482,64 +514,32 @@ namespace SwAIvyn.Services.Graph
                     // Filter for conversation chunks only
                     if (hit.Metadata?.GetValueOrDefault("type") == "conversation")
                     {
-                        var relatedNodes = new List<GraphNode>();
-                        var relationships = new List<GraphRelationship>();
+                        var searchResult = new BrainSearchResult { Hit = hit };
 
                         try
                         {
                             // Get related nodes and relationships from Neo4j (this will be skipped if Neo4j is not available)
-                            var nodeQuery = $"MATCH (n:ConversationChunk {{id: '{hit.Id}'}}) RETURN n";
-                            var nodeResults = await _neo4jService.ExecuteQueryAsync(nodeQuery);
+                            var nodeQuery = $"MATCH (n:ConversationChunk {{id: $nodeIdParam}}) RETURN n, id(n) as neoId, labels(n) as nodeLabels";
+                            var nodeParams = new Dictionary<string, object> { { "nodeIdParam", hit.Id.ToString() } };
+                            var nodeResults = await _neo4jService.ExecuteQueryAsync(nodeQuery, nodeParams);
 
-                            if (nodeResults.Count > 0)
+                            if (nodeResults.Any() && nodeResults[0].TryGetValue("n", out var nodeObj) && nodeObj is Dictionary<string, object> nodeData)
                             {
-                                var nodeData = (Dictionary<string, object>)nodeResults[0]["n"];
-                                relatedNodes.Add(new GraphNode
+                                searchResult.RelatedNodes.Add(new GraphNode
                                 {
-                                    Id = nodeData["id"].ToString(),
-                                    Labels = new List<string> { "ConversationChunk" },
+                                    Id = nodeResults[0].TryGetValue("neoId", out var neoIdObj) && neoIdObj != null ? neoIdObj.ToString()! : string.Empty,
+                                    Labels = nodeResults[0].TryGetValue("nodeLabels", out var labelsObj) && labelsObj is List<object> labelList ? labelList.ConvertAll(l => l?.ToString() ?? string.Empty) : new List<string> { "ConversationChunk" },
                                     Properties = nodeData
                                 });
                             }
-
-                            // Get relationships
-                            var relationshipQuery = $"MATCH (n:ConversationChunk {{id: '{hit.Id}'}})-[r]-(m) RETURN r, m";
-                            var relationshipResults = await _neo4jService.ExecuteQueryAsync(relationshipQuery);
-
-                            foreach (var result in relationshipResults)
-                            {
-                                var relationshipData = (Dictionary<string, object>)result["r"];
-                                var relatedNodeData = (Dictionary<string, object>)result["m"];
-
-                                relationships.Add(new GraphRelationship
-                                {
-                                    Id = relationshipData.GetValueOrDefault("id", Guid.NewGuid().ToString()).ToString(),
-                                    Type = relationshipData.GetValueOrDefault("type", "RELATED").ToString(),
-                                    StartNodeId = hit.Id.ToString(),
-                                    EndNodeId = relatedNodeData["id"].ToString(),
-                                    Properties = relationshipData
-                                });
-
-                                relatedNodes.Add(new GraphNode
-                                {
-                                    Id = relatedNodeData["id"].ToString(),
-                                    Labels = new List<string> { relatedNodeData.GetValueOrDefault("type", "Unknown").ToString() },
-                                    Properties = relatedNodeData
-                                });
-                            }
+                            // Note: This part currently only fetches the ConversationChunk node itself.
+                            // If relationships for ConversationChunks are needed, a different/expanded query would be required here.
                         }
                         catch (Exception ex)
                         {
-                            // Just log the error and continue
-                            _logger.LogError($"Failed to get Neo4j data for conversation chunk {hit.Id}: {ex.Message}");
+                            _logger.LogError($"Failed to get Neo4j data for conversation chunk {hit.Id}: {ex.Message}", ex);
                         }
-
-                        results.Add(new BrainSearchResult
-                        {
-                            Hit = hit,
-                            RelatedNodes = relatedNodes,
-                            Relationships = relationships
-                        });
+                        results.Add(searchResult);
                     }
                 }
 
@@ -553,7 +553,7 @@ namespace SwAIvyn.Services.Graph
         }
 
         /// <inheritdoc/>
-        public async Task<bool> AddConversationChunkAsync(Guid id, string text, Dictionary<string, string> metadata = null)
+        public async Task<bool> AddConversationChunkAsync(Guid id, string text, Dictionary<string, string>? metadata = null)
         {
             if (!_isInitialized)
                 await InitializeAsync();

@@ -197,6 +197,19 @@ builder.Services.AddScoped<Neo4jVectorStore>();        // brain memories (scoped
 builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
 
+// Register HTTP client for search service
+builder.Services.AddHttpClient("searchService", client =>
+{
+    client.BaseAddress = new Uri("http://localhost:8001");
+    client.Timeout = TimeSpan.FromMinutes(5); // Long timeout for complex searches
+});
+
+// Register IVectorStore interface for Weaviate (used by VectorRouter for document storage)
+builder.Services.AddSingleton<IVectorStore>(sp => sp.GetRequiredService<WeaviateVectorStore>());
+
+// Register IVectorStore interface for Weaviate (used by VectorRouter for document storage)
+builder.Services.AddSingleton<IVectorStore>(sp => sp.GetRequiredService<WeaviateVectorStore>());
+
 // Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
 builder.Services.AddScoped<IVectorRouterInterface, SwAIvyn.Services.VectorRouter>();
 
@@ -213,6 +226,10 @@ builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 
 // Add LLM and AI chat services
 builder.Services.AddScoped<ILlmConnectorService, LlmConnectorService>();
+
+// Add hybrid search service
+builder.Services.AddScoped<IHybridSearchService, HybridSearchService>();
+
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 // Add memory re-indexing service
@@ -792,46 +809,46 @@ app.MapPost("/api/debug/memory-search", async (
         var neo4jResults = await neo4jStore.SearchAsync(queryEmbedding, request.Limit ?? 5);
         logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore returned {neo4jResults.Count()} results");
         
-// Test VectorRouter
-logger.LogInfo("[MEMORY DEBUG] Testing VectorRouter.FanOutSearchAsync...");
-var routerResults = await vectorRouter.FanOutSearchAsync(request.Query, testUserId, request.Limit ?? 5);
-logger.LogInfo($"[MEMORY DEBUG] VectorRouter returned {routerResults.Count()} results");        
-return Results.Ok(new
-{
-    query = request.Query,
-    brainService = new
-    {
-        count = brainResults.Count(),
-        results = brainResults.Select(r => new
+        // Test VectorRouter
+        logger.LogInfo("[MEMORY DEBUG] Testing VectorRouter.SearchMemoryAsync...");
+        var routerResults = await vectorRouter.FanOutSearchAsync(request.Query, testUserId, request.Limit ?? 5);
+        logger.LogInfo($"[MEMORY DEBUG] VectorRouter returned {routerResults.Count()} results");        
+        return Results.Ok(new
         {
-            id = r.Id,
-            score = r.Score,
-            content = r.Metadata?.GetValueOrDefault("content", ""),
-            metadata = r.Metadata
-        }).ToList()
-    },
-    neo4jVectorStore = new
-    {
-        count = neo4jResults.Count(),
-        results = neo4jResults.Select(r => new
-        {
-            id = r.Id,
-            score = r.Score,
-            content = r.Metadata?.GetValueOrDefault("content", ""),
-            metadata = r.Metadata
-        }).ToList()
-    },
-    vectorRouter = new
-    {
-        count = routerResults.Count(),
-        results = routerResults.Select(r => new
-        {
-            id = r.MemoryId,
-            score = r.Similarity,
-            content = r.Content,
-            source = r.Source
-        }).ToList()
-    }
+            query = request.Query,
+            brainService = new
+            {
+                count = brainResults.Count(),
+                results = brainResults.Select(r => new
+                {
+                    id = r.Id,
+                    score = r.Score,
+                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    metadata = r.Metadata
+                }).ToList()
+            },
+            neo4jVectorStore = new
+            {
+                count = neo4jResults.Count(),
+                results = neo4jResults.Select(r => new
+                {
+                    id = r.Id,
+                    score = r.Score,
+                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    metadata = r.Metadata
+                }).ToList()
+            },
+            vectorRouter = new
+            {
+                count = routerResults.Count(),
+                results = routerResults.Select(r => new
+                {
+                    id = r.MemoryId,
+                    score = r.Similarity,
+                    content = r.Content,
+                    source = r.Source.ToString()
+                }).ToList()
+            }
         });
     }
     catch (Exception ex)

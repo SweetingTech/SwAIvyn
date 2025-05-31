@@ -1,0 +1,17 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+weaviate-client==3.25.3
+neo4j==5.14.1
+torch>=1.9.0
+transformers>=4.21.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+aiofiles==23.2.1
+python-multipart==0.0.6
+httpx>=0.24.0
+# Database connections
+aiosqlite>=0.19.0
+asyncio-mqtt>=0.13.0
+# For date parsing and utilities
+python-dateutil>=2.8.2
