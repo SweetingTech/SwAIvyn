@@ -23,6 +23,7 @@ using Microsoft.Extensions.Configuration;
 using YamlDotNet.Serialization;
 using System.Linq;
 using System.Collections.Generic;
+using SwAIvyn.Models;
 
 // Fix ambiguous reference by using fully qualified name with alias
 using IVectorRouterInterface = SwAIvyn.Services.Interfaces.IVectorRouter;
@@ -98,25 +99,15 @@ builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
     var configuration = sp.GetRequiredService<IConfiguration>();
     var connectionString = configuration.GetConnectionString("DefaultConnection");
     var appSettingsDataDir = configuration["AppSettings:DataDirectory"] ?? "../data";
-    string resolvedDataDirectory;
-
-    if (Path.IsPathRooted(appSettingsDataDir))
-    {
-        resolvedDataDirectory = appSettingsDataDir;
-    }
-    else
-    {
-        resolvedDataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, appSettingsDataDir));
-    }
-
     var csBuilder = new SqliteConnectionStringBuilder(connectionString);
     if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
     {
-        // Ensure the DataSource path is made absolute, relative to the resolvedDataDirectory
-        // This handles cases like "Data Source=swai-vyn.db" or "Data Source=../data/swai-vyn.db"
-        // by ensuring the final path is within the intended data directory structure.
-        string dbFileName = Path.GetFileName(csBuilder.DataSource); // Extracts "swai-vyn.db"
-        csBuilder.DataSource = Path.GetFullPath(Path.Combine(resolvedDataDirectory, dbFileName));
+        // The connection string is relative, resolve it based on the application's base directory
+        // This ensures portability and consistency with the "data" directory relative to the executable.
+        string appBaseDirectory = AppContext.BaseDirectory;
+        string dbFileName = Path.GetFileName(csBuilder.DataSource);
+        string fullPathToDb = Path.Combine(appBaseDirectory, appSettingsDataDir, dbFileName);
+        csBuilder.DataSource = fullPathToDb;
     }
     connectionString = csBuilder.ToString();
     var loggerForDb = sp.GetRequiredService<ISimpleLoggerService>(); // Assuming ISimpleLoggerService is registered as Singleton or Scoped
@@ -134,22 +125,15 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
     var configuration = sp.GetRequiredService<IConfiguration>();
     var connectionString = configuration.GetConnectionString("DefaultConnection");
     var appSettingsDataDir = configuration["AppSettings:DataDirectory"] ?? "../data";
-    string resolvedDataDirectory;
-
-    if (Path.IsPathRooted(appSettingsDataDir))
-    {
-        resolvedDataDirectory = appSettingsDataDir;
-    }
-    else
-    {
-        resolvedDataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, appSettingsDataDir));
-    }
-
     var csBuilder = new SqliteConnectionStringBuilder(connectionString);
     if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
     {
+        // The connection string is relative, resolve it based on the application's base directory
+        // This ensures portability and consistency with the "data" directory relative to the executable.
+        string appBaseDirectory = AppContext.BaseDirectory;
         string dbFileName = Path.GetFileName(csBuilder.DataSource);
-        csBuilder.DataSource = Path.GetFullPath(Path.Combine(resolvedDataDirectory, dbFileName));
+        string fullPathToDb = Path.Combine(appBaseDirectory, appSettingsDataDir, dbFileName);
+        csBuilder.DataSource = fullPathToDb;
     }
     connectionString = csBuilder.ToString();
     var loggerForDbFactory = sp.GetRequiredService<ISimpleLoggerService>();  // Assuming ISimpleLoggerService is registered as Singleton or Scoped
@@ -161,8 +145,6 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
         // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 }, ServiceLifetime.Scoped);
 
-// Add database initializer service
-builder.Services.AddScoped<IDatabaseInitializer, DatabaseInitializerService>();
 
 // Add direct database service for Users table creation
 builder.Services.AddScoped<IDirectDatabaseService, DirectDatabaseService>();
@@ -292,104 +274,6 @@ var app = builder.Build();
 // Get the logger service
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
-// Startup health guard: warn if SQLite unavailable
-logger.LogInfo("Performing startup health checks...");
-using (var scope = app.Services.CreateScope())
-{
-    var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-    if (!await dbInitializer.CanConnectAsync())
-    {
-        logger.LogWarning("SQLite database connection check failed. Some features may not be available.");
-    }
-    else
-    {
-        logger.LogInfo("SQLite database connection check passed.");
-    }    // Skip Neo4j health check completely
-    logger.LogInfo("Startup health checks completed.");
-
-    // Perform memory sync on startup (optional feature)
-    try
-    {
-        logger.LogInfo("Performing memory synchronization on startup...");
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var brainGraphService = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
-        
-        const string defaultUserId = "00000000-0000-0000-0000-000000000001";
-        var userId = Guid.Parse(defaultUserId);
-        
-        // Check sync status first
-        var sqliteMemories = await dbContext.Memories
-            .Where(m => m.UserId == userId)
-            .ToListAsync();
-        
-        var neo4jMemoryIds = new List<Guid>();
-        try
-        {
-            neo4jMemoryIds = await brainGraphService.GetAllMemoryIdsAsync(userId);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Failed to get Neo4j memories during startup sync: {ex.Message}");
-        }
-        
-        var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
-        var neo4jIds = neo4jMemoryIds.ToHashSet();
-        var missingInNeo4j = sqliteIds.Except(neo4jIds).ToList();
-        
-        if (missingInNeo4j.Count > 0)
-        {
-            logger.LogInfo($"Found {missingInNeo4j.Count} memories missing from Neo4j. Performing repair...");
-            
-            int successCount = 0;
-            int failureCount = 0;
-            
-            foreach (var memoryId in missingInNeo4j)
-            {
-                var memory = sqliteMemories.First(m => m.Id == memoryId);
-                
-                try
-                {
-                    var metadata = new Dictionary<string, string>
-                    {
-                        { "category", memory.Category ?? "general" },
-                        { "userId", memory.UserId.ToString() },
-                        { "isShared", memory.IsShared.ToString() },
-                        { "createdAt", memory.CreatedAt.ToString("O") },
-                        { "source", "startup-sync" }
-                    };
-
-                    var success = await brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
-                    
-                    if (success)
-                    {
-                        successCount++;
-                    }
-                    else
-                    {
-                        failureCount++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failureCount++;
-                    logger.LogWarning($"Failed to sync memory {memory.Id} during startup: {ex.Message}");
-                }
-            }
-            
-            logger.LogInfo($"Startup memory repair completed: {successCount} successful, {failureCount} failed");
-        }
-        else
-        {
-            logger.LogInfo("Memory databases are already in sync.");
-        }
-    }
-    catch (Exception ex)
-    {
-        logger.LogError("Failed to perform startup memory sync", ex);
-        // Don't fail startup for sync issues
-    }
-}
-
 // Initialize directories
 try
 {
@@ -409,15 +293,11 @@ try
     logger.LogInfo("Initializing database...");
     using (var scope = app.Services.CreateScope())
     {
-        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-        await dbInitializer.InitializeAsync();
-        logger.LogInfo("Database initialization completed successfully");
-
-        // Create Users table and default user if needed
-        logger.LogInfo("Ensuring Users table and default user exist...");
+        // Initialize database schema and default user using DirectDatabaseService
+        logger.LogInfo("Initializing database schema and default user...");
         var directDatabaseService = scope.ServiceProvider.GetRequiredService<IDirectDatabaseService>();
-        await directDatabaseService.CreateUsersTableAndDefaultUserAsync();
-        logger.LogInfo("Users table and default user initialization completed successfully");
+        await directDatabaseService.InitializeDatabaseSchemaAndDefaultUserAsync();
+        logger.LogInfo("Database schema and default user initialization completed successfully");
     }
 }
 catch (Exception ex)
@@ -699,6 +579,7 @@ catch (Exception ex)
 {
     logger.LogError($"Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
 }
+
 
 // Set up global exception handler
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
@@ -1012,20 +893,4 @@ else
     logger.LogInfo("Application URLs: " + string.Join(", ", app.Urls));
     app.Run();
     logger.LogInfo("Application has stopped");
-}
-
-/// <summary>
-/// Request model for memory search debugging
-/// </summary>
-public class MemorySearchRequest
-{
-    /// <summary>
-    /// The search query to test
-    /// </summary>
-    public required string Query { get; set; }
-    
-    /// <summary>
-    /// Maximum number of results to return (optional, defaults to 5)
-    /// </summary>
-    public int? Limit { get; set; }
 }

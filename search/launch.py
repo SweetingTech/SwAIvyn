@@ -95,6 +95,27 @@ async def startup_event():
                 logger.info(f"Successfully created Weaviate collection: {document_collection_name}")
             else:
                 logger.info(f"Weaviate collection '{document_collection_name}' already exists.")
+
+            # Temporary: Add some sample data to the Document collection for testing
+            try:
+                document_collection = weaviate_client.collections.get(document_collection_name)
+                
+                # Check if data already exists to avoid duplicates on reload
+                if document_collection.query.aggregate(total_count=True).total_count == 0:
+                    logger.info("Adding sample data to Weaviate 'Document' collection...")
+                    document_collection.data.insert({
+                        "content": "SwAIvyn is a comprehensive AI-powered personal assistant designed to enhance productivity and streamline daily tasks.",
+                        "title": "SwAIvyn Project Overview",
+                        "contentType": "text",
+                        "source": "internal_docs",
+                        "userId": "00000000-0000-0000-0000-000000000001"
+                    })
+                    logger.info("Successfully added sample data to Weaviate.")
+                else:
+                    logger.info("Weaviate 'Document' collection already contains data. Skipping sample data insertion.")
+            except Exception as data_err:
+                logger.warning(f"⚠️ Failed to add sample data to Weaviate: {data_err}")
+
         except Exception as we:
             logger.warning(f"⚠️ Failed to connect to Weaviate: {we}. Will use mock data.")
             weaviate_client = None

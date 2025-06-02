@@ -24,7 +24,8 @@ namespace SwAIvyn.Services.Graph
         private IDriver? _driver; // Added for Bolt connection
         private string? _databaseName; // Added for Bolt connection
 
-        private string _neo4jUri;
+        private string _neo4jHttpUri; // Renamed for clarity
+        private string _neo4jBoltUri; // New field for Bolt URI
         private string _neo4jUser;
         private string _neo4jPassword;
         private readonly bool _isEmbedded;
@@ -44,13 +45,14 @@ namespace SwAIvyn.Services.Graph
             _logger = logger;
             _configuration = configuration;
 
-            _neo4jUri = _configurationService.GetNeo4jUri();
+            _neo4jHttpUri = _configurationService.GetNeo4jUri(); // Get HTTP URI
+            _neo4jBoltUri = configuration["AppSettings:Neo4jBoltUri"] ?? "bolt://localhost:7687"; // Get Bolt URI
             _neo4jUser = configuration["AppSettings:Neo4jUser"] ?? "neo4j";
             _neo4jPassword = configuration["AppSettings:Neo4jPassword"] ?? "password";
             _isEmbedded = configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", true);
             _databaseName = configuration["AppSettings:Neo4jDatabase"] ?? "neo4j";
 
-            _logger.LogInfo($"Initial Neo4j configuration -> Uri={_neo4jUri}, User={_neo4jUser}, Embedded={_isEmbedded}, Database={_databaseName}");
+            _logger.LogInfo($"Initial Neo4j configuration -> HTTP Uri={_neo4jHttpUri}, Bolt Uri={_neo4jBoltUri}, User={_neo4jUser}, Embedded={_isEmbedded}, Database={_databaseName}");
 
             _reconnectTimer = new Timer(async _ => await CheckConnectionAsync(),
                                         null,
@@ -80,7 +82,8 @@ namespace SwAIvyn.Services.Graph
             {
                 _logger.LogInfo("Initializing Neo4j service");
 
-                _neo4jUri = _configurationService.GetNeo4jUri();
+                _neo4jHttpUri = _configurationService.GetNeo4jUri(); // Re-get HTTP URI
+                _neo4jBoltUri = _configuration["AppSettings:Neo4jBoltUri"] ?? "bolt://localhost:7687"; // Re-get Bolt URI
                 _neo4jUser = _configuration["AppSettings:Neo4jUser"] ?? "neo4j";
                 _neo4jPassword = _configuration["AppSettings:Neo4jPassword"] ?? "password";
                 _databaseName = _configuration["AppSettings:Neo4jDatabase"] ?? "neo4j";
@@ -88,7 +91,7 @@ namespace SwAIvyn.Services.Graph
                 // Initialize Bolt Driver
                 try
                 {
-                    _driver = GraphDatabase.Driver(_neo4jUri, AuthTokens.Basic(_neo4jUser, _neo4jPassword));
+                    _driver = GraphDatabase.Driver(_neo4jBoltUri, AuthTokens.Basic(_neo4jUser, _neo4jPassword));
                     await _driver.VerifyConnectivityAsync();
                     _logger.LogInfo("Neo4j Bolt driver initialized and connected successfully.");
                 }
@@ -101,7 +104,7 @@ namespace SwAIvyn.Services.Graph
                 if (_isEmbedded)
                     _logger.LogInfo("Neo4jService running in EMBEDDED mode. Neo4jRuntimeService will start the server.");
                 else
-                    _logger.LogInfo($"Neo4jService running in EXTERNAL mode. Connecting to {_neo4jUri} as {_neo4jUser}.");
+                    _logger.LogInfo($"Neo4jService running in EXTERNAL mode. Connecting to {_neo4jHttpUri} as {_neo4jUser}.");
 
                 var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_neo4jUser}:{_neo4jPassword}"));
                 _httpClient.DefaultRequestHeaders.Authorization =
@@ -524,7 +527,7 @@ namespace SwAIvyn.Services.Graph
                 await InitializeAsync();
 
             var requestStartTime = DateTime.UtcNow;
-            var commitEndpoint = $"{_neo4jUri}/db/neo4j/tx/commit";
+            var commitEndpoint = $"{_neo4jHttpUri}/db/neo4j/tx/commit";
             
             try
             {
@@ -730,16 +733,16 @@ namespace SwAIvyn.Services.Graph
                 }
             }
 
-            if (string.IsNullOrEmpty(_neo4jUri))
+            if (string.IsNullOrEmpty(_neo4jHttpUri))
             {
-                _logger.LogWarning("Neo4j URI is not configured. Cannot ping.");
+                _logger.LogWarning("Neo4j HTTP URI is not configured. Cannot ping.");
                 _online = false;
                 return false;
             }
 
             try
             {
-                var response = await _httpClient.GetAsync($"{_neo4jUri.TrimEnd('/')}/");
+                var response = await _httpClient.GetAsync($"{_neo4jHttpUri.TrimEnd('/')}/");
                 if (response.IsSuccessStatusCode)
                 {
                     _logger.LogInfo("Neo4j HTTP Ping successful.");
@@ -775,16 +778,21 @@ namespace SwAIvyn.Services.Graph
                 _logger.LogWarning("Neo4j connection is inactive.");
             }
             return isConnected;
-        }        public Dictionary<string, object> GetStatus()
+        }
+
+        public Dictionary<string, object> GetStatus()
         {
             return new Dictionary<string, object>
             {
                 ["Mode"] = _isEmbedded ? "Embedded" : "Remote",
-                ["Uri"] = _neo4jUri,
+                ["HttpUri"] = _neo4jHttpUri,
+                ["BoltUri"] = _neo4jBoltUri,
                 ["Connected"] = _online,
                 ["Status"] = _online ? "Online" : "Offline"
             };
-        }        public async Task<Dictionary<string, object>> GetStatusAsync()
+        }
+
+        public async Task<Dictionary<string, object>> GetStatusAsync()
         {
             // Perform a connection check to ensure status is current
             await CheckConnectionAsync();
@@ -792,7 +800,8 @@ namespace SwAIvyn.Services.Graph
             return new Dictionary<string, object>
             {
                 ["Mode"] = _isEmbedded ? "Embedded" : "Remote",
-                ["Uri"] = _neo4jUri,
+                ["HttpUri"] = _neo4jHttpUri,
+                ["BoltUri"] = _neo4jBoltUri,
                 ["Connected"] = _online,
                 ["Status"] = _online ? "Online" : "Offline",
                 ["Database"] = _databaseName ?? "neo4j"

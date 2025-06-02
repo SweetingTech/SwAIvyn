@@ -7,10 +7,33 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import json
 from datetime import datetime
+import os
+import urllib.parse
 
+# FastAPI + Uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+# Asynchronous SQLite
+import aiosqlite
+
+# Neo4j driver
+from neo4j import AsyncGraphDatabase
+from neo4j.exceptions import ServiceUnavailable
+
+# Weaviate v4 client
 import weaviate
-import weaviate.classes as wvc
+import weaviate.classes as wvc  # for v4 filter API
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+logger.info("Starting search.py script...")
 
 @dataclass
 class SearchResult:
@@ -23,7 +46,6 @@ class SearchResult:
     metadata: Dict[str, Any]
     normalized_score: Optional[float] = None
 
-
 @dataclass
 class QueryFeatures:
     """Analyzed query characteristics"""
@@ -33,81 +55,164 @@ class QueryFeatures:
     query_type: str  # factual, exploratory, relational
     keywords: List[str]
 
-
 class HybridSearchEngine:
     """
-    Hybrid search engine that focuses on Weaviate (vector) and Neo4j (graph) databases
-    SQLite is used minimally for metadata only
+    Hybrid search engine that focuses on Weaviate (vector) and Neo4j (graph) databases.
+    SQLite is used minimally for lightweight metadata.
     """
 
-    def __init__(self, sql_connection, weaviate_client, neo4j_driver):
-        self.sql = sql_connection
-        self.weaviate = weaviate_client
-        self.neo4j = neo4j_driver
+    def __init__(
+        self,
+        sql_connection_string: str,
+        weaviate_url: str,
+        neo4j_uri: str,
+        neo4j_user: str,
+        neo4j_password: str
+    ):
+        logger.info("Initializing HybridSearchEngine...")
+        self.sql_connection_string = sql_connection_string
+        self.weaviate_url = weaviate_url
+        self.neo4j_uri = neo4j_uri
+        self.neo4j_user = neo4j_user
+        self.neo4j_password = neo4j_password
 
-        self.logger = logging.getLogger(__name__)
+        self.sql: Optional[aiosqlite.Connection] = None
+        self.weaviate: Optional[weaviate.Client] = None
+        self.neo4j: Optional[AsyncGraphDatabase.driver] = None
 
-        # Search weights - Weaviate and Neo4j are primary, SQL minimal
+        self.logger = logger
+        # Weights for fusion
         self.db_weights = {"sql": 0.1, "weaviate": 0.5, "neo4j": 0.4}
 
+        logger.info("HybridSearchEngine initialized.")
+
+    async def connect(self):
+        logger.info("Attempting to connect to databases...")
+
+        # ---------- SQLite Connection ----------
+        try:
+            sqlite_path = self.sql_connection_string.replace("file:", "").split("?")[0]
+            absolute_sql_path = os.path.abspath(sqlite_path)
+            self.sql = await aiosqlite.connect(absolute_sql_path)
+            logger.info(f"Connected to SQLite: {absolute_sql_path}")
+        except Exception as e:
+            logger.error(f"Failed to connect to SQLite: {e}")
+            self.sql = None
+
+        # ---------- Weaviate v4 Connection ----------
+        try:
+            # Parse the weaviate_url to extract host and port
+            parsed = urllib.parse.urlparse(self.weaviate_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 8080
+
+            self.weaviate = weaviate.connect_to_local(
+                host=host,
+                port=port,
+                grpc_port=50051,
+            )
+            # Verify connection
+            self.weaviate.is_connected()
+            logger.info(f"Connected to Weaviate: {self.weaviate_url}")
+        except Exception as e:
+            logger.error(f"Failed to connect to Weaviate: {e}")
+            self.weaviate = None
+
+        # ---------- Neo4j Connection ----------
+        try:
+            driver_instance = AsyncGraphDatabase.driver(
+                self.neo4j_uri,
+                auth=(self.neo4j_user, self.neo4j_password)
+            )
+            await driver_instance.verify_connectivity()
+            self.neo4j = driver_instance
+            logger.info(f"Connected to Neo4j: {self.neo4j_uri}")
+        except Exception as e:
+            logger.error(f"Failed to connect to Neo4j: {e}")
+            self.neo4j = None
+
+        if not (self.sql or self.weaviate or self.neo4j):
+            logger.critical("No database connections established. Hybrid search will not function.")
+        else:
+            logger.info("Database connection attempts completed.")
+
+    async def disconnect(self):
+        logger.info("Disconnecting from databases...")
+        if self.sql:
+            await self.sql.close()
+            logger.info("Disconnected from SQLite.")
+        if self.weaviate:
+            self.weaviate.close()
+            logger.info("Disconnected from Weaviate.")
+        if self.neo4j:
+            await self.neo4j.close()
+            logger.info("Disconnected from Neo4j.")
+        logger.info("All database connections closed.")
+
     async def search(
-        self, query: str, top_k: int = 20, filters: Optional[Dict] = None
+        self,
+        query: str,
+        top_k: int = 20,
+        filters: Optional[Dict[str, Any]] = None
     ) -> List[SearchResult]:
         """
-        Main search method focusing on Weaviate and Neo4j
+        Main search method focusing on Weaviate (vector) and Neo4j (graph).
         """
+        logger.info(f"Received search query: '{query}' with filters: {filters}")
         try:
-            # 1. Query Analysis & Routing
+            # 1. Query Analysis
             query_features = self.analyze_query(query)
             self.logger.info(f"Query analysis: {query_features}")
 
-            # 2. Parallel Retrieval - Focus on Weaviate and Neo4j
-            tasks = [
-                self.weaviate_search(query, query_features, filters),
-                self.neo4j_search(query, query_features, filters),
-            ]
+            # 2. Parallel Retrieval
+            tasks: List[asyncio.Task] = []
+
+            if self.weaviate:
+                tasks.append(self.weaviate_search(query, query_features, filters))
+            else:
+                logger.warning("Weaviate client not available, skipping Weaviate search.")
+                tasks.append(asyncio.sleep(0, result=[]))
+
+            if self.neo4j:
+                tasks.append(self.neo4j_search(query, query_features, filters))
+            else:
+                logger.warning("Neo4j driver not available, skipping Neo4j search.")
+                tasks.append(asyncio.sleep(0, result=[]))
 
             vector_results, graph_results = await asyncio.gather(*tasks)
+            logger.info(f"Weaviate returned {len(vector_results)}, Neo4j returned {len(graph_results)}")
 
-            # 3. Score Normalization
-            normalized_results = self.normalize_scores(
-                [
-                    ("weaviate", vector_results),
-                    ("neo4j", graph_results),
-                ]
-            )
+            # 3. Normalize Scores
+            normalized_results = self.normalize_scores([
+                ("weaviate", vector_results),
+                ("neo4j", graph_results),
+            ])
+            logger.info(f"Normalized {len(normalized_results)} results")
 
-            # 4. Result Fusion
+            # 4. Fuse Results
             fused_results = self.reciprocal_rank_fusion(normalized_results)
+            logger.info(f"Fused down to {len(fused_results)} results")
 
-            # 5. Re-ranking (optional)
+            # 5. (Optional) Re‐rank by cross‐encoder
             final_results = await self.cross_encoder_rerank(query, fused_results)
+            logger.info(f"Final results count after re‐ranking: {len(final_results)}")
 
             return final_results[:top_k]
 
         except Exception as e:
-            self.logger.error(f"Search error: {str(e)}")
+            self.logger.error(f"Search error: {e}", exc_info=True)
             raise
 
     def analyze_query(self, query: str) -> QueryFeatures:
         """
-        Analyze query to determine search strategy and routing
+        Analyze query to determine search strategy/routing.
         """
-        # Detect structured filters (dates, numbers, specific fields)
         has_filters = bool(
             re.search(r"\b(after|before|from|to|type|category):", query, re.IGNORECASE)
         )
-
-        # Simple entity extraction
         entities = self.extract_entities(query)
-
-        # Measure semantic complexity
         complexity = min(1.0, len(query.split()) / 20.0)
-
-        # Classify query type
         query_type = self.classify_query_type(query)
-
-        # Extract keywords
         keywords = self.extract_keywords(query)
 
         return QueryFeatures(
@@ -119,88 +224,76 @@ class HybridSearchEngine:
         )
 
     def extract_entities(self, query: str) -> List[str]:
-        """Extract named entities from query (simplified version)"""
-        entities = []
-
-        # Capitalized words (potential proper nouns)
+        """Extract named entities (simple heuristic)."""
+        entities: List[str] = []
         capitalized = re.findall(r"\b[A-Z][a-z]+\b", query)
         entities.extend(capitalized)
-
-        # Date patterns
         dates = re.findall(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", query)
         entities.extend(dates)
-
         return list(set(entities))
 
     def classify_query_type(self, query: str) -> str:
-        """Classify the type of query to optimize search strategy"""
-        query_lower = query.lower()
-
-        if any(word in query_lower for word in ["what", "who", "when", "where", "how"]):
+        """Simple rule-based query type classification."""
+        ql = query.lower()
+        if any(word in ql for word in ["what", "who", "when", "where", "how"]):
             return "factual"
-        elif any(
-            word in query_lower
-            for word in ["related", "similar", "connected", "linked"]
-        ):
+        elif any(word in ql for word in ["related", "similar", "connected", "linked"]):
             return "relational"
         else:
             return "exploratory"
 
     def extract_keywords(self, query: str) -> List[str]:
-        """Extract important keywords from query"""
+        """Extract important keywords (filtering out common stop words)."""
         stop_words = {
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+            "the", "a", "an", "and", "or", "but", "in", "on", "at",
+            "to", "for", "of", "with", "by"
         }
         words = re.findall(r"\b\w+\b", query.lower())
-        return [word for word in words if word not in stop_words and len(word) > 2]
+        return [w for w in words if w not in stop_words and len(w) > 2]
 
     async def weaviate_search(
-        self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
+        self,
+        query: str,
+        features: QueryFeatures,
+        filters: Optional[Dict[str, Any]] = None
     ) -> List[SearchResult]:
         """
-        Vector similarity search using Weaviate - PRIMARY content search
+        Perform a vector similarity search in Weaviate.
         """
         if not self.weaviate:
-            self.logger.warning("Weaviate client not available, using mock data")
+            self.logger.warning("Weaviate client not available, returning mock data")
             return self._get_mock_weaviate_results(query, 5)
 
         try:
-            # Get available collections
-            collections = self.weaviate.collections.list_all()
-            available_collections = [collection.name for collection in collections]
-            
+            collections_list = self.weaviate.collections.list_all()
+            available_collections = [col.name for col in collections_list]
+
             if not available_collections:
-                self.logger.warning("No Weaviate collections found, using mock data")
+                self.logger.warning("No Weaviate collections found; returning mock results")
                 return self._get_mock_weaviate_results(query, 5)
 
             self.logger.info(f"Available Weaviate collections: {available_collections}")
 
-            # Try to use the most appropriate collection
             target_collection = None
             for preferred in ["Document", "Content", "Message", "Chat"]:
                 if preferred in available_collections:
                     target_collection = preferred
                     break
-            
             if not target_collection:
                 target_collection = available_collections[0]
-            
-            self.logger.info(f"Using Weaviate collection: {target_collection}")
 
-            # Get the collection
+            self.logger.info(f"Using Weaviate collection: {target_collection}")
             collection = self.weaviate.collections.get(target_collection)
 
-            # Build where filter for userId if provided
             where_filter = None
-            user_id = filters.get("userId") if filters else "00000000-0000-0000-0000-000000000001"
-            if user_id:
+            if filters and filters.get("userId"):
+                user_id = str(filters["userId"])
                 try:
-                    where_filter = wvc.query.Filter.by_property("userId").equal(str(user_id))
-                except Exception as filter_error:
-                    self.logger.warning(f"Could not apply userId filter: {filter_error}")
+                    where_filter = wvc.query.Filter.by_property("userId").equal(user_id)
+                except Exception as fe:
+                    self.logger.warning(f"Could not build userId filter: {fe}")
                     where_filter = None
 
-            # Perform semantic search using v4 API
             if where_filter:
                 response = collection.query.near_text(
                     query=query,
@@ -215,19 +308,17 @@ class HybridSearchEngine:
                     return_metadata=wvc.query.MetadataQuery(distance=True, score=True),
                 )
 
-            results = []
+            results: List[SearchResult] = []
             for i, obj in enumerate(response.objects):
-                # Calculate similarity score from distance
                 distance = obj.metadata.distance if obj.metadata.distance else 0.5
                 similarity_score = max(0.0, 1.0 - distance)
 
-                # Get content from various possible property names
                 content = (
-                    obj.properties.get("content") or 
-                    obj.properties.get("text") or 
-                    obj.properties.get("message") or 
-                    obj.properties.get("body") or 
-                    str(obj.properties)
+                    obj.properties.get("content")
+                    or obj.properties.get("text")
+                    or obj.properties.get("message")
+                    or obj.properties.get("body")
+                    or str(obj.properties)
                 )
 
                 results.append(
@@ -252,259 +343,346 @@ class HybridSearchEngine:
             return results
 
         except Exception as e:
-            self.logger.error(f"Weaviate search error: {str(e)}")
+            self.logger.error(f"Weaviate search error: {e}", exc_info=True)
             return self._get_mock_weaviate_results(query, 3)
 
     def _get_mock_weaviate_results(self, query: str, count: int) -> List[SearchResult]:
-        """Fallback mock Weaviate results"""
+        """Fallback mock Weaviate results if live connection fails."""
         return [
             SearchResult(
-                id=f"weaviate_{i}",
-                title=f"Vector Document {i}",
-                content=f"Semantically similar content to '{query}' from Weaviate database...",
+                id=f"weaviate_mock_{i}",
+                title=f"MockDoc {i}",
+                content=f"Mock content for '{query}'",
                 score=0.9 - (i * 0.05),
                 source="weaviate",
-                metadata={
-                    "content_type": "article",
-                    "origin": "weaviate_db",
-                    "distance": 0.1 + (i * 0.05),
-                    "method": "mock",
-                },
-            )
-            for i in range(count)
+                metadata={"method": "mock"},
+            ) for i in range(count)
         ]
 
     async def neo4j_search(
-        self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
+        self,
+        query: str,
+        features: QueryFeatures,
+        filters: Optional[Dict[str, Any]] = None
     ) -> List[SearchResult]:
         """
-        Graph-based search using Neo4j - Updated for actual database structure
+        Perform a graph-based search in Neo4j.
         """
         try:
             if features.entity_mentions:
-                results = await self.entity_graph_search(query, features.entity_mentions, filters)
+                return await self.entity_graph_search(query, features.entity_mentions, filters)
             else:
-                results = await self.general_graph_search(query, features, filters)
-
-            self.logger.info(f"Neo4j search returned {len(results)} results")
-            return results
-
+                return await self.general_graph_search(query, features, filters)
         except Exception as e:
-            self.logger.error(f"Neo4j search error: {str(e)}")
+            self.logger.error(f"Neo4j search error: {e}", exc_info=True)
             return self._get_mock_neo4j_results(query, [], 3)
 
     async def entity_graph_search(
-        self, query: str, entities: List[str], filters: Optional[Dict] = None
+        self,
+        query: str,
+        entities: List[str],
+        filters: Optional[Dict[str, Any]] = None
     ) -> List[SearchResult]:
-        """Search for specific entities by name in the knowledge graph"""
+        """
+        Search for specific named entities in the Neo4j graph.
+        """
         if not self.neo4j:
-            self.logger.warning("Neo4j driver not available, using mock data")
+            self.logger.warning("Neo4j driver not available, returning mock data")
             return self._get_mock_neo4j_results(query, entities, 3)
 
         try:
-            # Search for entities that match the query entities by name
-            cypher_query = """
+            cypher = """
             MATCH (e)
             WHERE e.type = 'entity' AND e.name IN $entity_list
             OPTIONAL MATCH (e)-[r]-(related)
             WHERE related.type = 'entity'
             UNWIND e.observations AS obs
-            RETURN e.name, e.entityType, obs as observation, 
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_names
+            RETURN e.name AS name,
+                   e.entityType AS type,
+                   obs AS observation,
+                   COUNT(DISTINCT related) AS connections,
+                   COLLECT(DISTINCT related.name)[0..3] AS related_names
             ORDER BY connections DESC
             LIMIT 50
             """
+            async with self.neo4j.session() as session:
+                result = await session.run(cypher, entity_list=entities)
+                records = await result.data()
 
-            with self.neo4j.session() as session:
-                result = session.run(cypher_query, entity_list=entities)
-                records = list(result)
-
-            results = []
+            results: List[SearchResult] = []
             for i, record in enumerate(records):
-                # Score based on entity matches and connections
-                connections = record["connections"] or 0
+                connections = record.get("connections", 0) or 0
                 base_score = min(1.0, 0.7 + (connections * 0.03))
-
-                # Create content from observations
-                observation = record["observation"] or ""
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_names = record["related_names"] or []
+                observation = record.get("observation", "") or ""
+                name = record.get("name", f"Entity_{i}")
+                etype = record.get("type", "Unknown")
+                related = record.get("related_names", [])
 
                 results.append(
                     SearchResult(
-                        id=f"neo4j_entity_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
+                        id=f"neo4j_entity_{name}_{i}",
+                        title=f"{name} ({etype})",
                         content=observation[:500] + "..." if len(observation) > 500 else observation,
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
+                            "entity_type": etype,
                             "connections": connections,
-                            "related_entities": related_names,
+                            "related_entities": related,
                             "search_type": "entity_graph",
                         },
                     )
                 )
 
+            self.logger.info(f"Neo4j entity search returned {len(results)} results")
             return results
 
         except Exception as e:
-            self.logger.error(f"Neo4j entity search error: {str(e)}")
+            self.logger.error(f"Neo4j entity_graph_search error: {e}", exc_info=True)
             return self._get_mock_neo4j_results(query, entities, 3)
 
     async def general_graph_search(
-        self, query: str, features: QueryFeatures, filters: Optional[Dict] = None
+        self,
+        query: str,
+        features: QueryFeatures,
+        filters: Optional[Dict[str, Any]] = None
     ) -> List[SearchResult]:
-        """General search across all entities and observations in the knowledge graph"""
+        """
+        General full-graph search (keywords in observations).
+        """
         if not self.neo4j:
-            self.logger.warning("Neo4j driver not available, using mock data")
+            self.logger.warning("Neo4j driver not available, returning mock data")
             return self._get_mock_neo4j_results(query, [], 2)
 
         try:
-            # Extract keywords for searching observations
             keywords = features.keywords or [query.lower()]
-            
-            # Search for entities whose observations contain keywords
-            cypher_query = """
+            cypher = """
             MATCH (e)
             WHERE e.type = 'entity'
             UNWIND e.observations AS obs
-            WHERE ANY(keyword IN $keywords WHERE toLower(obs) CONTAINS toLower(keyword))
+            WITH e, obs
+            WHERE ANY(k IN $keywords WHERE toLower(obs) CONTAINS toLower(k))
             OPTIONAL MATCH (e)-[r]-(related)
             WHERE related.type = 'entity'
-            RETURN e.name, e.entityType, obs as observation,
-                   count(DISTINCT related) as connections,
-                   collect(DISTINCT related.name)[0..3] as related_entities
+            RETURN e.name AS name,
+                   e.entityType AS type,
+                   obs AS observation,
+                   COUNT(DISTINCT related) AS connections,
+                   COLLECT(DISTINCT related.name)[0..3] AS related_entities
             ORDER BY connections DESC
             LIMIT 50
             """
+            async with self.neo4j.session() as session:
+                result = await session.run(cypher, keywords=keywords)
+                records = await result.data()
 
-            with self.neo4j.session() as session:
-                result = session.run(cypher_query, keywords=keywords)
-                records = list(result)
-
-            results = []
+            results: List[SearchResult] = []
             for i, record in enumerate(records):
-                # Score based on keyword relevance and connections
-                connections = record["connections"] or 0
+                connections = record.get("connections", 0) or 0
                 base_score = min(1.0, 0.6 + (connections * 0.02))
-
-                # Boost score if multiple keywords match
-                observation = record["observation"] or ""
+                observation = record.get("observation", "") or ""
                 keyword_matches = sum(1 for kw in keywords if kw.lower() in observation.lower())
                 if keyword_matches > 1:
                     base_score = min(1.0, base_score * (1 + keyword_matches * 0.1))
 
-                entity_name = record["e.name"] or f"Entity {i+1}"
-                entity_type = record["e.entityType"] or "Unknown"
-                related_entities = record["related_entities"] or []
+                name = record.get("name", f"Entity_{i}")
+                etype = record.get("type", "Unknown")
+                related = record.get("related_entities", [])
 
                 results.append(
                     SearchResult(
-                        id=f"neo4j_general_{entity_name}_{i}",
-                        title=f"{entity_name} ({entity_type})",
+                        id=f"neo4j_general_{name}_{i}",
+                        title=f"{name} ({etype})",
                         content=observation[:500] + "..." if len(observation) > 500 else observation,
                         score=base_score,
                         source="neo4j",
                         metadata={
-                            "entity_name": entity_name,
-                            "entity_type": entity_type,
+                            "entity_type": etype,
                             "connections": connections,
-                            "related_entities": related_entities,
+                            "related_entities": related,
                             "keyword_matches": keyword_matches,
                             "search_type": "general_graph",
                         },
                     )
                 )
 
+            self.logger.info(f"Neo4j general search returned {len(results)} results")
             return results
 
         except Exception as e:
-            self.logger.error(f"Neo4j general search error: {str(e)}")
+            self.logger.error(f"Neo4j general_graph_search error: {e}", exc_info=True)
             return self._get_mock_neo4j_results(query, [], 2)
 
     def _get_mock_neo4j_results(self, query: str, entities: List[str], count: int) -> List[SearchResult]:
-        """Fallback mock Neo4j results"""
+        """Fallback mock Neo4j results."""
         return [
             SearchResult(
                 id=f"neo4j_mock_{i}",
-                title=f"SwAIvyn Knowledge {i+1}",
-                content=f"Knowledge about '{query}' related to entities {entities} from Neo4j knowledge graph...",
+                title=f"MockGraph {i}",
+                content=f"Mock graph knowledge about '{query}' and entities {entities}",
                 score=0.8 - (i * 0.1),
                 source="neo4j",
-                metadata={
-                    "content_type": "knowledge",
-                    "origin": "neo4j_db",
-                    "connections": 5 - i,
-                    "method": "mock",
-                },
-            )
-            for i in range(count)
+                metadata={"method": "mock"},
+            ) for i in range(count)
         ]
 
     def normalize_scores(self, db_results: List[Tuple[str, List[SearchResult]]]) -> List[SearchResult]:
-        """Normalize scores across different databases"""
-        all_results = []
-        
-        for db_name, results in db_results:
+        """Normalize scores across different sources to a 0-1 range, then apply weights."""
+        all_results: List[SearchResult] = []
+
+        for source_name, results in db_results:
             if not results:
                 continue
-                
-            # Get score range for this database
             scores = [r.score for r in results]
-            if len(scores) == 0:
+            if not scores:
                 continue
-                
             max_score = max(scores)
             min_score = min(scores)
             score_range = max_score - min_score
-            
-            # Normalize scores to 0-1 range and apply database weight
-            for result in results:
+
+            for r in results:
                 if score_range > 0:
-                    normalized = (result.score - min_score) / score_range
+                    normalized = (r.score - min_score) / score_range
                 else:
                     normalized = 1.0
-                    
-                result.normalized_score = normalized * self.db_weights.get(db_name, 1.0)
-                all_results.append(result)
-        
+                r.normalized_score = normalized * self.db_weights.get(source_name, 1.0)
+                all_results.append(r)
+
         return all_results
 
-    def reciprocal_rank_fusion(self, results: List[SearchResult], k: int = 60) -> List[SearchResult]:
-        """Combine results using Reciprocal Rank Fusion"""
-        # Group results by database source
-        db_results = defaultdict(list)
-        for result in results:
-            db_results[result.source].append(result)
-        
-        # Sort each database's results by normalized score
-        for source in db_results:
-            db_results[source].sort(key=lambda x: x.normalized_score or 0, reverse=True)
-        
-        # Calculate RRF scores
-        result_scores = defaultdict(float)
-        result_map = {}
-        
-        for source, source_results in db_results.items():
-            for rank, result in enumerate(source_results):
-                rrf_score = 1.0 / (k + rank + 1)
-                result_scores[result.id] += rrf_score
-                result_map[result.id] = result
-        
-        # Sort by RRF score and update result scores
-        final_results = []
-        for result_id, rrf_score in sorted(result_scores.items(), key=lambda x: x[1], reverse=True):
-            result = result_map[result_id]
-            result.score = rrf_score
-            final_results.append(result)
-        
-        return final_results
+    def reciprocal_rank_fusion(
+        self,
+        results: List[SearchResult],
+        k: int = 60
+    ) -> List[SearchResult]:
+        """
+        Combine results from each source using Reciprocal Rank Fusion (RRF).
+        """
+        db_grouped: Dict[str, List[SearchResult]] = defaultdict(list)
+        for r in results:
+            db_grouped[r.source].append(r)
 
-    async def cross_encoder_rerank(self, query: str, results: List[SearchResult]) -> List[SearchResult]:
-        """Re-rank results using cross-encoder (currently just returns as-is)"""
-        # Placeholder for cross-encoder re-ranking
+        # Sort each group by normalized_score descending
+        for source, group in db_grouped.items():
+            group.sort(key=lambda x: x.normalized_score or 0, reverse=True)
+
+        # Compute RRF scores
+        fused_scores: Dict[str, float] = {}
+        fused_map: Dict[str, SearchResult] = {}
+
+        for source, group in db_grouped.items():
+            for rank, r in enumerate(group):
+                rrf_score = 1.0 / (k + rank + 1)
+                fused_scores[r.id] = fused_scores.get(r.id, 0.0) + rrf_score
+                fused_map[r.id] = r
+
+        # Sort final IDs by fused score descending
+        sorted_ids = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+        final_list: List[SearchResult] = []
+        for rid, score in sorted_ids:
+            r = fused_map[rid]
+            r.score = score
+            final_list.append(r)
+
+        return final_list
+
+    async def cross_encoder_rerank(
+        self,
+        query: str,
+        results: List[SearchResult]
+    ) -> List[SearchResult]:
+        """
+        Placeholder for cross-encoder re-ranking. Currently returns results as-is.
+        """
         return results
+
+
+# ---------- FastAPI setup ----------
+
+app = FastAPI()
+search_engine: Optional[HybridSearchEngine] = None
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("FastAPI startup event triggered.")
+    global search_engine
+
+    current_dir = os.getcwd()
+    sql_db_path = os.path.join(current_dir, "data", "swai-vyn.db")
+    sql_conn_str = f"file:{sql_db_path}?mode=rw"  # Use "?mode=rwc" if DB may not exist
+
+    weaviate_url = "http://stabled:8080"
+    neo4j_uri = "bolt://localhost:7687"
+    neo4j_user = "neo4j"
+    neo4j_password = "password"  # IMPORTANT: Replace with your actual Neo4j password or read from environment variables!
+
+    search_engine = HybridSearchEngine(
+        sql_conn_str,
+        weaviate_url,
+        neo4j_uri,
+        neo4j_user,
+        neo4j_password
+    )
+    await search_engine.connect()
+    logger.info("FastAPI startup event completed.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("FastAPI shutdown event triggered.")
+    if search_engine:
+        await search_engine.disconnect()
+    logger.info("FastAPI shutdown event completed.")
+
+@app.post("/search")
+async def perform_search(request: Request):
+    logger.info("API /search endpoint called.")
+    if not search_engine:
+        logger.error("Search engine not initialized.")
+        raise HTTPException(
+            status_code=503, detail="Search engine not initialized."
+        )
+
+    try:
+        body = await request.json()
+        query = body.get("query")
+        user_id = body.get("userId")
+        top_k = int(body.get("topK", 20))
+
+        if not query:
+            raise HTTPException(status_code=400, detail="Missing 'query' parameter")
+
+        filters = {"userId": user_id} if user_id else None
+        results = await search_engine.search(query, top_k, filters)
+        return JSONResponse(content=json.loads(json.dumps([r.__dict__ for r in results])))
+
+    except Exception as e:
+        logger.error(f"API /search error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Search failed: {e}")
+
+@app.get("/health")
+async def health_check():
+    logger.info("API /health endpoint called.")
+    if search_engine:
+        return {
+            "status": "ok",
+            "databases": {
+                "sqlite": "Connected" if search_engine.sql else "Disconnected",
+                "weaviate": "Connected" if search_engine.weaviate else "Disconnected",
+                "neo4j": "Connected" if search_engine.neo4j else "Disconnected"
+            }
+        }
+    else:
+        logger.warning("Search engine not initialized during health check.")
+        return {"status": "initializing", "databases": {}}
+
+if __name__ == "__main__":
+    logger.info("Running uvicorn...")
+    uvicorn.run(app, host="0.0.0.0", port=8001)

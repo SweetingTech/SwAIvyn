@@ -1,5 +1,9 @@
 # SwAIvyn .gitignore file
 
+# =============================================================================
+# BUILD OUTPUTS AND COMPILED FILES
+# =============================================================================
+
 # Build results
 [Bb]in/
 [Oo]bj/
@@ -12,8 +16,17 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
-[Ll]og/
-[Ll]ogs/
+
+# Compiled output
+*.com
+*.class
+*.dll
+*.exe
+*.pdb
+*.so
+*.dylib
+*.o
+*.obj
 
 # .NET Core
 project.lock.json
@@ -21,18 +34,63 @@ project.fragment.lock.json
 artifacts/
 **/Properties/launchSettings.json
 
-# Visual Studio files
-.vs/
-.vscode/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-*.userprefs
-*.dbmdl
-*.jfm
-*.pfx
-*.publishsettings
+# =============================================================================
+# ROOT DIRECTORY CLEANUP
+# =============================================================================
+
+# Root directory DLL files (copied from build)
+/*.dll
+/*.exe
+/*.pdb
+/*.json
+/*.config
+/*.xml
+/*.ico
+
+# Specific root files that should be ignored
+/SwAIvyn.exe
+/SwAIvyn.dll
+/SwAIvyn.pdb
+/SwAIvyn.deps.json
+/SwAIvyn.runtimeconfig.json
+/SwAIvyn.staticwebassets.runtime.json
+/SwAIvyn.staticwebassets.endpoints.json
+/SwAIvyn.lnk
+/appsettings.json
+/web.config
+/app-icon.ico
+
+# Microsoft and System DLLs in root
+/Microsoft.*.dll
+/System.*.dll
+/Humanizer.dll
+/Neo4j.Driver.dll
+/Newtonsoft.Json.dll
+/SQLitePCLRaw.*.dll
+/Swashbuckle.*.dll
+/YamlDotNet.dll
+/WindowsBase.dll
+
+# Runtime files in root
+/hostfxr.dll
+/hostpolicy.dll
+/coreclr.dll
+/clr*.dll
+/mscor*.dll
+/netstandard.dll
+/createdump.exe
+/aspnetcorev2_inprocess.dll
+/msquic.dll
+
+# Native libraries in root
+/e_sqlite3.dll
+/sqlite-vss.dll
+/faiss.dll
+/libopenblas.dll
+
+# =============================================================================
+# FRONTEND AND NODE.JS
+# =============================================================================
 
 # Node.js
 node_modules/
@@ -44,6 +102,7 @@ yarn-error.log
 .npm
 .yarn/
 .yarn-integrity
+package-lock.json
 
 # Frontend build output
 frontend/dist/
@@ -60,6 +119,10 @@ frontend/.env.production.local
 backend/wwwroot/
 backend/app-icon.ico
 
+# =============================================================================
+# DATABASES AND DATA
+# =============================================================================
+
 # Database files
 *.db
 *.db-shm
@@ -68,15 +131,13 @@ backend/app-icon.ico
 *.sqlite-shm
 *.sqlite-wal
 
-# User-specific files
-*.rsuser
-*.swp
-*~
-.DS_Store
-Thumbs.db
-desktop.ini
+# Database backups
+*.backup.*
+Sqldatabase/
+backend/Sqldatabase/
+backend/*.db*
 
-# Application data
+# Application data directories
 data/
 !data/.gitkeep
 data/avatars/*
@@ -87,12 +148,42 @@ data/backups/*
 !data/backups/.gitkeep
 data/modules/*
 !data/modules/.gitkeep
+data/sessions/*
+!data/sessions/.gitkeep
+
+# =============================================================================
+# LOGS AND TEMPORARY FILES
+# =============================================================================
+
+# Logs
+*.log
+[Ll]og/
+[Ll]ogs/
+logs/
+crash_*.txt
 
 # Temporary files
 [Tt]emp/
 [Tt]mp/
 *.tmp
 *.temp
+
+# =============================================================================
+# DEVELOPMENT TOOLS AND IDEs
+# =============================================================================
+
+# Visual Studio files
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.dbmdl
+*.jfm
+*.pfx
+*.publishsettings
 
 # IDE-specific files
 .idea/
@@ -107,16 +198,30 @@ data/modules/*
 nbproject/
 *.code-workspace
 
-# Compiled output
-*.com
-*.class
-*.dll
-*.exe
-*.pdb
-*.so
-*.dylib
-*.o
-*.obj
+# =============================================================================
+# THIRD-PARTY LIBRARIES AND DEPENDENCIES
+# =============================================================================
+
+# SQLite VSS and related
+sqlite-vss/
+sqlite-source/
+windows-libs/
+
+# Test projects and tools
+CheckSqliteVersion/
+DebugTool/
+TestSqliteVss/
+TestSqliteVssProject/
+tools/
+Tests/
+
+# Search and speech modules
+search/
+speech/
+
+# =============================================================================
+# PACKAGE AND ARCHIVE FILES
+# =============================================================================
 
 # Package files
 *.7z
@@ -128,12 +233,14 @@ nbproject/
 *.tar
 *.zip
 
-# Logs and databases
-*.log
-*.sql
-*.sqlite
-logs/
-crash_*.txt
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+
+# User-specific files
+*.rsuser
+*.swp
+*~
 
 # OS generated files
 .DS_Store
@@ -143,14 +250,40 @@ crash_*.txt
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Application specific
-SwAIvyn.lnk
+# Windows shortcuts
 *.lnk
 
-# Ignore sqlite-vss folder
-sqlite-vss/
-# Ensure sqlite-source and all its contents are completely ignored
-sqlite-vss/sqlite-source/
-sqlite-vss/sqlite-source/**/*
-node_modules/
+# =============================================================================
+# PROJECT-SPECIFIC IGNORES
+# =============================================================================
+
+# Build scripts output
+dist/
+wwwroot/
+
+# Services directory (if it contains generated files)
+Services/
+
+# Vector database configuration
+vectorDB/
+
+# SQL scripts (development only)
+*.sql
+!backend/Migrations/*.sql
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Assets that might be copied during build
+assets/
+
+# Documentation exports
+*.json
+!package.json
+!frontend/package.json
+!tsconfig*.json
+!frontend/tsconfig*.json
