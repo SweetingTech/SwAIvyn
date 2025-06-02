@@ -35,31 +35,24 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // Get the default user ID
-                var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
-                if (defaultUser == null)
-                {
-                    _logger.LogWarning("No default user found, cannot create GLaDOS character");
-                    return;
-                }
-
-                // Check if GLaDOS already exists for this user
+                // Check if GLaDOS already exists globally
                 var existingGlados = await _dbContext.Avatars
-                    .FirstOrDefaultAsync(a => a.Name == "GLaDOS" && a.UserId == defaultUser.Id);
+                    .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
 
                 if (existingGlados != null)
                 {
-                    _logger.LogInformation("GLaDOS default character already exists for user {UserId}", defaultUser.Id);
+                    _logger.LogInformation("GLaDOS default character already exists globally");
                     return;
                 }
 
-                // Load GLaDOS from YAML file
-                var gladosYamlPath = Path.Combine("frontend", "AI", "GLaDOS", "GLaDOS_Character_card.yaml");
+                // Load GLaDOS from YAML file - use current directory (SwAIvyn root), then to frontend/AI
+                var currentDirectory = Directory.GetCurrentDirectory();
+                var gladosYamlPath = Path.Combine(currentDirectory, "frontend", "AI", "GLaDOS", "GLaDOS_Character_card.yaml");
 
                 if (!File.Exists(gladosYamlPath))
                 {
                     _logger.LogWarning("GLaDOS YAML file not found at: {Path}, creating basic GLaDOS character", gladosYamlPath);
-                    await CreateBasicGladosCharacterAsync(defaultUser.Id);
+                    await CreateBasicGladosCharacterAsync();
                     return;
                 }
 
@@ -74,7 +67,7 @@ namespace SwAIvyn.Services
                 var glados = new AvatarInfo
                 {
                     Id = Guid.NewGuid(),
-                    UserId = defaultUser.Id, // Assign to default user
+                    UserId = Guid.Empty, // Global character, no user association
                     Name = GetValueOrDefault(yamlData, "name", "GLaDOS"),
                     Description = GetValueOrDefault(yamlData, "description", ""),
                     Personality = GetValueOrDefault(yamlData, "personality", ""),
@@ -115,16 +108,9 @@ namespace SwAIvyn.Services
         /// </summary>
         public async Task<AvatarInfo?> GetDefaultCharacterAsync()
         {
-            // Get the default user ID
-            var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
-            if (defaultUser == null)
-            {
-                return null;
-            }
-
-            // First try to find GLaDOS by name for this user
+            // First try to find GLaDOS globally
             var glados = await _dbContext.Avatars
-                .FirstOrDefaultAsync(a => a.Name == "GLaDOS" && a.UserId == defaultUser.Id);
+                .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
 
             if (glados != null)
             {
@@ -136,18 +122,18 @@ namespace SwAIvyn.Services
 
             // Try again to find GLaDOS
             return await _dbContext.Avatars
-                .FirstOrDefaultAsync(a => a.Name == "GLaDOS" && a.UserId == defaultUser.Id);
+                .FirstOrDefaultAsync(a => a.Name == "GLaDOS");
         }
 
         /// <summary>
         /// Creates a basic GLaDOS character when YAML file is not found
         /// </summary>
-        private async Task CreateBasicGladosCharacterAsync(Guid userId)
+        private async Task CreateBasicGladosCharacterAsync()
         {
             var glados = new AvatarInfo
             {
                 Id = Guid.NewGuid(),
-                UserId = userId,
+                UserId = Guid.Empty, // Global character, no user association
                 Name = "GLaDOS",
                 Description = "Genetic Lifeform and Disk Operating System from Aperture Science",
                 Personality = "Sarcastic, passive-aggressive, scientifically minded AI with a dark sense of humor",

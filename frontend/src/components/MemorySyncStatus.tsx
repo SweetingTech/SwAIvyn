@@ -56,10 +56,10 @@ interface FullSyncResult {
 }
 
 interface MemorySyncStatusProps {
-  userId: string;
+  // No props needed for single-user app
 }
 
-const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
+const MemorySyncStatus: React.FC<MemorySyncStatusProps> = () => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [fullSyncing, setFullSyncing] = useState(false);
@@ -70,7 +70,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
   const loadSyncStatus = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/memorysyncstatus/status/${userId}`);
+      const response = await fetch(`/api/memorysync/status`);
       if (response.ok) {
         const data = await response.json();
         setSyncStatus(data);
@@ -88,7 +88,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
       setFullSyncing(true);
       setRepairResult(null);
       setFullSyncResult(null);
-      const response = await fetch(`/api/memorysyncstatus/repair/${userId}`, {
+      const response = await fetch(`/api/memorysync/repair`, {
         method: 'POST',
       });
       if (response.ok) {
@@ -111,7 +111,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
       setFullSyncing(true);
       setRepairResult(null);
       setFullSyncResult(null);
-      const response = await fetch(`/api/memorysyncstatus/full/${userId}`, {
+      const response = await fetch(`/api/memorysync/full`, {
         method: 'POST',
       });
       if (response.ok) {
@@ -130,7 +130,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
 
   useEffect(() => {
     loadSyncStatus();
-  }, [userId]);
+  }, []);
 
   const getSyncStatusColor = () => {
     if (!syncStatus) return 'text-gray-500';
@@ -207,7 +207,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
                 <div className="flex space-x-2">
                   <button
                     onClick={repairMemories}
-                    disabled={fullSyncing || syncStatus.missingInNeo4j.count === 0}
+                    disabled={fullSyncing || (syncStatus.missingInNeo4j.count === 0 && syncStatus.missingInSqlite.count === 0)}
                     className="flex items-center space-x-1 px-3 py-1 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:opacity-50"
                   >
                     <Wrench className={`w-4 h-4 ${fullSyncing ? 'animate-spin' : ''}`} />
@@ -224,8 +224,19 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
                 </div>
               </div>
               <p className="text-red-700">
-                {syncStatus.missingInNeo4j.count} memories are stored in SQLite but missing from Neo4j.
-                This affects graph-based memory retrieval and relationship detection.
+                {syncStatus.missingInNeo4j.count > 0 && (
+                  <>
+                    {syncStatus.missingInNeo4j.count} memories are stored in SQLite but missing from Neo4j.
+                    This affects graph-based memory retrieval and relationship detection.
+                  </>
+                )}
+                {syncStatus.missingInSqlite.count > 0 && (
+                  <>
+                    {syncStatus.missingInNeo4j.count > 0 && <br />}
+                    {syncStatus.missingInSqlite.count} memories are stored in Neo4j but missing from SQLite.
+                    This affects memory management and persistence.
+                  </>
+                )}
               </p>
             </div>
           )}          {/* Repair Result */}

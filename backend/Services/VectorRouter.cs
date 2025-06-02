@@ -188,35 +188,34 @@ namespace SwAIvyn.Services
 
         /// <summary>
         /// Searches specified vector store for similar memories.
+        /// Single-user app - no user filtering needed (like character cards).
         /// </summary>
         public async Task<List<(Guid MemoryId, string Content, float Similarity)>> SearchVectorStoreAsync(string query, VectorTarget targetStore, Guid userId, int maxResults = 10)
         {
             try
             {
                 var embedding = await _embeddingService.EmbedTextAsync(query);
-                
+
                 switch (targetStore)
                 {
                     case VectorTarget.Neo4j:
-                        // Use SearchAsync with correct parameters
+                        // Use SearchAsync with correct parameters - no user filtering for single-user app
                         var neoResults = await _brainGraphService.SearchAsync(query, maxResults);
                         return neoResults
-                            .Where(r => r.Hit.Id.ToString().Contains(userId.ToString())) // Filter by ID containing userId as a fallback
                             .Select(r => (
-                                MemoryId: r.Hit.Id, 
-                                Content: r.Hit.Metadata?.GetValueOrDefault("content", "") ?? "", 
+                                MemoryId: r.Hit.Id,
+                                Content: r.Hit.Metadata?.GetValueOrDefault("content", "") ?? "",
                                 Similarity: r.Hit.Score
                             ))
                             .ToList();
 
                     case VectorTarget.Weaviate:
-                        // Use SearchAsync with correct parameters
+                        // Use SearchAsync with correct parameters - no user filtering for single-user app
                         var weaviateResults = await _weaviateVectorStore.SearchAsync(embedding, maxResults);
                         return weaviateResults
-                            .Where(r => r.Metadata?.GetValueOrDefault("userId") == userId.ToString())
                             .Select(r => (
-                                MemoryId: r.Id, 
-                                Content: r.Metadata?.GetValueOrDefault("content", "") ?? "", 
+                                MemoryId: r.Id,
+                                Content: r.Metadata?.GetValueOrDefault("content", "") ?? "",
                                 Similarity: r.Score
                             ))
                             .ToList();
@@ -235,18 +234,19 @@ namespace SwAIvyn.Services
 
         /// <summary>
         /// Fan-out search across all vector stores with intelligent result merging.
+        /// Single-user app - no user filtering needed (like character cards).
         /// </summary>
         public async Task<List<(Guid MemoryId, string Content, float Similarity, VectorTarget Source)>> FanOutSearchAsync(string query, Guid userId, int maxResults = 10)
         {
             try
             {
-                _logger.LogInformation($"🔍 Fan-out search for user {userId}: '{query}'");
+                _logger.LogInformation($"🔍 Fan-out search (global, no user filtering): '{query}'");
 
-                // Execute searches in parallel
+                // Execute searches in parallel - pass Guid.Empty to indicate no user filtering
                 var searchTasks = new[]
                 {
-                    SearchVectorStoreWithSource(query, VectorTarget.Neo4j, userId, maxResults),
-                    SearchVectorStoreWithSource(query, VectorTarget.Weaviate, userId, maxResults)
+                    SearchVectorStoreWithSource(query, VectorTarget.Neo4j, Guid.Empty, maxResults),
+                    SearchVectorStoreWithSource(query, VectorTarget.Weaviate, Guid.Empty, maxResults)
                 };
 
                 var results = await Task.WhenAll(searchTasks);

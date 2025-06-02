@@ -36,7 +36,9 @@ public class MemoryService : IMemoryService
     {
         try
         {
-            _logger.LogInformation("Creating new memory with content length: {ContentLength}", memory.Content?.Length ?? 0);            // Step 1: Determine optimal vector store using intelligent routing
+            _logger.LogInformation("Creating new memory with content length: {ContentLength}", memory.Content?.Length ?? 0);
+
+            // Step 1: Determine optimal vector store using intelligent routing
             var optimalStore = _vectorRouter.DetermineOptimalStore(memory, metadata);
             memory.TargetStore = optimalStore;
 
@@ -46,7 +48,9 @@ public class MemoryService : IMemoryService
             _context.Memories.Add(memory);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Saved memory to SQLite with ID: {MemoryId}", memory.Id);            // Step 3: Add to the determined vector store
+            _logger.LogInformation("Saved memory to SQLite with ID: {MemoryId}", memory.Id);
+
+            // Step 3: Add to the determined vector store
             try
             {
                 await _vectorRouter.AddToVectorStoreAsync(memory, optimalStore, metadata);
@@ -72,10 +76,9 @@ public class MemoryService : IMemoryService
     public async Task<List<MemoryItem>> GetMemoriesAsync(Guid userId, string? category = null)    {
         try
         {
-            _logger.LogInformation("Retrieving memories for user: {UserId}, category: {Category}", userId, category);
+            _logger.LogInformation("Retrieving memories (single-user app), category: {Category}", category);
 
-            var baseQuery = _context.Memories
-                .Where(m => m.UserId == userId);
+            var baseQuery = _context.Memories.AsQueryable();
                 
             if (!string.IsNullOrEmpty(category))
             {
@@ -233,17 +236,31 @@ public class MemoryService : IMemoryService
     public async Task<List<(MemoryItem Memory, float Similarity)>> SearchMemoriesAsync(Guid userId, string query, int maxResults = 10, VectorTarget? targetStore = null)    {
         try
         {
-            _logger.LogInformation("Searching memories for user: {UserId} with query: '{Query}', maxResults: {MaxResults}, targetStore: {TargetStore}", 
-                userId, query, maxResults, targetStore);            // Use fan-out search to query vector stores
+            _logger.LogInformation("Searching global memories (single-user app) with query: '{Query}', maxResults: {MaxResults}, targetStore: {TargetStore}",
+                query, maxResults, targetStore);            // Use fan-out search to query vector stores
             var searchResults = await _vectorRouter.FanOutSearchAsync(query, userId, maxResults);
 
             _logger.LogInformation("Fan-out search returned {Count} results", searchResults.Count);
 
             // Convert search results back to MemoryItem objects by querying SQLite
+            // No user filtering needed for single-user app (like character cards)
             var memoryIds = searchResults.Select(r => r.MemoryId).ToList();
             var memories = await _context.Memories
-                .Where(m => memoryIds.Contains(m.Id) && m.UserId == userId)
+                .Where(m => memoryIds.Contains(m.Id))
                 .ToListAsync();
+
+            // Check for sync issues - if vector stores found memories but SQLite doesn't have them
+            if (searchResults.Count > memories.Count)
+            {
+                _logger.LogWarning("🔄 Sync issue detected: Vector stores found {VectorCount} memories but SQLite only has {SqliteCount}",
+                    searchResults.Count, memories.Count);
+                await SyncOrphanedMemoriesAsync(searchResults, memories, userId);
+
+                // Re-query after sync
+                memories = await _context.Memories
+                    .Where(m => memoryIds.Contains(m.Id))
+                    .ToListAsync();
+            }
 
             // Create result list with similarity scores
             var results = new List<(MemoryItem Memory, float Similarity)>();
@@ -253,6 +270,10 @@ public class MemoryService : IMemoryService
                 if (memory != null)
                 {
                     results.Add((memory, result.Similarity));
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Memory {MemoryId} found in vector store but missing from SQLite after sync attempt", result.MemoryId);
                 }
             }
 
@@ -277,7 +298,7 @@ public class MemoryService : IMemoryService
             // Convert search results back to MemoryItem objects by GUID
             var memoryIds = searchResults.Select(r => r.MemoryId).ToList();
             var memories = await _context.Memories
-                .Where(m => memoryIds.Contains(m.Id) && m.UserId == userId && m.TargetStore == VectorTarget.Neo4j)
+                .Where(m => memoryIds.Contains(m.Id) && m.TargetStore == VectorTarget.Neo4j)
                 .ToListAsync();
 
             _logger.LogInformation("Retrieved {Count} graph memories from Neo4j", memories.Count);
@@ -301,7 +322,7 @@ public class MemoryService : IMemoryService
             // Convert search results back to MemoryItem objects by GUID
             var memoryIds = searchResults.Select(r => r.MemoryId).ToList();
             var memories = await _context.Memories
-                .Where(m => memoryIds.Contains(m.Id) && m.UserId == userId && m.TargetStore == VectorTarget.Weaviate)
+                .Where(m => memoryIds.Contains(m.Id) && m.TargetStore == VectorTarget.Weaviate)
                 .ToListAsync();
 
             _logger.LogInformation("Retrieved {Count} document memories from Weaviate", memories.Count);
@@ -384,9 +405,56 @@ public class MemoryService : IMemoryService
         {
             report.Duration = DateTime.UtcNow - report.ExecutedAt;
             report.Errors = new List<string> { ex.Message };
-            
+
             _logger.LogError(ex, "Reconciliation process failed");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Syncs orphaned memories from vector stores back to SQLite
+    /// </summary>
+    private async Task SyncOrphanedMemoriesAsync(List<(Guid MemoryId, string Content, float Similarity, VectorTarget Source)> vectorResults, List<MemoryItem> sqliteMemories, Guid userId)
+    {
+        try
+        {
+            var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
+            var orphanedResults = vectorResults.Where(r => !sqliteIds.Contains(r.MemoryId)).ToList();
+
+            _logger.LogInformation("🔄 Attempting to sync {Count} orphaned memories from vector stores to SQLite", orphanedResults.Count);
+
+            foreach (var orphaned in orphanedResults)
+            {
+                try
+                {
+                    // Create a new memory record in SQLite based on vector store data
+                    var newMemory = new MemoryItem
+                    {
+                        Id = orphaned.MemoryId,
+                        Content = orphaned.Content ?? "Content recovered from vector store",
+                        Category = "recovered", // Mark as recovered
+                        UserId = userId,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                        LastAccessed = DateTime.UtcNow,
+                        IsShared = false,
+                        TargetStore = orphaned.Source // Use the actual source from the vector result
+                    };
+
+                    _context.Memories.Add(newMemory);
+                    await _context.SaveChangesAsync();
+
+                    _logger.LogInformation("✅ Synced orphaned memory {MemoryId} from {Source} vector store to SQLite", orphaned.MemoryId, orphaned.Source);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Failed to sync orphaned memory {MemoryId}: {Message}", orphaned.MemoryId, ex.Message);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error during orphaned memory sync");
         }
     }
 }

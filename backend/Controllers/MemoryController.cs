@@ -14,18 +14,34 @@ namespace SwAIvyn.Controllers
     public class MemoryController : ControllerBase
     {
         private readonly IMemoryService _memoryService;
+        private readonly ILogger<MemoryController> _logger;
 
-        public MemoryController(IMemoryService memoryService)
+        public MemoryController(IMemoryService memoryService, ILogger<MemoryController> logger)
         {
             _memoryService = memoryService;
+            _logger = logger;
         }
 
-        // GET api/memory?userId={userId}&category={category}
+        // GET api/memory?category={category}
         [HttpGet]
-        public async Task<IActionResult> GetMemories([FromQuery] Guid userId, [FromQuery] string? category = null)
+        public async Task<IActionResult> GetMemories([FromQuery] string? category = null)
         {
-            var memories = await _memoryService.GetMemoriesAsync(userId, category);
-            return Ok(memories);
+            try
+            {
+                _logger.LogInformation("Getting memories (single-user app), category: {Category}", category);
+
+                var memories = await _memoryService.GetMemoriesAsync(Guid.Empty, category);
+
+                _logger.LogInformation("Retrieved {Count} memories", memories.Count);
+
+                var response = new { memories = memories };
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception occurred while getting memories");
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
         }
 
         // GET api/memory/graph?userId={userId}&category={category}&maxResults={maxResults}
@@ -69,31 +85,49 @@ namespace SwAIvyn.Controllers
             return Ok(response);
         }
 
-        // POST api/memory?userId={userId}
+        // POST api/memory
         [HttpPost]
-        public async Task<IActionResult> CreateMemory(
-            [FromQuery] Guid userId,
-            [FromBody] CreateMemoryRequest request)
+        public async Task<IActionResult> CreateMemory([FromBody] CreateMemoryRequest request)
         {
-            var memory = new MemoryItem
+            try
             {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                Content = request.Content,
-                Category = request.Category,
-                IsShared = request.IsShared,
-                CreatedAt = DateTime.UtcNow,
-                LastAccessed = DateTime.UtcNow,
-                TargetStore = request.TargetStore ?? VectorTarget.Neo4j
-            };
+                _logger.LogInformation("Creating global memory (single-user app) with content: {Content}", request.Content);
 
-            var (success, created) = await _memoryService.CreateMemoryAsync(memory);
-            if (!success || created == null)
-                return BadRequest("Memory creation failed");
+                var memory = new MemoryItem
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = Guid.Empty, // Use Guid.Empty for global memories (single-user app like character cards)
+                    Content = request.Content,
+                    Category = request.Category,
+                    IsShared = request.IsShared,
+                    CreatedAt = DateTime.UtcNow,
+                    LastAccessed = DateTime.UtcNow,
+                    TargetStore = request.TargetStore ?? VectorTarget.Neo4j
+                };
 
-            return CreatedAtAction(nameof(GetMemories),
-                new { userId, category = (string?)null },
-                created);
+                _logger.LogInformation("Memory object created with ID {MemoryId}, calling CreateMemoryAsync", memory.Id);
+
+                var (success, created) = await _memoryService.CreateMemoryAsync(memory);
+
+                _logger.LogInformation("CreateMemoryAsync returned: success={Success}, created={Created}", success, created != null);
+
+                if (!success || created == null)
+                {
+                    _logger.LogWarning("Memory creation failed: success={Success}, created={Created}", success, created != null);
+                    return BadRequest("Memory creation failed");
+                }
+
+                _logger.LogInformation("Memory created successfully with ID {MemoryId}", created.Id);
+
+                return CreatedAtAction(nameof(GetMemories),
+                    new { category = (string?)null },
+                    created);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception occurred while creating memory");
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
         }
 
         // PUT api/memory/{id}?userId={userId}

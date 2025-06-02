@@ -71,6 +71,20 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
+        /// Gets all global character profiles (not tied to any specific user).
+        /// </summary>
+        /// <returns>List of global character profiles</returns>
+        [HttpGet("global")]
+        public async Task<IActionResult> GetGlobalCharacters()
+        {
+            var characters = await _dbContext.Avatars
+                .Where(c => c.UserId == Guid.Empty)
+                .ToListAsync();
+
+            return Ok(characters);
+        }
+
+        /// <summary>
         /// Creates a new character profile.
         /// </summary>
         /// <param name="request">Character creation request</param>
@@ -143,7 +157,7 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Uploads and creates a character from a JSON character card
+        /// Uploads and creates a character from a YAML character card
         /// </summary>
         /// <param name="request">Character card upload request</param>
         /// <returns>The created character</returns>
@@ -152,39 +166,51 @@ namespace SwAIvyn.Controllers
         {
             try
             {
-                var characterCard = System.Text.Json.JsonSerializer.Deserialize<CharacterCard>(request.CharacterCardJson);
+                // Parse YAML to extract character data
+                var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                    .IgnoreUnmatchedProperties()
+                    .Build();
+
+                var yamlData = deserializer.Deserialize<Dictionary<string, object>>(request.CharacterCardYaml);
+
+                // Helper function to safely get values from YAML
+                string GetValueOrDefault(Dictionary<string, object> data, string key, string defaultValue = "")
+                {
+                    if (data.ContainsKey(key) && data[key] != null)
+                        return data[key].ToString();
+                    return defaultValue;
+                }
 
                 var character = new SwAIvyn.Data.Entities.AvatarInfo
                 {
                     Id = Guid.NewGuid(),
                     UserId = request.UserId,
-                    Name = characterCard.Name ?? "Unnamed Character",
-                    Description = characterCard.Description ?? "",
-                    Personality = characterCard.Personality ?? "",
-                    Scenario = characterCard.Scenario ?? "",
-                    FirstMessage = characterCard.FirstMessage ?? "",
-                    MessageExample = characterCard.MessageExample ?? "",
-                    SystemPrompt = characterCard.Data?.SystemPrompt ?? "",
-                    PostHistoryInstructions = characterCard.Data?.PostHistoryInstructions ?? "",
-                    AlternateGreetings = System.Text.Json.JsonSerializer.Serialize(characterCard.Data?.AlternateGreetings ?? new string[0]),
-                    Tags = System.Text.Json.JsonSerializer.Serialize(characterCard.Tags ?? new string[0]),
-                    Creator = characterCard.Data?.Creator ?? "",
-                    CreatorNotes = characterCard.Data?.CreatorNotes ?? characterCard.CreatorComment ?? "",
-                    CharacterVersion = characterCard.Data?.CharacterVersion ?? "1.0",
-                    Talkativeness = float.TryParse(characterCard.Talkativeness, out float talk) ? talk : 0.5f,
-                    IsFavorite = characterCard.Fav,
-                    Extensions = System.Text.Json.JsonSerializer.Serialize(characterCard.Data?.Extensions ?? new object()),
+                    Name = GetValueOrDefault(yamlData, "name", "Unnamed Character"),
+                    Description = GetValueOrDefault(yamlData, "description"),
+                    Personality = GetValueOrDefault(yamlData, "personality"),
+                    Scenario = GetValueOrDefault(yamlData, "scenario"),
+                    FirstMessage = GetValueOrDefault(yamlData, "first_message"),
+                    MessageExample = GetValueOrDefault(yamlData, "message_example"),
+                    CreatorNotes = GetValueOrDefault(yamlData, "creator_notes"),
+                    CharacterVersion = GetValueOrDefault(yamlData, "character_version", "1.0"),
+                    Talkativeness = float.TryParse(GetValueOrDefault(yamlData, "talkativeness", "0.5"), out float talk) ? talk : 0.5f,
+                    IsFavorite = bool.TryParse(GetValueOrDefault(yamlData, "favorite", "false"), out bool fav) && fav,
+                    Tags = yamlData.ContainsKey("tags") && yamlData["tags"] is List<object> tagList
+                        ? System.Text.Json.JsonSerializer.Serialize(tagList.Select(t => t.ToString()).ToArray())
+                        : "[]",
+                    Creator = "SwAIvyn",
+                    PostHistoryInstructions = "",
+                    AlternateGreetings = "[]",
+                    Extensions = "{}",
+                    YamlProfile = request.CharacterCardYaml,
                     ImagePath = "default-avatar.png", // Will be updated when image is uploaded
-                    VoiceSettings = "default",
+                    VoiceSettings = "{}",
                     CreatedAt = DateTime.UtcNow,
                     LastModified = DateTime.UtcNow
                 };
 
-                // Generate system prompt if not provided
-                if (string.IsNullOrEmpty(character.SystemPrompt))
-                {
-                    character.SystemPrompt = GenerateSystemPromptFromCharacterData(character);
-                }
+                // Generate system prompt using the CharacterService
+                character.SystemPrompt = CharacterService.ConvertYamlToPrompt(request.CharacterCardYaml);
 
                 _dbContext.Avatars.Add(character);
                 await _dbContext.SaveChangesAsync();
@@ -349,6 +375,45 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        /// <summary>
+        /// Sets the default character for a user
+        /// </summary>
+        /// <param name="request">Default character request</param>
+        /// <returns>Success response</returns>
+        [HttpPost("set-default")]
+        public async Task<IActionResult> SetDefaultCharacter([FromBody] SetCharacterDefaultRequest request)
+        {
+            try
+            {
+                // Verify the character exists for this user
+                var character = await _dbContext.Avatars
+                    .FirstOrDefaultAsync(a => a.Id == request.CharacterId && a.UserId == request.UserId);
+
+                if (character == null)
+                {
+                    return NotFound("Character not found for this user");
+                }
+
+                // Update the user's LastSelectedCharacterId
+                var user = await _dbContext.Users.FindAsync(request.UserId);
+                if (user != null)
+                {
+                    user.LastSelectedCharacterId = request.CharacterId;
+                    await _dbContext.SaveChangesAsync();
+                }
+
+                // Also set it in settings for persistence
+                var settingsService = HttpContext.RequestServices.GetRequiredService<ISettingsService>();
+                await settingsService.SetDefaultCharacterAsync(request.UserId, request.CharacterId.ToString());
+
+                return Ok(new { success = true, message = "Default character set successfully", characterName = character.Name });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error setting default character: {ex.Message}");
+            }
+        }
+
         // REMOVED: Filesystem loading endpoints - database-only approach
         // Users should upload YAML files through the upload endpoints instead
 
@@ -453,7 +518,7 @@ namespace SwAIvyn.Controllers
     public class UploadCharacterCardRequest
     {
         public Guid UserId { get; set; }
-        public string CharacterCardJson { get; set; }
+        public string CharacterCardYaml { get; set; }
     }
 
     /// <summary>
@@ -463,6 +528,15 @@ namespace SwAIvyn.Controllers
     {
         public Guid UserId { get; set; }
         public string YamlProfile { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for setting character default (Character Controller specific)
+    /// </summary>
+    public class SetCharacterDefaultRequest
+    {
+        public Guid UserId { get; set; }
+        public Guid CharacterId { get; set; }
     }
 
     /// <summary>

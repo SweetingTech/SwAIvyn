@@ -316,8 +316,9 @@ namespace SwAIvyn.Services.Graph
                 // Generate embedding for the query
                 var queryEmbedding = await _embeddingService.EmbedTextAsync(query);
 
-                // Search Neo4j vector store for memories
-                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, limit);
+                // Search Neo4j vector store for memories WITHOUT user filtering
+                // Single-user application - no user filtering needed (like character cards)
+                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, null, limit);
 
                 var results = new List<BrainSearchResult>();
                 foreach (var hit in hits)
@@ -505,8 +506,9 @@ namespace SwAIvyn.Services.Graph
                 // Generate embedding for the query
                 var queryEmbedding = await _embeddingService.EmbedTextAsync(query);
 
-                // Search Neo4j vector store for conversation chunks
-                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, limit);
+                // Search Neo4j vector store for conversation chunks WITHOUT user filtering
+                // Single-user application - no user filtering needed (like character cards)
+                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, null, limit);
 
                 var results = new List<BrainSearchResult>();
                 foreach (var hit in hits)
@@ -671,12 +673,9 @@ namespace SwAIvyn.Services.Graph
             {
                 _logger.LogInfo($"Getting all memory IDs for user {userId}");
 
-                // Query Neo4j for all memory nodes for this user
-                var query = "MATCH (m:Memory) WHERE m.userId = $userId RETURN m.id as memoryId";
-                var parameters = new Dictionary<string, object>
-                {
-                    { "userId", userId.ToString() }
-                };
+                // Query Neo4j for all memory nodes (global memories for single-user app)
+                var query = "MATCH (m:Memory) RETURN m.id as memoryId";
+                var parameters = new Dictionary<string, object>();
 
                 var result = await _neo4jService.ExecuteQueryAsync(query, parameters);
                 var memoryIds = new List<Guid>();

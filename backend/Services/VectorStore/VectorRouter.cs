@@ -33,25 +33,20 @@ namespace SwAIvyn.Services.VectorStore
         {
             try
             {
-                _logger.LogInfo($"[VECTOR_ROUTER] Searching memories for user {userId} with query: '{query}'");
+                _logger.LogInfo($"[VECTOR_ROUTER] Searching memories (global, no user filtering) with query: '{query}'");
 
                 // Generate embedding for the query
                 var queryVector = await _embeddingService.EmbedTextAsync(query);
 
-                // Search in Neo4j for memories
-                var results = await _neo4jStore.SearchAsync(queryVector, k, VectorScope.All);
+                // Search in Neo4j for memories WITHOUT user ID filtering (single-user app like character cards)
+                var results = await _neo4jStore.SearchAsync(queryVector, null, k, VectorScope.All);
 
-                // Filter by userId if metadata contains it
-                var filteredResults = results
-                    .Where(hit => hit.Metadata?.GetValueOrDefault("userId") == userId.ToString())
-                    .ToList();
-
-                _logger.LogInfo($"[VECTOR_ROUTER] Found {filteredResults.Count} memory results for user {userId}");
-                return filteredResults.AsReadOnly();
+                _logger.LogInfo($"[VECTOR_ROUTER] Found {results.Count} global memory results");
+                return results;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[VECTOR_ROUTER] Error searching memories for user {userId}", ex);
+                _logger.LogError($"[VECTOR_ROUTER] Error searching global memories", ex);
                 return new List<SearchHit>().AsReadOnly();
             }
         }

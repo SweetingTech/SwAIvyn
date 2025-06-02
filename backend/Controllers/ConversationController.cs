@@ -403,7 +403,14 @@ namespace SwAIvyn.Controllers
                     if (Guid.TryParse(characterId, out var characterGuid))
                     {
                         _logger.LogInfo($"[CHARACTER_LOAD] Loading character from database with GUID: {characterGuid}");
-                        character = await _dbContext.Avatars.FirstOrDefaultAsync(a => a.Id == characterGuid && a.UserId == userId);
+                        // First try to find global character (UserId = Guid.Empty)
+                        character = await _dbContext.Avatars.FirstOrDefaultAsync(a => a.Id == characterGuid && a.UserId == Guid.Empty);
+
+                        // If not found globally, try with the specific user ID (for backward compatibility)
+                        if (character == null)
+                        {
+                            character = await _dbContext.Avatars.FirstOrDefaultAsync(a => a.Id == characterGuid && a.UserId == userId);
+                        }
 
                         if (character != null)
                         {
@@ -423,7 +430,7 @@ namespace SwAIvyn.Controllers
                         }
                         else
                         {
-                            _logger.LogError($"[CHARACTER_LOAD] ❌ No character found in database with GUID: {characterGuid} for user {userId}");
+                            _logger.LogError($"[CHARACTER_LOAD] ❌ No character found in database with GUID: {characterGuid} (searched globally and for user {userId})");
                             throw new ArgumentException($"Character with ID {characterId} not found");
                         }
                     }

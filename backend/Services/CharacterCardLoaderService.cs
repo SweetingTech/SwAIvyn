@@ -34,8 +34,9 @@ namespace SwAIvyn.Services
                 .IgnoreUnmatchedProperties()
                 .Build();
 
-            // Path to character cards directory
-            _characterCardsPath = Path.Combine(Directory.GetCurrentDirectory(), "frontend", "AI");
+            // Path to character cards directory - use current directory (SwAIvyn root), then to frontend/AI
+            var currentDirectory = Directory.GetCurrentDirectory();
+            _characterCardsPath = Path.Combine(currentDirectory, "frontend", "AI");
         }
 
         /// <summary>
@@ -117,20 +118,12 @@ namespace SwAIvyn.Services
                     _logger.LogInformation("Found image file: {ImageFile}", imagePath);
                 }
 
-                // Get default user ID
-                var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
-                if (defaultUser == null)
-                {
-                    _logger.LogWarning("No default user found, skipping character: {CharacterName}", characterName);
-                    return;
-                }
-
                 // Calculate hash of YAML content for comparison
                 string yamlHash = CalculateHash(yamlContent);
 
-                // Check if character already exists (case-insensitive)
+                // Check if character already exists globally (case-insensitive)
                 var existingCharacter = await _dbContext.Avatars
-                    .FirstOrDefaultAsync(a => a.Name.ToLower() == characterData.Name.ToLower() && a.UserId == defaultUser.Id);
+                    .FirstOrDefaultAsync(a => a.Name.ToLower() == characterData.Name.ToLower());
 
                 if (existingCharacter != null)
                 {
@@ -150,7 +143,7 @@ namespace SwAIvyn.Services
                 else
                 {
                     _logger.LogInformation("Creating new character: {CharacterName}", characterData.Name);
-                    await CreateNewCharacterAsync(defaultUser.Id, characterData, yamlContent, imagePath);
+                    await CreateNewCharacterAsync(characterData, yamlContent, imagePath);
                 }
             }
             catch (Exception ex)
@@ -162,12 +155,12 @@ namespace SwAIvyn.Services
         /// <summary>
         /// Creates a new character in the database
         /// </summary>
-        private async Task CreateNewCharacterAsync(Guid userId, CharacterCardData characterData, string yamlContent, string imagePath)
+        private async Task CreateNewCharacterAsync(CharacterCardData characterData, string yamlContent, string imagePath)
         {
             var character = new AvatarInfo
             {
                 Id = Guid.NewGuid(),
-                UserId = userId,
+                UserId = Guid.Empty, // No user association for global characters
                 Name = characterData.Name ?? "Unknown Character",
                 Description = characterData.Description ?? "",
                 Personality = characterData.Personality ?? "",
@@ -208,14 +201,14 @@ namespace SwAIvyn.Services
             {
                 // Reload the character to get the latest version and avoid concurrency issues
                 var characterToUpdate = await _dbContext.Avatars
-                    .FirstOrDefaultAsync(a => a.Id == existingCharacter.Id && a.UserId == existingCharacter.UserId);
+                    .FirstOrDefaultAsync(a => a.Id == existingCharacter.Id);
 
                 if (characterToUpdate == null)
                 {
                     _logger.LogWarning("Character {CharacterName} with ID {CharacterId} not found for update, creating new character instead", existingCharacter.Name, existingCharacter.Id);
 
                     // Character is corrupted/missing, create a new one
-                    await CreateNewCharacterAsync(existingCharacter.UserId, characterData, yamlContent, imagePath);
+                    await CreateNewCharacterAsync(characterData, yamlContent, imagePath);
                     return;
                 }
 

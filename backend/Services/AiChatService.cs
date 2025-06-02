@@ -273,10 +273,10 @@ namespace SwAIvyn.Services
                 await _conversationService.AppendMessageAsync(conversationId, userId, "assistant", aiResponse);
                 _logger.LogInfo("✅ AI response stored successfully");
 
-                // Auto-memory logic and conversation chunk storage
+                // Auto-memory logic (only when explicitly requested)
                 await ProcessAutoMemoryAsync(userMessage, aiResponse, userId, saveMemory, memoryCategory);
 
-                // Store conversation chunk for future retrieval
+                // Store conversation chunk in Weaviate for future retrieval (NOT Neo4j)
                 await ProcessConversationChunkAsync(userMessage, aiResponse, userId, conversationId);
 
                 return aiResponse;
@@ -427,17 +427,11 @@ namespace SwAIvyn.Services
         /// </summary>
         private static bool IsMemorableContent(string userMessage, string aiResponse)
         {
-            // Make auto-memory detection much more selective to reduce noise
-            
-            // Only consider explicitly stated personal information
-            var personalKeywords = new[]
-            {
-                "my name is", "remember that i", "remember that my", "don't forget that i", "don't forget that my",
-                "important to remember", "please remember", "you should know that i", "you should know that my",
-                "for future reference", "keep in mind that i", "keep in mind that my"
-            };
+            // DISABLED: Auto-memory detection is too aggressive and saves user questions as memories
+            // Only save memories when explicitly requested with "remember:" prefix
+            // Conversation chunks are handled separately for context retrieval
 
-            // Only consider explicitly requested memory storage
+            // Only consider explicitly requested memory storage with "remember:" prefix
             var memoryRequestKeywords = new[]
             {
                 "remember this", "save this", "store this", "memorize this", "note this down",
@@ -446,26 +440,16 @@ namespace SwAIvyn.Services
 
             var combinedText = (userMessage + " " + aiResponse).ToLowerInvariant();
 
-            // Check for explicit personal information statements
-            if (personalKeywords.Any(keyword => combinedText.Contains(keyword)))
-            {
-                return true;
-            }
-
-            // Check for explicit memory requests
+            // Check for explicit memory requests only
             if (memoryRequestKeywords.Any(keyword => combinedText.Contains(keyword)))
             {
                 return true;
             }
 
-            // Only save very long, detailed responses to complex questions (indicating learning)
-            if (userMessage.Contains("?") && aiResponse.Length > 500 && 
-                (combinedText.Contains("explain") || combinedText.Contains("how to") || combinedText.Contains("what is") || combinedText.Contains("why")))
-            {
-                return true;
-            }
+            // DISABLED: Personal information detection is too aggressive
+            // DISABLED: Question-based memory detection saves user questions instead of facts
 
-            // Don't auto-save casual conversations, greetings, or simple questions
+            // Don't auto-save anything else - use explicit "remember:" prefix or memory request keywords only
             return false;
         }
 
@@ -526,7 +510,7 @@ Example conversation:
         }
 
         /// <summary>
-        /// Processes conversation chunks for future retrieval
+        /// Processes conversation chunks for future retrieval - stores in Weaviate, NOT Neo4j
         /// </summary>
         private async Task ProcessConversationChunkAsync(string userMessage, string aiResponse, Guid userId, Guid conversationId)
         {
@@ -543,25 +527,40 @@ Example conversation:
                 }
 
                 var chunkId = Guid.NewGuid();
+
+                // Create a memory item for the conversation chunk that will be routed to Weaviate
+                var conversationMemory = new MemoryItem
+                {
+                    Id = chunkId,
+                    UserId = userId,
+                    Content = chunkContent,
+                    Category = "conversation-chunk",
+                    IsShared = false,
+                    CreatedAt = DateTime.UtcNow,
+                    LastAccessed = DateTime.UtcNow,
+                    TargetStore = VectorTarget.Weaviate // Force to Weaviate, not Neo4j
+                };
+
+                // Additional metadata for conversation chunks
                 var metadata = new Dictionary<string, string>
                 {
                     { "userId", userId.ToString() },
                     { "conversationId", conversationId.ToString() },
                     { "timestamp", DateTime.UtcNow.ToString("O") },
                     { "source", "chat-exchange" },
-                    { "content", chunkContent }
+                    { "type", "conversation-chunk" }
                 };
 
-                // Store conversation chunk in Neo4j for future retrieval
-                var success = await _brainGraphService.AddConversationChunkAsync(chunkId, chunkContent, metadata);
+                // Store conversation chunk in Weaviate via MemoryService
+                var (success, createdMemory) = await _memoryService.CreateMemoryAsync(conversationMemory, metadata);
 
                 if (success)
                 {
-                    _logger.LogInfo($"✅ Conversation chunk stored successfully - ID: {chunkId}");
+                    _logger.LogInfo($"✅ Conversation chunk stored in Weaviate - ID: {chunkId}");
                 }
                 else
                 {
-                    _logger.LogWarning($"⚠️ Failed to store conversation chunk - ID: {chunkId}");
+                    _logger.LogWarning($"⚠️ Failed to store conversation chunk in Weaviate - ID: {chunkId}");
                 }
             }
             catch (Exception ex)
@@ -606,16 +605,18 @@ Example conversation:
                 // Continue without memories - don't fail the entire request
             }
 
-            // 2. Search for relevant conversation chunks using MemoryService
+            // 2. Search for relevant conversation chunks in Weaviate (not Neo4j)
             try
             {
-                _logger.LogInfo("💬 Fallback: Searching for relevant conversation chunks...");
-                var conversationResults = await _memoryService.GetGraphMemoriesAsync(userId, userMessage, maxResults: 3);
+                _logger.LogInfo("💬 Fallback: Searching for relevant conversation chunks in Weaviate...");
+
+                // Search for conversation chunks specifically in Weaviate by category
+                var conversationResults = await _memoryService.SearchMemoriesAsync(userId, userMessage, maxResults: 3, category: "conversation-chunk");
 
                 if (conversationResults.Any())
                 {
                     _logger.LogInfo($"✅ Found {conversationResults.Count} relevant conversation chunks");
-                    var conversationTexts = conversationResults.Select(m => $"- {m.Content}").ToList();
+                    var conversationTexts = conversationResults.Select(m => $"- {m.Memory.Content}").ToList();
 
                     if (conversationTexts.Any())
                     {

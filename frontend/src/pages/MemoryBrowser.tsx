@@ -23,22 +23,21 @@ const MemoryBrowser: React.FC<MemoryBrowserProps> = ({ userId }) => {
   const [newCategory, setNewCategory] = useState('');
   const [newIsShared, setNewIsShared] = useState(false);
 
-  // Fetch memories for the user
+  // Fetch memories for the single-user app
   useEffect(() => {
-    fetch(`/api/memory/${userId}`)
+    fetch(`/api/memory`)
       .then(res => res.json())
-      .then(data => setMemories(data))
+      .then(responseData => setMemories(responseData.memories || []))
       .catch(console.error);
-  }, [userId]);
+  }, []);
 
   // Create a new memory
   const createMemory = async () => {
     if (!newContent.trim()) return;
-    const response = await fetch('/api/memory', {
+    const response = await fetch(`/api/memory`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId,
         content: newContent,
         category: newCategory,
         isShared: newIsShared

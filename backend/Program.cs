@@ -808,7 +808,7 @@ app.MapFallback(context =>
     logger.LogInfo($"[FALLBACK] Serving index.html for SPA route: {path}");
     // Serve index.html for SPA routes
     context.Response.ContentType = "text/html";
-    return context.Response.SendFileAsync("wwwroot/index.html");
+    return context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "index.html"));
 });
 logger.LogInfo("[ROUTING] SPA fallback configured");
 

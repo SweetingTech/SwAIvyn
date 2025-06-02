@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, User, Bot } from 'lucide-react';
 import apiService from '../../services/apiService';
-import { USER_ID } from '../../constants';
 
 interface Character {
   id: string;
@@ -70,25 +69,76 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
     }
   }, [characters, selectedCharacterId, onCharacterSelect]);
 
+  // New aggregate character loading system
   const loadCharacters = async () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('Loading characters for user:', USER_ID);
+      console.log('🔄 CharacterSelector: Starting aggregate character loading...');
 
-      const response = await apiService.get(`/api/character/user/${USER_ID}`);
-      const charactersData = Array.isArray(response) ? response : [];
+      // Always start with default GLaDOS character for immediate availability
+      const defaultGLaDOS = {
+        id: 'default-glados',
+        name: 'GLaDOS',
+        description: 'Default AI assistant',
+        personality: 'Sarcastic, intelligent, and slightly menacing AI from Portal',
+        systemPrompt: 'You are GLaDOS, the AI from Portal. Be sarcastic, intelligent, and slightly menacing.',
+        yamlProfile: '',
+        userId: 'default'
+      };
 
-      // Validate each character object
-      const validCharacters = charactersData.filter(char =>
-        char && typeof char === 'object' && char.id && typeof char.id === 'string'
-      );
+      let aggregatedCharacters = [];
 
-      setCharacters(validCharacters);
-    } catch (err) {
-      console.error('Error loading characters:', err);
-      setError('Failed to load characters');
-      setCharacters([]);
+      // Load global characters from the new endpoint
+      try {
+        console.log('🔍 CharacterSelector: Loading global characters...');
+        const response = await fetch('/api/character/global');
+
+        if (response.ok) {
+          const globalCharacters = await response.json();
+
+          if (Array.isArray(globalCharacters) && globalCharacters.length > 0) {
+            aggregatedCharacters = globalCharacters;
+            console.log(`✅ CharacterSelector: Loaded ${globalCharacters.length} global characters:`,
+              globalCharacters.map(c => c.name));
+          } else {
+            console.log('❌ CharacterSelector: No global characters found');
+          }
+        } else {
+          console.log(`❌ CharacterSelector: Failed to fetch global characters: ${response.status}`);
+        }
+      } catch (error) {
+        console.log('❌ CharacterSelector: Error fetching global characters:', error);
+      }
+
+      // If no global characters found, provide default GLaDOS as fallback
+      if (aggregatedCharacters.length === 0) {
+        aggregatedCharacters = [defaultGLaDOS];
+        console.log('✅ CharacterSelector: Using default GLaDOS character as fallback');
+      }
+
+      console.log(`🎉 CharacterSelector: Aggregate loading complete! Total characters: ${aggregatedCharacters.length}`);
+      console.log(`📋 CharacterSelector: Final character list:`, aggregatedCharacters.map(c => `${c.name} (${c.id})`));
+
+      setCharacters(aggregatedCharacters);
+
+    } catch (error) {
+      console.error('💥 CharacterSelector: Critical error in aggregate loading:', error);
+
+      // Ultimate fallback - just GLaDOS
+      const fallbackGLaDOS = {
+        id: 'fallback-glados',
+        name: 'GLaDOS',
+        description: 'Fallback AI assistant',
+        personality: 'Sarcastic, intelligent, and slightly menacing AI from Portal',
+        systemPrompt: 'You are GLaDOS, the AI from Portal. Be sarcastic, intelligent, and slightly menacing.',
+        yamlProfile: '',
+        userId: 'fallback'
+      };
+
+      setCharacters([fallbackGLaDOS]);
+      console.log('🆘 CharacterSelector: Using ultimate fallback GLaDOS character');
+
     } finally {
       setLoading(false);
     }
@@ -156,23 +206,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
             </div>
           ) : (
             <>
-              {/* Default option */}
-              <button
-                onClick={() => handleCharacterSelect(null)}
-                className={`w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-gray-50 ${
-                  !selectedCharacterId ? 'bg-blue-50 border-r-2 border-blue-500' : ''
-                }`}
-              >
-                <User size={16} className="text-gray-400" />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">
-                    Default (GLaDOS)
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Default AI assistant
-                  </div>
-                </div>
-              </button>
+              {/* No default option needed - GLaDOS is now in the character list */}
 
               {/* Character options */}
               {characters.map((character) => (

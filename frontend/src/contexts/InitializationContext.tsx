@@ -77,10 +77,10 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
 
       // Step 3: Load characters
       updateState({ currentStep: 'Loading characters...' });
-      const charactersResponse = await fetch(`/api/character/user/${user.id}`);
+      const charactersResponse = await fetch('/api/character/global');
       if (charactersResponse.ok) {
         const characters = await charactersResponse.json();
-        console.log('✅ Characters loaded:', characters.length, 'characters');
+        console.log('✅ Global characters loaded:', characters.length, 'characters');
       }
 
       // Step 4: Complete initialization

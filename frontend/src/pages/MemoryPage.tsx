@@ -42,15 +42,13 @@ const MemoryPage = () => {
     try {
       setLoading(true);
 
-      // Use the default and only user ID for this application
-      const userId = '00000000-0000-0000-0000-000000000001';
-
-      // Load memories from API
-      const response = await fetch(`/api/memory/${userId}`);
+      // Load memories from API (single-user app, no user ID needed)
+      const response = await fetch(`/api/memory`);
       if (response.ok) {
-        const data: MemoryItemFromAPI[] = await response.json();
+        const responseData = await response.json();
+        const data: MemoryItemFromAPI[] = responseData.memories || [];
         // Map API response to frontend format
-        const mappedMemories: Memory[] = (data || []).map(item => ({
+        const mappedMemories: Memory[] = data.map(item => ({
           id: item.id,
           title: item.content, // Use content as title
           category: item.category || 'Personal',
@@ -77,15 +75,13 @@ const MemoryPage = () => {
 
     try {
       setCreating(true);
-      const userId = '00000000-0000-0000-0000-000000000001';
 
-      const response = await fetch('/api/memory', {
+      const response = await fetch(`/api/memory`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: userId,
           content: newMemoryContent,
           category: newMemoryCategory,
           isShared: newMemoryShared
@@ -166,8 +162,8 @@ const MemoryPage = () => {
             Add Memory          </button>
         </div>
 
-        {/* Memory Sync Status */}
-        <MemorySyncStatus userId="00000000-0000-0000-0000-000000000001" />
+        {/* Memory Sync Status - Single User App */}
+        <MemorySyncStatus />
 
         <div className="bg-white rounded-lg shadow-soft">
           {/* Search and Filter */}

@@ -172,8 +172,10 @@ namespace SwAIvyn.Services.Graph
                     "Memory.id uniqueness constraint"
                 );
 
+                // Get vector dimensions from configuration
+                var vectorDimensions = _configuration.GetValue<int>("AppSettings:VectorDimensions", 768);
                 await ExecuteDdlQueryAsync(
-                    "CREATE VECTOR INDEX memory_embedding_vector IF NOT EXISTS FOR (m:Memory) ON (m.embedding) OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}",
+                    $"CREATE VECTOR INDEX memory_embeddings IF NOT EXISTS FOR (m:Memory) ON (m.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {vectorDimensions}, `vector.similarity_function`: 'cosine'}}}}",
                     "Memory.embedding vector index"
                 );
 

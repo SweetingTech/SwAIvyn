@@ -12,7 +12,10 @@ import {
   XCircle,
   Clock,
   Users,
-  Zap
+  Zap,
+  HardDrive,
+  Network,
+  FileText
 } from 'lucide-react';
 import { useInitialization } from '../contexts/InitializationContext';
 
@@ -22,7 +25,10 @@ interface SystemStatus {
   llmConnected: boolean;
   charactersLoaded: number;
   memoryItems: number;
+  conversationChunks: number;
   chatSessions: number;
+  neo4jConnected: boolean;
+  weaviateConnected: boolean;
   uptime: string;
   lastActivity: string;
 }
@@ -35,7 +41,10 @@ const DashboardPage = () => {
     llmConnected: false,
     charactersLoaded: 0,
     memoryItems: 0,
+    conversationChunks: 0,
     chatSessions: 0,
+    neo4jConnected: false,
+    weaviateConnected: false,
     uptime: '0m',
     lastActivity: 'Never'
   });
@@ -91,25 +100,90 @@ const DashboardPage = () => {
         actualModel = 'Connection failed';
       }
 
-      // Get character count using user ID from context
+      // Get character count - try global characters first, then user-specific
       let charactersLoaded = 0;
       try {
-        const charResponse = await fetch(`/api/character/user/${userId}`);
-        if (charResponse.ok) {
-          const characters = await charResponse.json();
-          charactersLoaded = Array.isArray(characters) ? characters.length : 0;
+        // First try global characters (UserId = Guid.Empty)
+        const globalCharResponse = await fetch('/api/character/global');
+        if (globalCharResponse.ok) {
+          const globalCharacters = await globalCharResponse.json();
+          charactersLoaded += Array.isArray(globalCharacters) ? globalCharacters.length : 0;
+        }
+
+        // Then try user-specific characters
+        const userCharResponse = await fetch(`/api/character/user/${userId}`);
+        if (userCharResponse.ok) {
+          const userCharacters = await userCharResponse.json();
+          charactersLoaded += Array.isArray(userCharacters) ? userCharacters.length : 0;
         }
       } catch {
         charactersLoaded = 0;
       }
 
+      // Get memory counts from the memory API
+      let memoryItems = 0;
+      let conversationChunks = 0;
+      try {
+        const memoryResponse = await fetch('/api/memory');
+        if (memoryResponse.ok) {
+          const memoryData = await memoryResponse.json();
+          if (memoryData.memories && Array.isArray(memoryData.memories)) {
+            // Count explicit memories (not conversation chunks)
+            memoryItems = memoryData.memories.filter(m => m.category !== 'conversation-chunk').length;
+            // Count conversation chunks separately
+            conversationChunks = memoryData.memories.filter(m => m.category === 'conversation-chunk').length;
+          }
+        }
+      } catch {
+        memoryItems = 0;
+        conversationChunks = 0;
+      }
+
+      // Get vector store health status
+      let neo4jConnected = false;
+      let weaviateConnected = false;
+      try {
+        const healthResponse = await fetch('/api/healthcheck');
+        if (healthResponse.ok) {
+          const healthData = await healthResponse.json();
+          neo4jConnected = healthData.services?.neo4j?.status === 'online';
+          weaviateConnected = healthData.services?.weaviate?.status === 'online';
+        }
+      } catch {
+        // Fallback to individual health checks
+        try {
+          const neo4jResponse = await fetch('/api/healthcheck/neo4j');
+          neo4jConnected = neo4jResponse.ok;
+        } catch {}
+
+        try {
+          const weaviateResponse = await fetch('/api/healthcheck/weaviate');
+          weaviateConnected = weaviateResponse.ok;
+        } catch {}
+      }
+
+      // Get chat sessions count
+      let chatSessions = 0;
+      try {
+        const conversationsResponse = await fetch(`/api/conversation/user/${userId}`);
+        if (conversationsResponse.ok) {
+          const conversations = await conversationsResponse.json();
+          chatSessions = Array.isArray(conversations) ? conversations.length : 0;
+        }
+      } catch {
+        chatSessions = 0;
+      }
+
       setSystemStatus({
         llmEngine: llmData.engine || 'Unknown',
-        llmModel: llmData.model || 'Not selected',
+        llmModel: llmData.model || 'Not selected', // Use the database model setting
         llmConnected,
         charactersLoaded,
-        memoryItems: 0, // TODO: Implement memory count API
-        chatSessions: 0, // TODO: Implement chat sessions count API
+        memoryItems,
+        conversationChunks,
+        chatSessions,
+        neo4jConnected,
+        weaviateConnected,
         uptime: calculateUptime(),
         lastActivity: new Date().toLocaleTimeString()
       });
@@ -158,7 +232,7 @@ const DashboardPage = () => {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* LLM Status */}
             <StatusCard
               title="LLM Engine"
@@ -178,20 +252,51 @@ const DashboardPage = () => {
               status="info"
             />
 
-            {/* Memory Items */}
+            {/* Memory Items (Neo4j) */}
             <StatusCard
-              title="Memory"
+              title="Memories"
               value={systemStatus.memoryItems.toString()}
-              subtitle="Stored memories"
+              subtitle="Explicit memories (Neo4j)"
               icon={<Brain size={24} />}
-              status="info"
+              status={systemStatus.neo4jConnected ? 'connected' : 'disconnected'}
+              statusIcon={systemStatus.neo4jConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
+            />
+
+            {/* Conversation Chunks (Weaviate) */}
+            <StatusCard
+              title="Conversations"
+              value={systemStatus.conversationChunks.toString()}
+              subtitle="Chat history (Weaviate)"
+              icon={<MessageSquare size={24} />}
+              status={systemStatus.weaviateConnected ? 'connected' : 'disconnected'}
+              statusIcon={systemStatus.weaviateConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
+            />
+
+            {/* Neo4j Status */}
+            <StatusCard
+              title="Neo4j"
+              value={systemStatus.neo4jConnected ? 'Online' : 'Offline'}
+              subtitle="Brain memories & graph"
+              icon={<Network size={24} />}
+              status={systemStatus.neo4jConnected ? 'connected' : 'disconnected'}
+              statusIcon={systemStatus.neo4jConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
+            />
+
+            {/* Weaviate Status */}
+            <StatusCard
+              title="Weaviate"
+              value={systemStatus.weaviateConnected ? 'Online' : 'Offline'}
+              subtitle="Documents & conversations"
+              icon={<FileText size={24} />}
+              status={systemStatus.weaviateConnected ? 'connected' : 'disconnected'}
+              statusIcon={systemStatus.weaviateConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
             />
 
             {/* Chat Sessions */}
             <StatusCard
               title="Chat Sessions"
               value={systemStatus.chatSessions.toString()}
-              subtitle="Active sessions"
+              subtitle="Total conversations"
               icon={<MessageSquare size={24} />}
               status="info"
             />
@@ -215,6 +320,41 @@ const DashboardPage = () => {
             />
           </div>
         )}
+
+        {/* System Architecture Overview */}
+        <div className="mt-8">
+          <h2 className="text-lg font-medium text-gray-800 mb-4">System Architecture</h2>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="p-3 rounded-lg bg-blue-50 text-blue-600 mx-auto w-fit mb-3">
+                  <HardDrive size={32} />
+                </div>
+                <h3 className="font-medium text-gray-900 mb-2">SQLite</h3>
+                <p className="text-sm text-gray-600">Source of truth for all structured data, settings, and metadata</p>
+              </div>
+              <div className="text-center">
+                <div className="p-3 rounded-lg bg-green-50 text-green-600 mx-auto w-fit mb-3">
+                  <Network size={32} />
+                </div>
+                <h3 className="font-medium text-gray-900 mb-2">Neo4j</h3>
+                <p className="text-sm text-gray-600">Brain memories with vector search and graph relationships</p>
+              </div>
+              <div className="text-center">
+                <div className="p-3 rounded-lg bg-purple-50 text-purple-600 mx-auto w-fit mb-3">
+                  <FileText size={32} />
+                </div>
+                <h3 className="font-medium text-gray-900 mb-2">Weaviate</h3>
+                <p className="text-sm text-gray-600">Document knowledge and conversation history storage</p>
+              </div>
+            </div>
+            <div className="mt-6 text-center">
+              <p className="text-sm text-gray-500">
+                <strong>Three-Database Harmony:</strong> Each database serves a specific purpose for optimal performance and data organization
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Quick Actions */}
         <div className="mt-8">

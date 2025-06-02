@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using SwAIvyn.Services.Graph;
 using SwAIvyn.Services;
 
@@ -15,14 +16,17 @@ namespace SwAIvyn.Services.VectorStore
     {
         private readonly INeo4jService _neo4jService;
         private readonly ISimpleLoggerService _logger;
+        private readonly IConfiguration _configuration;
         private bool _isInitialized = false;
 
         public Neo4jVectorStore(
             INeo4jService neo4jService,
-            ISimpleLoggerService logger)
+            ISimpleLoggerService logger,
+            IConfiguration configuration)
         {
             _neo4jService = neo4jService;
             _logger = logger;
+            _configuration = configuration;
         }
 
         /// <inheritdoc/>
@@ -106,8 +110,10 @@ namespace SwAIvyn.Services.VectorStore
             }
         }
 
-        /// <inheritdoc/>
-        public async Task<List<SearchHit>> SearchAsync(float[] queryVector, int limit = 10, VectorScope scope = VectorScope.All)
+        /// <summary>
+        /// Searches for vectors with user ID filtering
+        /// </summary>
+        public async Task<List<SearchHit>> SearchAsync(float[] queryVector, Guid? userId = null, int limit = 10, VectorScope scope = VectorScope.All)
         {
             if (!_isInitialized)
                 await InitializeAsync();
@@ -120,21 +126,38 @@ namespace SwAIvyn.Services.VectorStore
 
             try
             {
-                _logger.LogInfo($"🔍 Performing Neo4j vector search with limit {limit}");
+                _logger.LogInfo($"🔍 Performing Neo4j vector search with limit {limit}, userId filter: {userId}");
 
-                // Use Neo4j vector similarity search
-                var query = @"
-                    CALL db.index.vector.queryNodes('memory_embeddings', $limit, $queryVector)
-                    YIELD node, score
-                    RETURN node.id as id, node.content as content, node.category as category,
-                           node.userId as userId, score
-                    ORDER BY score DESC";
-
+                // Use Neo4j vector similarity search with optional user filtering
+                string query;
                 var parameters = new Dictionary<string, object>
                 {
                     { "queryVector", queryVector },
                     { "limit", limit }
                 };
+
+                if (userId.HasValue)
+                {
+                    // Filter by user ID
+                    query = @"
+                        CALL db.index.vector.queryNodes('memory_embeddings', $limit, $queryVector)
+                        YIELD node, score
+                        WHERE node.userId = $userId
+                        RETURN node.id as id, node.content as content, node.category as category,
+                               node.userId as userId, score
+                        ORDER BY score DESC";
+                    parameters.Add("userId", userId.Value.ToString());
+                }
+                else
+                {
+                    // No user filtering
+                    query = @"
+                        CALL db.index.vector.queryNodes('memory_embeddings', $limit, $queryVector)
+                        YIELD node, score
+                        RETURN node.id as id, node.content as content, node.category as category,
+                               node.userId as userId, score
+                        ORDER BY score DESC";
+                }
 
                 _logger.LogInfo("Executing Neo4j vector search query...");
                 var result = await _neo4jService.ExecuteQueryAsync(query, parameters);
@@ -143,35 +166,49 @@ namespace SwAIvyn.Services.VectorStore
                 var searchHits = new List<SearchHit>();
                 foreach (var record in result)
                 {
-                    if (record.TryGetValue("id", out var idObj) &&
-                        record.TryGetValue("score", out var scoreObj))
+                    try
                     {
-                        var metadata = new Dictionary<string, string>();
+                        var id = Guid.Parse(record["id"]?.ToString() ?? "");
+                        var content = record["content"]?.ToString() ?? "";
+                        var category = record["category"]?.ToString() ?? "";
+                        var userIdStr = record["userId"]?.ToString() ?? "";
+                        var score = Convert.ToSingle(record["score"]);
 
-                        if (record.TryGetValue("content", out var contentObj))
-                            metadata["content"] = contentObj?.ToString() ?? "";
-                        if (record.TryGetValue("category", out var categoryObj))
-                            metadata["category"] = categoryObj?.ToString() ?? "";
-                        if (record.TryGetValue("userId", out var userIdObj))
-                            metadata["userId"] = userIdObj?.ToString() ?? "";
+                        var metadata = new Dictionary<string, string>
+                        {
+                            { "content", content },
+                            { "category", category },
+                            { "userId", userIdStr }
+                        };
 
                         searchHits.Add(new SearchHit
                         {
-                            Id = Guid.Parse(idObj.ToString()),
-                            Score = Convert.ToSingle(scoreObj),
+                            Id = id,
+                            Score = score,
                             Metadata = metadata
                         });
                     }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"Failed to parse search result: {ex.Message}");
+                    }
                 }
 
-                _logger.LogInfo($"✅ Neo4j vector search returned {searchHits.Count} processed results");
+                _logger.LogInfo($"🔍 Neo4j vector search returned {searchHits.Count} processed results");
                 return searchHits;
             }
             catch (Exception ex)
             {
-                _logger.LogError("❌ Failed to search vectors in Neo4j", ex);
+                _logger.LogError($"Failed to search vectors in Neo4j", ex);
                 return new List<SearchHit>();
             }
+        }
+
+        /// <inheritdoc/>
+        public async Task<List<SearchHit>> SearchAsync(float[] queryVector, int limit = 10, VectorScope scope = VectorScope.All)
+        {
+            // Delegate to the new method with null userId (no filtering)
+            return await SearchAsync(queryVector, null, limit, scope);
         }
 
         /// <inheritdoc/>
@@ -272,13 +309,15 @@ namespace SwAIvyn.Services.VectorStore
                     _logger.LogInfo("Vector index does not exist, creating it...");
 
                     // Create vector index for memory embeddings
-                    var createQuery = @"
+                    // Get vector dimensions from configuration
+                    var vectorDimensions = _configuration.GetValue<int>("AppSettings:VectorDimensions", 768);
+                    var createQuery = $@"
                         CREATE VECTOR INDEX memory_embeddings IF NOT EXISTS
                         FOR (m:Memory) ON (m.embedding)
-                        OPTIONS {indexConfig: {
-                            `vector.dimensions`: 1536,
+                        OPTIONS {{indexConfig: {{
+                            `vector.dimensions`: {vectorDimensions},
                             `vector.similarity_function`: 'cosine'
-                        }}";
+                        }}}}";
 
                     await _neo4jService.ExecuteQueryAsync(createQuery, new Dictionary<string, object>());
                     _logger.LogInfo("✅ Created Neo4j vector index for memory embeddings");

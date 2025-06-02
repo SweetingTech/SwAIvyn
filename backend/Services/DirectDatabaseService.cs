@@ -128,9 +128,8 @@ namespace SwAIvyn.Services
                         Color TEXT,
                         CreatedAt TEXT NOT NULL,
                         LastModified TEXT NOT NULL,
-                        CONSTRAINT PK_Folders PRIMARY KEY (Id),
-                        CONSTRAINT FK_Folders_Folders_ParentId FOREIGN KEY (ParentId) REFERENCES Folders (Id) ON DELETE RESTRICT,
-                        CONSTRAINT FK_Folders_Users_UserId FOREIGN KEY (UserId) REFERENCES Users (Id) ON DELETE CASCADE
+                        SortOrder INTEGER NOT NULL DEFAULT 0,
+                        CONSTRAINT PK_Folders PRIMARY KEY (Id)
                     );", null, null
                 );
 
@@ -140,6 +139,8 @@ namespace SwAIvyn.Services
                         Id TEXT NOT NULL,
                         UserId TEXT NOT NULL,
                         FolderId TEXT,
+                        CharacterId TEXT,
+                        CharacterSystemPrompt TEXT,
                         Title TEXT NOT NULL,
                         Summary TEXT,
                         Status TEXT NOT NULL,
@@ -147,9 +148,7 @@ namespace SwAIvyn.Services
                         UpdatedUtc TEXT NOT NULL,
                         LastOpenUtc TEXT NOT NULL,
                         Tags TEXT,
-                        CONSTRAINT PK_Conversations PRIMARY KEY (Id),
-                        CONSTRAINT FK_Conversations_Folders_FolderId FOREIGN KEY (FolderId) REFERENCES Folders (Id) ON DELETE SET NULL,
-                        CONSTRAINT FK_Conversations_Users_UserId FOREIGN KEY (UserId) REFERENCES Users (Id) ON DELETE CASCADE
+                        CONSTRAINT PK_Conversations PRIMARY KEY (Id)
                     );", "IX_Conversations_UserId_CreatedUtc", "CREATE INDEX IX_Conversations_UserId_CreatedUtc ON Conversations (UserId, CreatedUtc);"
                 );
 
@@ -217,6 +216,9 @@ namespace SwAIvyn.Services
 
                 // Apply schema migrations for existing tables
                 await ApplySchemaMigrations(connection);
+
+                // Ensure Conversations table has required columns (critical fix)
+                await EnsureConversationsTableSchema(connection);
 
                 // Ensure default user exists
                 await EnsureDefaultUserExists(connection);
@@ -291,6 +293,144 @@ namespace SwAIvyn.Services
         }
 
         /// <summary>
+        /// Ensures the Conversations table has all required columns.
+        /// This is a critical fix for the CharacterId column issue.
+        /// </summary>
+        /// <param name="connection">The SQLite connection.</param>
+        private async Task EnsureConversationsTableSchema(SqliteConnection connection)
+        {
+            _logger.LogInfo("🔧 CRITICAL FIX: Checking and fixing Conversations table schema...");
+            try
+            {
+                var checkConversationsColumnsSql = "PRAGMA table_info(Conversations);";
+                using var checkConversationsColumnsCommand = new SqliteCommand(checkConversationsColumnsSql, connection);
+                using var conversationsReader = await checkConversationsColumnsCommand.ExecuteReaderAsync();
+
+                var hasCharacterId = false;
+                var hasCharacterSystemPrompt = false;
+                var hasCreatedUtc = false;
+                var hasLastOpenUtc = false;
+                var hasUpdatedUtc = false;
+
+                while (await conversationsReader.ReadAsync())
+                {
+                    var columnName = conversationsReader.GetString(1); // Column name is at index 1
+                    if (columnName == "CharacterId") hasCharacterId = true;
+                    if (columnName == "CharacterSystemPrompt") hasCharacterSystemPrompt = true;
+                    if (columnName == "CreatedUtc") hasCreatedUtc = true;
+                    if (columnName == "LastOpenUtc") hasLastOpenUtc = true;
+                    if (columnName == "UpdatedUtc") hasUpdatedUtc = true;
+                }
+                conversationsReader.Close();
+
+                if (!hasCharacterId)
+                {
+                    _logger.LogInfo("🔧 Adding CharacterId column to Conversations table...");
+                    var addCharacterIdSql = "ALTER TABLE Conversations ADD COLUMN CharacterId TEXT;";
+                    using var addCharacterIdCommand = new SqliteCommand(addCharacterIdSql, connection);
+                    await addCharacterIdCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ CharacterId column added to Conversations table.");
+                }
+                else
+                {
+                    _logger.LogInfo("✅ Conversations table already has CharacterId column.");
+                }
+
+                if (!hasCharacterSystemPrompt)
+                {
+                    _logger.LogInfo("🔧 Adding CharacterSystemPrompt column to Conversations table...");
+                    var addCharacterSystemPromptSql = "ALTER TABLE Conversations ADD COLUMN CharacterSystemPrompt TEXT;";
+                    using var addCharacterSystemPromptCommand = new SqliteCommand(addCharacterSystemPromptSql, connection);
+                    await addCharacterSystemPromptCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ CharacterSystemPrompt column added to Conversations table.");
+                }
+                else
+                {
+                    _logger.LogInfo("✅ Conversations table already has CharacterSystemPrompt column.");
+                }
+
+                if (!hasCreatedUtc)
+                {
+                    _logger.LogInfo("🔧 Adding CreatedUtc column to Conversations table...");
+                    var addCreatedUtcSql = "ALTER TABLE Conversations ADD COLUMN CreatedUtc TEXT;";
+                    using var addCreatedUtcCommand = new SqliteCommand(addCreatedUtcSql, connection);
+                    await addCreatedUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ CreatedUtc column added to Conversations table.");
+                }
+
+                if (!hasLastOpenUtc)
+                {
+                    _logger.LogInfo("🔧 Adding LastOpenUtc column to Conversations table...");
+                    var addLastOpenUtcSql = "ALTER TABLE Conversations ADD COLUMN LastOpenUtc TEXT;";
+                    using var addLastOpenUtcCommand = new SqliteCommand(addLastOpenUtcSql, connection);
+                    await addLastOpenUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ LastOpenUtc column added to Conversations table.");
+                }
+
+                if (!hasUpdatedUtc)
+                {
+                    _logger.LogInfo("🔧 Adding UpdatedUtc column to Conversations table...");
+                    var addUpdatedUtcSql = "ALTER TABLE Conversations ADD COLUMN UpdatedUtc TEXT;";
+                    using var addUpdatedUtcCommand = new SqliteCommand(addUpdatedUtcSql, connection);
+                    await addUpdatedUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ UpdatedUtc column added to Conversations table.");
+                }
+
+                _logger.LogInfo("✅ Conversations table schema check completed successfully.");
+
+                // Also check and fix ChatIndices table schema
+                _logger.LogInfo("🔧 CRITICAL FIX: Checking and fixing ChatIndices table schema...");
+                var checkChatIndicesColumnsSql = "PRAGMA table_info(ChatIndices);";
+                using var checkChatIndicesColumnsCommand = new SqliteCommand(checkChatIndicesColumnsSql, connection);
+                using var chatIndicesReader = await checkChatIndicesColumnsCommand.ExecuteReaderAsync();
+
+                var hasMessageId = false;
+                var hasMetadata = false;
+
+                while (await chatIndicesReader.ReadAsync())
+                {
+                    var columnName = chatIndicesReader.GetString(1); // Column name is at index 1
+                    if (columnName == "MessageId") hasMessageId = true;
+                    if (columnName == "Metadata") hasMetadata = true;
+                }
+                chatIndicesReader.Close();
+
+                if (!hasMessageId)
+                {
+                    _logger.LogInfo("🔧 Adding MessageId column to ChatIndices table...");
+                    var addMessageIdSql = "ALTER TABLE ChatIndices ADD COLUMN MessageId TEXT;";
+                    using var addMessageIdCommand = new SqliteCommand(addMessageIdSql, connection);
+                    await addMessageIdCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ MessageId column added to ChatIndices table.");
+                }
+                else
+                {
+                    _logger.LogInfo("✅ ChatIndices table already has MessageId column.");
+                }
+
+                if (!hasMetadata)
+                {
+                    _logger.LogInfo("🔧 Adding Metadata column to ChatIndices table...");
+                    var addMetadataSql = "ALTER TABLE ChatIndices ADD COLUMN Metadata TEXT;";
+                    using var addMetadataCommand = new SqliteCommand(addMetadataSql, connection);
+                    await addMetadataCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("✅ Metadata column added to ChatIndices table.");
+                }
+                else
+                {
+                    _logger.LogInfo("✅ ChatIndices table already has Metadata column.");
+                }
+
+                _logger.LogInfo("✅ ChatIndices table schema check completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ Error ensuring Conversations table schema: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Applies schema migrations to existing tables to ensure they have all required columns.
         /// </summary>
         /// <param name="connection">The SQLite connection.</param>
@@ -329,10 +469,264 @@ namespace SwAIvyn.Services
                 {
                     _logger.LogInfo("Users table already has LastSelectedCharacterId column.");
                 }
+
+                // Check if Memories table exists (Entity Framework expects this name, not MemoryItems)
+                var checkMemoriesTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='Memories';";
+                using var checkMemoriesCommand = new SqliteCommand(checkMemoriesTableSql, connection);
+                var memoriesTableExists = await checkMemoriesCommand.ExecuteScalarAsync() != null;
+
+                // Drop and recreate the Memories table to fix foreign key issues
+                if (memoriesTableExists)
+                {
+                    _logger.LogInfo("Dropping existing Memories table to fix foreign key constraint issues...");
+                    var dropMemoriesTableSql = "DROP TABLE Memories;";
+                    using var dropMemoriesCommand = new SqliteCommand(dropMemoriesTableSql, connection);
+                    await dropMemoriesCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("Existing Memories table dropped.");
+                }
+
+                // Create the Memories table (always create it now)
+                _logger.LogInfo("Creating Memories table for Entity Framework...");
+
+                // First, let's check what users exist in the database for debugging
+                var checkUsersSql = "SELECT Id, Username FROM Users LIMIT 5;";
+                using var checkUsersCommand = new SqliteCommand(checkUsersSql, connection);
+                using var usersReader = await checkUsersCommand.ExecuteReaderAsync();
+                _logger.LogInfo("Existing users in database:");
+                while (await usersReader.ReadAsync())
+                {
+                    var userId = usersReader.GetString(0);
+                    var username = usersReader.GetString(1);
+                    _logger.LogInfo($"  User ID: {userId}, Username: {username}");
+                }
+                usersReader.Close();
+
+                // Create the Memories table without foreign key constraint initially to avoid issues
+                var createMemoriesTableSql = @"
+                    CREATE TABLE Memories (
+                        Id TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Content TEXT NOT NULL,
+                        Category TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        LastAccessed TEXT NOT NULL,
+                        UpdatedAt TEXT NOT NULL,
+                        IsShared INTEGER NOT NULL,
+                        TargetStore INTEGER NOT NULL DEFAULT 0,
+                        CONSTRAINT PK_Memories PRIMARY KEY (Id)
+                    );";
+
+                using var createMemoriesCommand = new SqliteCommand(createMemoriesTableSql, connection);
+                await createMemoriesCommand.ExecuteNonQueryAsync();
+
+                var createMemoriesIndexSql = "CREATE INDEX IX_Memories_UserId_Category ON Memories (UserId, Category);";
+                using var createMemoriesIndexCommand = new SqliteCommand(createMemoriesIndexSql, connection);
+                await createMemoriesIndexCommand.ExecuteNonQueryAsync();
+
+                _logger.LogInfo("Memories table created successfully (without FK constraint to avoid issues).");
+
+                // Force fix Settings table foreign key issues
+                _logger.LogInfo("Dropping existing Settings table to fix foreign key constraint issues...");
+                var dropSettingsTableSql = "DROP TABLE IF EXISTS Settings;";
+                using var dropSettingsCommand = new SqliteCommand(dropSettingsTableSql, connection);
+                await dropSettingsCommand.ExecuteNonQueryAsync();
+                _logger.LogInfo("Existing Settings table dropped.");
+
+                // Create Settings table without foreign key constraint
+                _logger.LogInfo("Creating Settings table for Entity Framework...");
+                var createSettingsTableSql = @"
+                    CREATE TABLE Settings (
+                        Id TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Key TEXT NOT NULL,
+                        Value TEXT,
+                        LastModified TEXT NOT NULL,
+                        CONSTRAINT PK_Settings PRIMARY KEY (Id)
+                    );";
+
+                using var createSettingsCommand = new SqliteCommand(createSettingsTableSql, connection);
+                await createSettingsCommand.ExecuteNonQueryAsync();
+
+                var createSettingsIndexSql = "CREATE INDEX IX_Settings_UserId_Key ON Settings (UserId, Key);";
+                using var createSettingsIndexCommand = new SqliteCommand(createSettingsIndexSql, connection);
+                await createSettingsIndexCommand.ExecuteNonQueryAsync();
+
+                _logger.LogInfo("Settings table created successfully (without FK constraint to avoid issues).");
+
+                // Force fix Avatars table foreign key issues
+                _logger.LogInfo("Dropping existing Avatars table to fix foreign key constraint issues...");
+                var dropAvatarsTableSql = "DROP TABLE IF EXISTS Avatars;";
+                using var dropAvatarsCommand = new SqliteCommand(dropAvatarsTableSql, connection);
+                await dropAvatarsCommand.ExecuteNonQueryAsync();
+                _logger.LogInfo("Existing Avatars table dropped.");
+
+                // Create Avatars table without foreign key constraint
+                _logger.LogInfo("Creating Avatars table for Entity Framework...");
+                var createAvatarsTableSql = @"
+                    CREATE TABLE Avatars (
+                        Id TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Name TEXT NOT NULL,
+                        Description TEXT,
+                        Personality TEXT,
+                        Scenario TEXT,
+                        FirstMessage TEXT,
+                        MessageExample TEXT,
+                        SystemPrompt TEXT,
+                        PostHistoryInstructions TEXT,
+                        AlternateGreetings TEXT,
+                        Tags TEXT,
+                        Creator TEXT,
+                        CreatorNotes TEXT,
+                        CharacterVersion TEXT,
+                        Talkativeness REAL NOT NULL,
+                        IsFavorite INTEGER NOT NULL,
+                        Extensions TEXT,
+                        ImagePath TEXT,
+                        VoiceSettings TEXT,
+                        YamlProfile TEXT,
+                        CreatedAt TEXT NOT NULL,
+                        LastModified TEXT NOT NULL,
+                        CONSTRAINT PK_Avatars PRIMARY KEY (Id)
+                    );";
+
+                using var createAvatarsCommand = new SqliteCommand(createAvatarsTableSql, connection);
+                await createAvatarsCommand.ExecuteNonQueryAsync();
+
+                var createAvatarsIndexSql = "CREATE INDEX IX_Avatars_UserId ON Avatars (UserId);";
+                using var createAvatarsIndexCommand = new SqliteCommand(createAvatarsIndexSql, connection);
+                await createAvatarsIndexCommand.ExecuteNonQueryAsync();
+
+                _logger.LogInfo("Avatars table created successfully (without FK constraint to avoid issues).");
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Error applying schema migrations: {ex.Message}");
+                throw;
+            }
+
+            // Always check and fix missing columns regardless of table creation
+            try
+            {
+                // Fix Conversations table missing columns
+                _logger.LogInfo("Checking and fixing Conversations table schema...");
+                var checkConversationsColumnsSql = "PRAGMA table_info(Conversations);";
+                using var checkConversationsColumnsCommand = new SqliteCommand(checkConversationsColumnsSql, connection);
+                using var conversationsReader = await checkConversationsColumnsCommand.ExecuteReaderAsync();
+
+                var hasCharacterId = false;
+                var hasCharacterSystemPrompt = false;
+                var hasCreatedUtc = false;
+                var hasLastOpenUtc = false;
+                var hasUpdatedUtc = false;
+
+                while (await conversationsReader.ReadAsync())
+                {
+                    var columnName = conversationsReader.GetString(1); // Column name is at index 1
+                    if (columnName == "CharacterId") hasCharacterId = true;
+                    if (columnName == "CharacterSystemPrompt") hasCharacterSystemPrompt = true;
+                    if (columnName == "CreatedUtc") hasCreatedUtc = true;
+                    if (columnName == "LastOpenUtc") hasLastOpenUtc = true;
+                    if (columnName == "UpdatedUtc") hasUpdatedUtc = true;
+                }
+                conversationsReader.Close();
+
+                if (!hasCharacterId)
+                {
+                    _logger.LogInfo("Adding CharacterId column to Conversations table...");
+                    var addCharacterIdSql = "ALTER TABLE Conversations ADD COLUMN CharacterId TEXT;";
+                    using var addCharacterIdCommand = new SqliteCommand(addCharacterIdSql, connection);
+                    await addCharacterIdCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("CharacterId column added to Conversations table.");
+                }
+
+                if (!hasCharacterSystemPrompt)
+                {
+                    _logger.LogInfo("Adding CharacterSystemPrompt column to Conversations table...");
+                    var addCharacterSystemPromptSql = "ALTER TABLE Conversations ADD COLUMN CharacterSystemPrompt TEXT;";
+                    using var addCharacterSystemPromptCommand = new SqliteCommand(addCharacterSystemPromptSql, connection);
+                    await addCharacterSystemPromptCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("CharacterSystemPrompt column added to Conversations table.");
+                }
+
+                if (!hasCreatedUtc)
+                {
+                    _logger.LogInfo("Adding CreatedUtc column to Conversations table...");
+                    var addCreatedUtcSql = "ALTER TABLE Conversations ADD COLUMN CreatedUtc TEXT;";
+                    using var addCreatedUtcCommand = new SqliteCommand(addCreatedUtcSql, connection);
+                    await addCreatedUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("CreatedUtc column added to Conversations table.");
+                }
+
+                if (!hasLastOpenUtc)
+                {
+                    _logger.LogInfo("Adding LastOpenUtc column to Conversations table...");
+                    var addLastOpenUtcSql = "ALTER TABLE Conversations ADD COLUMN LastOpenUtc TEXT;";
+                    using var addLastOpenUtcCommand = new SqliteCommand(addLastOpenUtcSql, connection);
+                    await addLastOpenUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("LastOpenUtc column added to Conversations table.");
+                }
+
+                if (!hasUpdatedUtc)
+                {
+                    _logger.LogInfo("Adding UpdatedUtc column to Conversations table...");
+                    var addUpdatedUtcSql = "ALTER TABLE Conversations ADD COLUMN UpdatedUtc TEXT;";
+                    using var addUpdatedUtcCommand = new SqliteCommand(addUpdatedUtcSql, connection);
+                    await addUpdatedUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("UpdatedUtc column added to Conversations table.");
+                }
+
+                // Fix Folders table missing columns
+                _logger.LogInfo("Checking and fixing Folders table schema...");
+                var checkFoldersColumnsSql = "PRAGMA table_info(Folders);";
+                using var checkFoldersColumnsCommand = new SqliteCommand(checkFoldersColumnsSql, connection);
+                using var foldersReader = await checkFoldersColumnsCommand.ExecuteReaderAsync();
+
+                var foldersHasCreatedUtc = false;
+                var foldersHasUpdatedUtc = false;
+                var foldersHasSortOrder = false;
+
+                while (await foldersReader.ReadAsync())
+                {
+                    var columnName = foldersReader.GetString(1); // Column name is at index 1
+                    if (columnName == "CreatedUtc") foldersHasCreatedUtc = true;
+                    if (columnName == "UpdatedUtc") foldersHasUpdatedUtc = true;
+                    if (columnName == "SortOrder") foldersHasSortOrder = true;
+                }
+                foldersReader.Close();
+
+                if (!foldersHasCreatedUtc)
+                {
+                    _logger.LogInfo("Adding CreatedUtc column to Folders table...");
+                    var addFoldersCreatedUtcSql = "ALTER TABLE Folders ADD COLUMN CreatedUtc TEXT;";
+                    using var addFoldersCreatedUtcCommand = new SqliteCommand(addFoldersCreatedUtcSql, connection);
+                    await addFoldersCreatedUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("CreatedUtc column added to Folders table.");
+                }
+
+                if (!foldersHasUpdatedUtc)
+                {
+                    _logger.LogInfo("Adding UpdatedUtc column to Folders table...");
+                    var addFoldersUpdatedUtcSql = "ALTER TABLE Folders ADD COLUMN UpdatedUtc TEXT;";
+                    using var addFoldersUpdatedUtcCommand = new SqliteCommand(addFoldersUpdatedUtcSql, connection);
+                    await addFoldersUpdatedUtcCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("UpdatedUtc column added to Folders table.");
+                }
+
+                if (!foldersHasSortOrder)
+                {
+                    _logger.LogInfo("Adding SortOrder column to Folders table...");
+                    var addFoldersSortOrderSql = "ALTER TABLE Folders ADD COLUMN SortOrder INTEGER NOT NULL DEFAULT 0;";
+                    using var addFoldersSortOrderCommand = new SqliteCommand(addFoldersSortOrderSql, connection);
+                    await addFoldersSortOrderCommand.ExecuteNonQueryAsync();
+                    _logger.LogInfo("SortOrder column added to Folders table.");
+                }
+
+                _logger.LogInfo("Database schema fixes completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error fixing database schema: {ex.Message}");
                 throw;
             }
         }

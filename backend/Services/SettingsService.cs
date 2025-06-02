@@ -109,6 +109,21 @@ namespace SwAIvyn.Services
         /// <param name="userId">User ID (null for global settings)</param>
         /// <returns>Default LLM model</returns>
         Task<string> GetDefaultLlmModelAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the default character ID for a user
+        /// </summary>
+        /// <param name="userId">User ID (null for global settings)</param>
+        /// <returns>Default character ID</returns>
+        Task<string> GetDefaultCharacterAsync(Guid? userId);
+
+        /// <summary>
+        /// Sets the default character ID for a user
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <param name="characterId">Character ID</param>
+        /// <returns>Success indicator</returns>
+        Task<bool> SetDefaultCharacterAsync(Guid? userId, string characterId);
     }
 
     /// <summary>
@@ -126,6 +141,7 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string DEFAULT_CHARACTER_KEY = "DefaultCharacter";
 
         /// <summary>
         /// Initializes a new instance of the SettingsService
@@ -362,6 +378,18 @@ namespace SwAIvyn.Services
         public async Task<string> GetDefaultLlmModelAsync(Guid? userId)
         {
             return await GetSettingAsync(userId, "DefaultLlmModel", "");
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetDefaultCharacterAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, DEFAULT_CHARACTER_KEY, "");
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> SetDefaultCharacterAsync(Guid? userId, string characterId)
+        {
+            return await SetSettingAsync(userId, DEFAULT_CHARACTER_KEY, characterId);
         }
     }
 }

@@ -319,7 +319,7 @@ const ModelSettings = () => {
         let validUserId = null;
 
         // Use the default and only user ID for this application
-        validUserId = '00000000-0000-0000-0000-000000000001';
+        validUserId = '42dfa1c0-c093-4f58-bb3e-cc83bbd6d249';
         console.log('✅ Using default user ID:', validUserId);
 
         // If we don't have a valid user ID, use demo mode but don't load settings yet
@@ -830,7 +830,7 @@ const CharacterSettings = () => {
   const loadUserAndCharacters = async () => {
     try {
       // Use the default and only user ID for this application
-      const userIdToUse = '00000000-0000-0000-0000-000000000001';
+      const userIdToUse = '42dfa1c0-c093-4f58-bb3e-cc83bbd6d249';
       setUserId(userIdToUse);
 
       // Load characters with the user ID
@@ -842,24 +842,21 @@ const CharacterSettings = () => {
 
   const loadCharacters = async (userIdToUse?: string) => {
     try {
-      // Always use the hardcoded default user ID
-      const idToUse = userIdToUse || '00000000-0000-0000-0000-000000000001';
-      console.log('🔍 CharacterSettings: Loading characters with userId:', idToUse);
+      console.log('🔍 CharacterSettings: Loading global characters (single-user app)');
 
-      // Skip API call if userId is invalid
-      if (!idToUse || idToUse.length !== 36) {
-        console.warn('🔍 CharacterSettings: Invalid userId, skipping character loading:', idToUse);
-        setCharacters([]);
-        return;
-      }
-
-      const response = await fetch(`/api/character/user/${idToUse}`);
+      // Use global character endpoint since characters are stored globally like memories
+      const response = await fetch('/api/character/global');
       if (response.ok) {
         const data = await response.json();
         setCharacters(data);
+        console.log(`✅ CharacterSettings: Loaded ${data.length} global characters`);
+      } else {
+        console.warn('❌ CharacterSettings: Failed to load global characters');
+        setCharacters([]);
       }
     } catch (error) {
       console.error('Error loading characters:', error);
+      setCharacters([]);
     }
   };
 

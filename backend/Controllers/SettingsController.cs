@@ -260,6 +260,50 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, "An error occurred while updating LLM settings");
             }
         }
+
+        /// <summary>
+        /// Gets the default character for a user
+        /// </summary>
+        /// <param name="userId">User ID (null for global settings)</param>
+        /// <returns>Default character ID</returns>
+        [HttpGet("default-character")]
+        public async Task<IActionResult> GetDefaultCharacter([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var characterId = await _settingsService.GetDefaultCharacterAsync(userId);
+                return Ok(new { characterId });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting default character", ex);
+                return StatusCode(500, "An error occurred while getting default character");
+            }
+        }
+
+        /// <summary>
+        /// Sets the default character for a user
+        /// </summary>
+        /// <param name="request">Default character request</param>
+        /// <returns>Success status</returns>
+        [HttpPut("default-character")]
+        public async Task<IActionResult> SetDefaultCharacter([FromBody] SetDefaultCharacterRequest request)
+        {
+            try
+            {
+                var success = await _settingsService.SetDefaultCharacterAsync(request.UserId, request.CharacterId);
+                if (success)
+                {
+                    return Ok(new { message = "Default character updated successfully" });
+                }
+                return StatusCode(500, "Failed to update default character");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error setting default character", ex);
+                return StatusCode(500, "An error occurred while setting default character");
+            }
+        }
     }
 
     /// <summary>
@@ -390,5 +434,21 @@ namespace SwAIvyn.Controllers
         /// LLM model name (for Ollama)
         /// </summary>
         public string Model { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for setting default character
+    /// </summary>
+    public class SetDefaultCharacterRequest
+    {
+        /// <summary>
+        /// User ID (null for global settings)
+        /// </summary>
+        public Guid? UserId { get; set; }
+
+        /// <summary>
+        /// Character ID to set as default
+        /// </summary>
+        public string CharacterId { get; set; }
     }
 }

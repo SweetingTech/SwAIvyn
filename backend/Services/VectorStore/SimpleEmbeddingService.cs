@@ -3,6 +3,7 @@ using System;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace SwAIvyn.Services.VectorStore
@@ -45,14 +46,27 @@ namespace SwAIvyn.Services.VectorStore
         {
             try
             {
-                // For now, we'll use a simple hash-based embedding for testing
-                // In a real implementation, this would call an embedding model
+                // Use real embedding API instead of hash-based approach
                 if (string.IsNullOrEmpty(text))
                 {
                     return new float[_dimensions];
                 }
 
-                // Create a deterministic embedding based on the text hash
+                // Try to use the real embedding API first
+                try
+                {
+                    var realEmbedding = await CallEmbeddingApiAsync(text);
+                    if (realEmbedding != null && realEmbedding.Length == _dimensions)
+                    {
+                        return realEmbedding;
+                    }
+                }
+                catch (Exception apiEx)
+                {
+                    _logger.LogWarning($"Failed to call embedding API, falling back to hash-based embedding: {apiEx.Message}");
+                }
+
+                // Fallback to hash-based embedding for testing
                 var embedding = new float[_dimensions];
                 var hash = text.GetHashCode();
                 var random = new Random(hash);
@@ -98,7 +112,7 @@ namespace SwAIvyn.Services.VectorStore
 
                 var request = new
                 {
-                    model = "all-minilm",
+                    model = "all-minilm:latest",
                     prompt = text
                 };
 
@@ -124,6 +138,7 @@ namespace SwAIvyn.Services.VectorStore
 
         private class EmbeddingResponse
         {
+            [JsonPropertyName("embedding")]
             public float[] Embedding { get; set; }
         }
     }

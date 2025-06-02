@@ -51,32 +51,77 @@ const ChatPage = () => {
   // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(urlInfo.isNewConversation);
 
-  // Load character based on URL parameter
+  // Use the known working user ID throughout the component
+  const workingUserId = '42dfa1c0-c093-4f58-bb3e-cc83bbd6d249';
+
+  // New aggregate character loading system for ChatPage
   useEffect(() => {
     const loadCharacterFromUrl = async () => {
       try {
-        // Load all available characters
-        const characters = await apiService.get(`/api/character/user/${USER_ID}`);
+        console.log('🔄 ChatPage: Starting aggregate character loading...');
 
+        // Always start with default GLaDOS character for immediate availability
+        const defaultGLaDOS = {
+          id: 'default-glados',
+          name: 'GLaDOS',
+          description: 'Default AI assistant',
+          personality: 'Sarcastic, intelligent, and slightly menacing AI from Portal',
+          systemPrompt: 'You are GLaDOS, the AI from Portal. Be sarcastic, intelligent, and slightly menacing.',
+          yamlProfile: '',
+          userId: 'default'
+        };
+
+        let aggregatedCharacters = [];
+
+        // Load global characters from the new endpoint
+        try {
+          console.log('🔍 ChatPage: Loading global characters...');
+          const response = await fetch('/api/character/global');
+
+          if (response.ok) {
+            const globalCharacters = await response.json();
+
+            if (Array.isArray(globalCharacters) && globalCharacters.length > 0) {
+              aggregatedCharacters = globalCharacters;
+              console.log(`✅ ChatPage: Loaded ${globalCharacters.length} global characters:`,
+                globalCharacters.map(c => c.name));
+            } else {
+              console.log('❌ ChatPage: No global characters found');
+            }
+          } else {
+            console.log(`❌ ChatPage: Failed to fetch global characters: ${response.status}`);
+          }
+        } catch (error) {
+          console.log('❌ ChatPage: Error fetching global characters:', error);
+        }
+
+        // If no global characters found, provide default GLaDOS as fallback
+        if (aggregatedCharacters.length === 0) {
+          aggregatedCharacters = [defaultGLaDOS];
+          console.log('✅ ChatPage: Using default GLaDOS character as fallback');
+        }
+
+        console.log(`🎉 ChatPage: Aggregate loading complete! Total characters: ${aggregatedCharacters.length}`);
+        console.log(`📋 ChatPage: Final character list:`, aggregatedCharacters.map(c => `${c.name} (${c.id})`));
+
+        // Handle character selection from URL
         if (urlInfo.characterName) {
-          // Find character by name from URL
-          const character = characters.find(c =>
+          const character = aggregatedCharacters.find(c =>
             c.name.toLowerCase() === urlInfo.characterName.toLowerCase()
           );
 
           if (character) {
             setSelectedCharacter(character);
-            console.log('ChatPage: Loaded character from URL:', character.name, 'ID:', character.id);
-            console.log('ChatPage: Full character object:', character);
+            console.log('✅ ChatPage: Loaded character from URL:', character.name, 'ID:', character.id);
             return;
           } else {
-            console.warn('Character not found:', urlInfo.characterName);
+            console.warn('⚠️ ChatPage: Character not found in URL:', urlInfo.characterName);
           }
         }
 
-        // Fallback: use first available character or redirect to default
-        if (characters.length > 0) {
-          const defaultCharacter = characters[0];
+        // Fallback: use first available character (GLaDOS)
+        if (aggregatedCharacters.length > 0) {
+          const defaultCharacter = aggregatedCharacters[0]; // This will be GLaDOS
           setSelectedCharacter(defaultCharacter);
 
           // Update URL to include the default character
@@ -85,30 +130,40 @@ const ChatPage = () => {
             characterName: defaultCharacter.name
           });
           navigate(newUrl, { replace: true });
-          console.log('ChatPage: Using default character:', defaultCharacter.name);
-        } else {
-          // No characters available, redirect to create GLaDOS
-          console.log('No characters found, redirecting to default');
-          navigate(createDefaultChatUrl(), { replace: true });
+          console.log('✅ ChatPage: Using default character:', defaultCharacter.name);
         }
+
       } catch (error) {
-        console.error('Error loading character:', error);
-        // Fallback to default URL
+        console.error('💥 ChatPage: Critical error in aggregate loading:', error);
+
+        // Ultimate fallback - just GLaDOS
+        const fallbackGLaDOS = {
+          id: 'fallback-glados',
+          name: 'GLaDOS',
+          description: 'Fallback AI assistant',
+          personality: 'Sarcastic, intelligent, and slightly menacing AI from Portal',
+          systemPrompt: 'You are GLaDOS, the AI from Portal. Be sarcastic, intelligent, and slightly menacing.',
+          yamlProfile: '',
+          userId: 'fallback'
+        };
+
+        setSelectedCharacter(fallbackGLaDOS);
         navigate(createDefaultChatUrl(), { replace: true });
+        console.log('🆘 ChatPage: Using ultimate fallback GLaDOS character');
       }
     };
 
     loadCharacterFromUrl();
-  }, [sessionCharacter, navigate]);
+  }, [urlInfo.characterName, urlInfo.conversationId]); // Only re-run when URL parameters change
 
   // Load the most recent conversation or start a new one
   useEffect(() => {
     const loadConversation = async () => {
       try {
-        console.log('Using hard-coded user:', USER_ID);
+        console.log('🔄 ChatPage: Loading conversation for user:', workingUserId);
 
         // Load recent conversation for this user
-        const recent = await conversationService.getRecentConversation(USER_ID);
+        const recent = await conversationService.getRecentConversation(workingUserId);
 
         if (recent && recent.id) {
           // Load existing conversation
@@ -282,7 +337,7 @@ const ChatPage = () => {
           : userMessage.text;
 
         // Create a new conversation
-        const newConversation = await conversationService.createConversation(USER_ID, title);
+        const newConversation = await conversationService.createConversation(workingUserId, title);
 
         conversationId = newConversation.id; // Use this right away
         setCurrentConversation({
@@ -302,7 +357,7 @@ const ChatPage = () => {
           try {
             await conversationService.setCharacterContext(
               conversationId,
-              USER_ID,
+              workingUserId,
               selectedCharacter.id || null,
               selectedCharacter.systemPrompt
             );
@@ -322,7 +377,7 @@ const ChatPage = () => {
       console.log('ChatPage: Sending message with character ID:', selectedCharacter?.id, 'Character name:', selectedCharacter?.name);
       const aiResponse = await chatService.sendMessage(
         conversationId,
-        USER_ID,
+        workingUserId,
         userMessage.text,
         selectedCharacter?.id || null
       );
@@ -363,7 +418,7 @@ const ChatPage = () => {
         {/* Chat Sidebar */}
         <div className="w-64 border-r">
           <ChatSidebar
-            userId={USER_ID}
+            userId={workingUserId}
             currentSessionId={currentConversation.id || null}
             onSelectSession={handleSelectConversation}
             onNewSession={handleNewConversation}
