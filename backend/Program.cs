@@ -28,6 +28,9 @@ using SwAIvyn.Models;
 // Fix ambiguous reference by using fully qualified name with alias
 using IVectorRouterInterface = SwAIvyn.Services.Interfaces.IVectorRouter;
 
+// Fix ambiguous reference by using fully qualified name with alias
+using IVectorRouterInterface = SwAIvyn.Services.Interfaces.IVectorRouter;
+
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
 
