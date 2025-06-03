@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using SwAIvyn.Services.Graph;
 using SwAIvyn.Services;
 
@@ -15,14 +16,19 @@ namespace SwAIvyn.Services.VectorStore
     {
         private readonly INeo4jService _neo4jService;
         private readonly ISimpleLoggerService _logger;
+        private readonly IConfiguration _configuration;
+        private readonly int _vectorDimensions;
         private bool _isInitialized = false;
 
         public Neo4jVectorStore(
             INeo4jService neo4jService,
-            ISimpleLoggerService logger)
+            ISimpleLoggerService logger,
+            IConfiguration configuration)
         {
             _neo4jService = neo4jService;
             _logger = logger;
+            _configuration = configuration;
+            _vectorDimensions = configuration.GetValue<int>("AppSettings:VectorDimensions", 768);
         }
 
         /// <inheritdoc/>
@@ -124,7 +130,7 @@ namespace SwAIvyn.Services.VectorStore
 
                 // Use Neo4j vector similarity search
                 var query = @"
-                    CALL db.index.vector.queryNodes('memory_embeddings', $limit, $queryVector)
+                    CALL db.index.vector.queryNodes('memory_embedding_vector', $limit, $queryVector)
                     YIELD node, score
                     RETURN node.id as id, node.content as content, node.category as category,
                            node.userId as userId, score
@@ -261,8 +267,8 @@ namespace SwAIvyn.Services.VectorStore
             {
                 _logger.LogInfo("Checking if Neo4j vector index exists...");
 
-                // Check if index exists
-                var checkQuery = "SHOW INDEXES YIELD name WHERE name = 'memory_embeddings'";
+                // Check if the new index exists
+                var checkQuery = "SHOW INDEXES YIELD name WHERE name = 'memory_embedding_vector'";
                 var result = await _neo4jService.ExecuteQueryAsync(checkQuery, new Dictionary<string, object>());
 
                 _logger.LogInfo($"Index check returned {result.Count} results");
@@ -271,17 +277,29 @@ namespace SwAIvyn.Services.VectorStore
                 {
                     _logger.LogInfo("Vector index does not exist, creating it...");
 
-                    // Create vector index for memory embeddings
-                    var createQuery = @"
-                        CREATE VECTOR INDEX memory_embeddings IF NOT EXISTS
+                    // First, drop the old index if it exists (different dimensions)
+                    try
+                    {
+                        var dropQuery = "DROP INDEX memory_embeddings IF EXISTS";
+                        await _neo4jService.ExecuteQueryAsync(dropQuery, new Dictionary<string, object>());
+                        _logger.LogInfo("🗑️ Dropped old memory_embeddings index");
+                    }
+                    catch (Exception dropEx)
+                    {
+                        _logger.LogWarning($"Could not drop old index (may not exist): {dropEx.Message}");
+                    }
+
+                    // Create new vector index for memory embeddings with correct dimensions
+                    var createQuery = $@"
+                        CREATE VECTOR INDEX memory_embedding_vector IF NOT EXISTS
                         FOR (m:Memory) ON (m.embedding)
-                        OPTIONS {indexConfig: {
-                            `vector.dimensions`: 1536,
+                        OPTIONS {{indexConfig: {{
+                            `vector.dimensions`: {_vectorDimensions},
                             `vector.similarity_function`: 'cosine'
-                        }}";
+                        }}}}";
 
                     await _neo4jService.ExecuteQueryAsync(createQuery, new Dictionary<string, object>());
-                    _logger.LogInfo("✅ Created Neo4j vector index for memory embeddings");
+                    _logger.LogInfo("✅ Created Neo4j vector index for memory embeddings with correct dimensions");
                 }
                 else
                 {

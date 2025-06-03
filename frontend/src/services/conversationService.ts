@@ -57,31 +57,16 @@ const conversationService = {
 
   /**
    * Creates a new conversation
-   * @param userId User ID
    * @param title Conversation title
    * @param folderId Optional folder ID
    * @returns The created conversation
    */
-  async createConversation(userId: string, title: string, folderId?: string): Promise<Conversation> {
+  async createConversation(title: string, folderId?: string): Promise<Conversation> {
     try {
-      // Skip API call if userId is not a valid GUID
-      if (!userId || userId === 'demo-user-id') {
-        console.warn('Invalid user ID for conversation creation');
-        // Return a mock conversation with a temporary ID
-        return {
-          id: `temp-${Date.now()}`,
-          userId: userId,
-          title: title,
-          folderId: folderId || null,
-          createdAt: new Date().toISOString(),
-          lastUpdated: new Date().toISOString()
-        };
-      }
-
       const response = await apiService.post('/api/conversation', {
-        userId,
         title,
         folderId
+        // Note: userID removed - backend will use default user automatically
       });
       return response;
     } catch (error) {
@@ -89,7 +74,7 @@ const conversationService = {
       // Return a mock conversation with a temporary ID on error
       return {
         id: `temp-${Date.now()}`,
-        userId: userId,
+        userId: 'default-user', // Use a default value for mock
         title: title,
         folderId: folderId || null,
         createdAt: new Date().toISOString(),

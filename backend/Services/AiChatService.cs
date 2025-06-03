@@ -67,6 +67,7 @@ namespace SwAIvyn.Services
         // REMOVED: IDefaultCharacterService - database-only approach
         private readonly IBrainGraphService _brainGraphService;
         private readonly IVectorRouter _vectorRouter;
+        private readonly IHybridSearchService _hybridSearchService;
 
         // Setting keys
         private const string DEFAULT_LLM_ENGINE_KEY = "DefaultLlmEngine";
@@ -91,7 +92,8 @@ namespace SwAIvyn.Services
             IConfiguration configuration,
             ApplicationDbContext dbContext,
             IBrainGraphService brainGraphService,
-            IVectorRouter vectorRouter)
+            IVectorRouter vectorRouter,
+            IHybridSearchService hybridSearchService)
         {
             _llmConnector = llmConnector;
             _conversationService = conversationService;
@@ -101,6 +103,7 @@ namespace SwAIvyn.Services
             _dbContext = dbContext;
             _brainGraphService = brainGraphService;
             _vectorRouter = vectorRouter;
+            _hybridSearchService = hybridSearchService;
         }
 
         /// <inheritdoc/>
@@ -184,138 +187,91 @@ namespace SwAIvyn.Services
                     _logger.LogWarning("⚠️ No system prompt available - using no character context");
                 }
 
-                // Search for relevant context from multiple sources
+                // Search for relevant context using hybrid search service (search.py)
                 string contextualInformation = "";
 
-                // 1. Search for relevant memories (Neo4j)
                 try
                 {
-                    _logger.LogInfo("🧠 Searching for relevant memories in graph database...");
-                    var memoryResults = await _brainGraphService.SearchAsync(userMessage, limit: 3);
+                    _logger.LogInfo("🔍 Searching for relevant context using hybrid search service...");
+                    var searchResults = await _hybridSearchService.SearchAsync(userMessage, userId, topK: 10);
 
-                    if (memoryResults.Any())
+                    if (searchResults.Any())
                     {
-                        _logger.LogInfo($"✅ Found {memoryResults.Count} relevant memories");
-                        var memoryTexts = new List<string>();
+                        _logger.LogInfo($"✅ Found {searchResults.Count} relevant results from hybrid search");
 
-                        foreach (var result in memoryResults)
+                        var memoryTexts = new List<string>();
+                        var conversationTexts = new List<string>();
+                        var documentTexts = new List<string>();
+
+                        foreach (var result in searchResults)
                         {
-                            var hit = result.Hit;
-                            if (hit.Metadata != null && hit.Metadata.ContainsKey("userId"))
+                            switch (result.Source.ToLower())
                             {
-                                // Only include memories from the same user
-                                if (hit.Metadata["userId"] == userId.ToString())
-                                {
-                                    // Get the actual memory content from the database using the ID
-                                    var memory = await _dbContext.Memories.FindAsync(hit.Id);
-                                    if (memory != null)
+                                case "neo4j":
+                                    // These are memories from Neo4j
+                                    // Check for Memory nodes (new structure) or legacy entity_type
+                                    if (result.Metadata.ContainsKey("entity_type") ||
+                                        result.Metadata.ContainsKey("category") ||
+                                        result.Metadata.ContainsKey("source") ||
+                                        result.Source.ToLower() == "neo4j") // All Neo4j results are memories
                                     {
-                                        memoryTexts.Add($"- {memory.Content}");
+                                        memoryTexts.Add($"- {result.Content}");
                                     }
-                                }
+                                    break;
+
+                                case "weaviate":
+                                    // These are conversations or documents from Weaviate
+                                    if (result.Metadata.ContainsKey("search_type") &&
+                                        result.Metadata["search_type"].ToString() == "conversation")
+                                    {
+                                        conversationTexts.Add($"- {result.Content}");
+                                    }
+                                    else
+                                    {
+                                        documentTexts.Add($"- {result.Content}");
+                                    }
+                                    break;
+
+                                case "sqlite":
+                                    // Fallback conversation data from SQLite
+                                    conversationTexts.Add($"- {result.Content}");
+                                    break;
                             }
                         }
 
+                        // Add memories section
                         if (memoryTexts.Any())
                         {
-                            contextualInformation += $"\n\nRelevant memories from previous conversations:\n{string.Join("\n", memoryTexts)}";
-                            _logger.LogInfo($"✅ Including {memoryTexts.Count} user memories in context");
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInfo("ℹ️ No relevant memories found");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"⚠️ Failed to search memories: {ex.Message}");
-                    // Continue without memories - don't fail the entire request
-                }
-
-                // 2. Search for relevant conversation chunks (Neo4j)
-                try
-                {
-                    _logger.LogInfo("💬 Searching for relevant conversation chunks...");
-                    var conversationResults = await _brainGraphService.SearchConversationAsync(userMessage, limit: 3);
-
-                    if (conversationResults.Any())
-                    {
-                        _logger.LogInfo($"✅ Found {conversationResults.Count} relevant conversation chunks");
-                        var conversationTexts = new List<string>();
-
-                        foreach (var result in conversationResults)
-                        {
-                            var hit = result.Hit;
-                            if (hit.Metadata != null && hit.Metadata.ContainsKey("userId"))
-                            {
-                                // Only include conversations from the same user
-                                if (hit.Metadata["userId"] == userId.ToString())
-                                {
-                                    var content = hit.Metadata.GetValueOrDefault("content", "");
-                                    if (!string.IsNullOrEmpty(content))
-                                    {
-                                        conversationTexts.Add($"- {content}");
-                                    }
-                                }
-                            }
+                            contextualInformation += $"\n\nRelevant memories:\n{string.Join("\n", memoryTexts)}";
+                            _logger.LogInfo($"✅ Including {memoryTexts.Count} memories in context");
                         }
 
+                        // Add conversations section
                         if (conversationTexts.Any())
                         {
                             contextualInformation += $"\n\nRelevant past conversations:\n{string.Join("\n", conversationTexts)}";
                             _logger.LogInfo($"✅ Including {conversationTexts.Count} conversation chunks in context");
                         }
-                    }
-                    else
-                    {
-                        _logger.LogInfo("ℹ️ No relevant conversation chunks found");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"⚠️ Failed to search conversation chunks: {ex.Message}");
-                    // Continue without conversation chunks - don't fail the entire request
-                }
 
-                // 3. Search for relevant uploaded documents (Weaviate)
-                try
-                {
-                    _logger.LogInfo("📄 Searching for relevant uploaded documents...");
-                    var uploadResults = await _vectorRouter.SearchUploadsAsync(userId, userMessage, k: 3);
-
-                    if (uploadResults.Any())
-                    {
-                        _logger.LogInfo($"✅ Found {uploadResults.Count} relevant upload chunks");
-                        var uploadTexts = new List<string>();
-
-                        foreach (var hit in uploadResults)
+                        // Add documents section
+                        if (documentTexts.Any())
                         {
-                            var content = hit.Metadata?.GetValueOrDefault("content", "");
-                            var fileName = hit.Metadata?.GetValueOrDefault("fileName", "Unknown File");
-
-                            if (!string.IsNullOrEmpty(content))
-                            {
-                                uploadTexts.Add($"- From {fileName}: {content}");
-                            }
-                        }
-
-                        if (uploadTexts.Any())
-                        {
-                            contextualInformation += $"\n\nRelevant information from uploaded documents:\n{string.Join("\n", uploadTexts)}";
-                            _logger.LogInfo($"✅ Including {uploadTexts.Count} upload chunks in context");
+                            contextualInformation += $"\n\nRelevant information from documents:\n{string.Join("\n", documentTexts)}";
+                            _logger.LogInfo($"✅ Including {documentTexts.Count} document chunks in context");
                         }
                     }
                     else
                     {
-                        _logger.LogInfo("ℹ️ No relevant uploaded documents found");
+                        _logger.LogInfo("ℹ️ No relevant context found from hybrid search");
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"⚠️ Failed to search uploaded documents: {ex.Message}");
-                    // Continue without uploads - don't fail the entire request
+                    _logger.LogWarning($"⚠️ Failed to search using hybrid search service: {ex.Message}");
+                    // Continue without search results - don't fail the entire request
                 }
+
+
 
                 // Add instruction for using contextual information
                 if (!string.IsNullOrEmpty(contextualInformation))
@@ -341,11 +297,12 @@ namespace SwAIvyn.Services
                 await _conversationService.AppendMessageAsync(conversationId, userId, "assistant", aiResponse);
                 _logger.LogInfo("✅ AI response stored successfully");
 
-                // Auto-memory logic and conversation chunk storage
+                // Auto-memory logic (only for explicit "remember:" commands)
                 await ProcessAutoMemoryAsync(userMessage, aiResponse, userId, saveMemory, memoryCategory);
 
-                // Store conversation chunk for future retrieval
-                await ProcessConversationChunkAsync(userMessage, aiResponse, userId, conversationId);
+                // NOTE: Conversation chunk storage is now handled by search.py service
+                // The conversation is already stored in SQL database above
+                // The search.py service will handle Weaviate storage for semantic search
 
                 return aiResponse;
             }
@@ -421,7 +378,8 @@ namespace SwAIvyn.Services
                 return false;
             }
         }        /// <summary>
-        /// Processes auto-memory logic for chat messages
+        /// Processes memory storage for chat messages - only stores memories when explicitly requested
+        /// by user with "remember:" prefix or when saveMemory flag is set to true
         /// </summary>
         private async Task ProcessAutoMemoryAsync(string userMessage, string aiResponse, Guid userId, bool saveMemory, string memoryCategory)
         {
@@ -451,12 +409,11 @@ namespace SwAIvyn.Services
                     memoryContent = $"User: {userMessage}\nAI: {aiResponse}";
                     _logger.LogInfo($"🧠 Flag-based memory save requested for category: {actualCategory}");
                 }
-                // 3. Auto-detect memorable content (heuristic approach)
-                else if (IsMemorableContent(userMessage, aiResponse))
+                // 3. No automatic heuristic-based memory storage - only explicit requests
+                else
                 {
-                    memoryContent = $"User: {userMessage}\nAI: {aiResponse}";
-                    actualCategory = "auto-detected";
-                    _logger.LogInfo($"🧠 Auto-detected memorable content");
+                    _logger.LogInfo($"🧠 No explicit memory request detected - skipping memory storage");
+                    return; // Exit early if no explicit memory request
                 }
 
                 // Save memory if we have content to save
@@ -504,51 +461,6 @@ namespace SwAIvyn.Services
                 _logger.LogError($"🚨 Error processing auto-memory: {ex.Message}", ex);
                 // Don't throw - auto-memory failure shouldn't break chat
             }
-        }        /// <summary>
-        /// Determines if content is memorable using heuristics
-        /// </summary>
-        private static bool IsMemorableContent(string userMessage, string aiResponse)
-        {
-            // Make auto-memory detection much more selective to reduce noise
-            
-            // Only consider explicitly stated personal information
-            var personalKeywords = new[]
-            {
-                "my name is", "remember that i", "remember that my", "don't forget that i", "don't forget that my",
-                "important to remember", "please remember", "you should know that i", "you should know that my",
-                "for future reference", "keep in mind that i", "keep in mind that my"
-            };
-
-            // Only consider explicitly requested memory storage
-            var memoryRequestKeywords = new[]
-            {
-                "remember this", "save this", "store this", "memorize this", "note this down",
-                "add to memory", "remember for later", "don't forget this"
-            };
-
-            var combinedText = (userMessage + " " + aiResponse).ToLowerInvariant();
-
-            // Check for explicit personal information statements
-            if (personalKeywords.Any(keyword => combinedText.Contains(keyword)))
-            {
-                return true;
-            }
-
-            // Check for explicit memory requests
-            if (memoryRequestKeywords.Any(keyword => combinedText.Contains(keyword)))
-            {
-                return true;
-            }
-
-            // Only save very long, detailed responses to complex questions (indicating learning)
-            if (userMessage.Contains("?") && aiResponse.Length > 500 && 
-                (combinedText.Contains("explain") || combinedText.Contains("how to") || combinedText.Contains("what is") || combinedText.Contains("why")))
-            {
-                return true;
-            }
-
-            // Don't auto-save casual conversations, greetings, or simple questions
-            return false;
         }
 
         /// <summary>
@@ -607,50 +519,8 @@ Example conversation:
             }
         }
 
-        /// <summary>
-        /// Processes conversation chunks for future retrieval
-        /// </summary>
-        private async Task ProcessConversationChunkAsync(string userMessage, string aiResponse, Guid userId, Guid conversationId)
-        {
-            try
-            {
-                // Create conversation chunk content
-                var chunkContent = $"User: {userMessage}\nAI: {aiResponse}";
-
-                // Only store meaningful conversation chunks (avoid very short exchanges)
-                if (chunkContent.Length < 50)
-                {
-                    _logger.LogInfo("🔄 Skipping conversation chunk storage - too short");
-                    return;
-                }
-
-                var chunkId = Guid.NewGuid();
-                var metadata = new Dictionary<string, string>
-                {
-                    { "userId", userId.ToString() },
-                    { "conversationId", conversationId.ToString() },
-                    { "timestamp", DateTime.UtcNow.ToString("O") },
-                    { "source", "chat-exchange" },
-                    { "content", chunkContent }
-                };
-
-                // Store conversation chunk in Neo4j for future retrieval
-                var success = await _brainGraphService.AddConversationChunkAsync(chunkId, chunkContent, metadata);
-
-                if (success)
-                {
-                    _logger.LogInfo($"✅ Conversation chunk stored successfully - ID: {chunkId}");
-                }
-                else
-                {
-                    _logger.LogWarning($"⚠️ Failed to store conversation chunk - ID: {chunkId}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"🚨 Error processing conversation chunk: {ex.Message}", ex);
-                // Don't throw - conversation chunk failure shouldn't break chat
-            }
-        }
+        // NOTE: ProcessConversationChunkAsync method removed
+        // Conversation storage is now handled by the search.py service
+        // Conversations are stored in SQL (above) and search.py handles Weaviate storage
     }
 }

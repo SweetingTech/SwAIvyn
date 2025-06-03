@@ -34,6 +34,10 @@
   <ItemGroup>
     <Folder Include="wwwroot\" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="old_program.cs" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="..\assets\sqlite-vss.dll">
       <Link>sqlite-vss.dll</Link>

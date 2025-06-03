@@ -35,7 +35,7 @@ namespace SwAIvyn.Services
                 .Build();
 
             // Path to character cards directory
-            _characterCardsPath = Path.Combine(Directory.GetCurrentDirectory(), "frontend", "AI");
+            _characterCardsPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "frontend", "AI");
         }
 
         /// <summary>

@@ -15,12 +15,12 @@ namespace SwAIvyn.Services
     public class DefaultCharacterService : IDefaultCharacterService
     {
         private readonly ApplicationDbContext _dbContext;
-        private readonly ILogger<DefaultCharacterService> _logger;
+        private readonly ISimpleLoggerService _logger;
         private readonly IConfiguration _configuration;
 
         public DefaultCharacterService(
             ApplicationDbContext dbContext,
-            ILogger<DefaultCharacterService> logger,
+            ISimpleLoggerService logger,
             IConfiguration configuration)
         {
             _dbContext = dbContext;
@@ -49,16 +49,16 @@ namespace SwAIvyn.Services
 
                 if (existingGlados != null)
                 {
-                    _logger.LogInformation("GLaDOS default character already exists for user {UserId}", defaultUser.Id);
+                    _logger.LogInfo($"GLaDOS default character already exists for user {defaultUser.Id}");
                     return;
                 }
 
                 // Load GLaDOS from YAML file
-                var gladosYamlPath = Path.Combine("frontend", "AI", "GLaDOS", "GLaDOS_Character_card.yaml");
+                var gladosYamlPath = Path.Combine("..", "frontend", "AI", "GLaDOS", "GLaDOS_Character_card.yaml");
 
                 if (!File.Exists(gladosYamlPath))
                 {
-                    _logger.LogWarning("GLaDOS YAML file not found at: {Path}, creating basic GLaDOS character", gladosYamlPath);
+                    _logger.LogWarning($"GLaDOS YAML file not found at: {gladosYamlPath}, creating basic GLaDOS character");
                     await CreateBasicGladosCharacterAsync(defaultUser.Id);
                     return;
                 }
@@ -90,7 +90,7 @@ namespace SwAIvyn.Services
                     Talkativeness = float.TryParse(GetValueOrDefault(yamlData, "talkativeness", "0.5"), out float talk) ? talk : 0.5f,
                     CharacterVersion = GetValueOrDefault(yamlData, "character_version", "1.0"),
                     YamlProfile = yamlContent,
-                    ImagePath = "frontend/AI/GLaDOS/char_img.jpg",
+                    ImagePath = "../frontend/AI/GLaDOS/char_img.jpg",
                     VoiceSettings = "default",
                     IsFavorite = false,
                     Extensions = "{}",
@@ -99,16 +99,17 @@ namespace SwAIvyn.Services
                 };
 
                 // Generate system prompt using the CharacterService
-                glados.SystemPrompt = CharacterService.ConvertYamlToPrompt(yamlContent);
+                var characterService = new CharacterService(_dbContext, _logger);
+                glados.SystemPrompt = characterService.ConvertYamlToPrompt(yamlContent);
 
                 _dbContext.Avatars.Add(glados);
                 await _dbContext.SaveChangesAsync();
 
-                _logger.LogInformation("GLaDOS default character loaded successfully with ID: {Id}", glados.Id);
+                _logger.LogInfo($"GLaDOS default character loaded successfully with ID: {glados.Id}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error ensuring default character GLaDOS");
+                _logger.LogError("Error ensuring default character GLaDOS", ex);
             }
         }        /// <summary>
         /// Gets the default character (GLaDOS)
@@ -171,7 +172,7 @@ namespace SwAIvyn.Services
             _dbContext.Avatars.Add(glados);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("Created basic GLaDOS character with ID: {CharacterId}", glados.Id);
+            _logger.LogInfo($"Created basic GLaDOS character with ID: {glados.Id}");
         }
 
         /// <summary>

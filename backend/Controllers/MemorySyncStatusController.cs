@@ -33,29 +33,30 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Gets the sync status between SQLite and Neo4j for a user's memories
+        /// Gets the sync status between SQLite and Neo4j for memories.
+        /// Since this is a single-user application, we get ALL memories regardless of userId.
         /// </summary>
-        /// <param name="userId">User ID</param>
+        /// <param name="userId">User ID (ignored for single-user app)</param>
         /// <returns>Memory sync status information</returns>
         [HttpGet("status/{userId}")]
         public async Task<IActionResult> GetSyncStatus(Guid userId)
         {
             try
             {
-                // Get all memories from SQLite
+                // Get ALL memories from SQLite (single-user app)
                 var sqliteMemories = await _dbContext.Memories
-                    .Where(m => m.UserId == userId)
                     .Select(m => new { m.Id, m.Content, m.Category, m.CreatedAt })
                     .ToListAsync();
 
-                _logger.LogInfo($"📊 Found {sqliteMemories.Count} memories in SQLite for user {userId}");
+                _logger.LogInfo($"📊 Found {sqliteMemories.Count} memories in SQLite (all users)");
 
-                // Get all memories from Neo4j
+                // Get ALL memories from Neo4j (use default user ID for Neo4j operations)
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
                 var neo4jMemoryIds = new List<Guid>();
                 try
                 {
-                    neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(userId);
-                    _logger.LogInfo($"📊 Found {neo4jMemoryIds.Count} memories in Neo4j for user {userId}");
+                    neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(defaultUserId);
+                    _logger.LogInfo($"📊 Found {neo4jMemoryIds.Count} memories in Neo4j");
                 }
                 catch (Exception ex)
                 {
@@ -114,26 +115,27 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Repairs missing memories by syncing them from SQLite to Neo4j
+        /// Repairs missing memories by syncing them from SQLite to Neo4j.
+        /// Since this is a single-user application, we repair ALL memories regardless of userId.
         /// </summary>
-        /// <param name="userId">User ID</param>
+        /// <param name="userId">User ID (ignored for single-user app)</param>
         /// <returns>Repair results</returns>
         [HttpPost("repair/{userId}")]
         public async Task<IActionResult> RepairMemories(Guid userId)
         {
             try
             {
-                _logger.LogInfo($"🔧 Starting memory repair for user {userId}");
+                _logger.LogInfo($"🔧 Starting memory repair (single-user app)");
 
-                // Get sync status first
-                var sqliteMemories = await _dbContext.Memories
-                    .Where(m => m.UserId == userId)
-                    .ToListAsync();
+                // Get ALL memories from SQLite (single-user app)
+                var sqliteMemories = await _dbContext.Memories.ToListAsync();
 
+                // Use default user ID for Neo4j operations
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
                 var neo4jMemoryIds = new List<Guid>();
                 try
                 {
-                    neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(userId);
+                    neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(defaultUserId);
                 }
                 catch (Exception ex)
                 {
@@ -280,7 +282,7 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Gets overall sync statistics across all users
+        /// Gets overall sync statistics for the single-user application
         /// </summary>
         /// <returns>Global sync statistics</returns>
         [HttpGet("global-stats")]
@@ -288,50 +290,40 @@ namespace SwAIvyn.Controllers
         {
             try
             {
+                // Get ALL memories from SQLite (single-user app)
                 var totalSqliteMemories = await _dbContext.Memories.CountAsync();
-                
-                // Get user list to check individual sync status
-                var userIds = await _dbContext.Memories
-                    .Select(m => m.UserId)
-                    .Distinct()
-                    .ToListAsync();
 
-                var userSyncStats = new List<object>();
-                int totalNeo4jMemories = 0;
-                int totalMissingInNeo4j = 0;
-
-                foreach (var userId in userIds)
+                // Get ALL memories from Neo4j (use default user ID)
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+                var totalNeo4jMemories = 0;
+                try
                 {
-                    var userSqliteCount = await _dbContext.Memories.CountAsync(m => m.UserId == userId);
-                    
-                    var userNeo4jCount = 0;
-                    try
-                    {
-                        var neo4jIds = await _brainGraphService.GetAllMemoryIdsAsync(userId);
-                        userNeo4jCount = neo4jIds.Count;
-                        totalNeo4jMemories += userNeo4jCount;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning($"⚠️ Failed to get Neo4j count for user {userId}: {ex.Message}");
-                    }
-
-                    var missingCount = Math.Max(0, userSqliteCount - userNeo4jCount);
-                    totalMissingInNeo4j += missingCount;
-
-                    userSyncStats.Add(new
-                    {
-                        UserId = userId,
-                        SqliteCount = userSqliteCount,
-                        Neo4jCount = userNeo4jCount,
-                        MissingInNeo4j = missingCount,
-                        SyncPercentage = userSqliteCount > 0 ? Math.Round((double)userNeo4jCount / userSqliteCount * 100, 2) : 100
-                    });
+                    var neo4jIds = await _brainGraphService.GetAllMemoryIdsAsync(defaultUserId);
+                    totalNeo4jMemories = neo4jIds.Count;
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"⚠️ Failed to get Neo4j count: {ex.Message}");
+                }
+
+                var totalMissingInNeo4j = Math.Max(0, totalSqliteMemories - totalNeo4jMemories);
+
+                // Single user stats
+                var userSyncStats = new List<object>
+                {
+                    new
+                    {
+                        UserId = defaultUserId,
+                        SqliteCount = totalSqliteMemories,
+                        Neo4jCount = totalNeo4jMemories,
+                        MissingInNeo4j = totalMissingInNeo4j,
+                        SyncPercentage = totalSqliteMemories > 0 ? Math.Round((double)totalNeo4jMemories / totalSqliteMemories * 100, 2) : 100
+                    }
+                };
 
                 var globalStats = new
                 {
-                    TotalUsers = userIds.Count,
+                    TotalUsers = 1, // Single-user application
                     TotalSqliteMemories = totalSqliteMemories,
                     TotalNeo4jMemories = totalNeo4jMemories,
                     TotalMissingInNeo4j = totalMissingInNeo4j,

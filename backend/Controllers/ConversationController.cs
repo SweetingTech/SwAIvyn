@@ -93,9 +93,35 @@ namespace SwAIvyn.Controllers
         {
             try
             {
+                // Get default user if no userID provided (single-user application)
+                var userId = request.UserId;
+                if (!userId.HasValue)
+                {
+                    var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
+                    if (defaultUser == null)
+                    {
+                        _logger.LogError("No default user found and no userID provided for conversation creation");
+                        return BadRequest("No user found. Please ensure the application is properly initialized.");
+                    }
+                    userId = defaultUser.Id;
+                    _logger.LogInfo($"Using default user ID for conversation creation: {userId}");
+                }
+
                 var conversation = await _conversationService.CreateConversationAsync(
-                    request.UserId, request.FolderId, request.Title);
-                return Ok(conversation);
+                    userId.Value, request.FolderId, request.Title);
+
+                // Return a DTO to avoid circular reference issues
+                var conversationDto = new ConversationDto
+                {
+                    Id = conversation.Id,
+                    UserId = conversation.UserId,
+                    FolderId = conversation.FolderId,
+                    Title = conversation.Title,
+                    CreatedAt = conversation.CreatedUtc.ToString("O"),
+                    LastUpdated = conversation.UpdatedUtc.ToString("O")
+                };
+
+                return Ok(conversationDto);
             }
             catch (Exception ex)
             {
@@ -294,18 +320,32 @@ namespace SwAIvyn.Controllers
                     return BadRequest(ModelState);
                 }
 
-                _logger.LogInfo($"[CHAT] Received chat message for conversation {request.ConversationId}, user {request.UserId}, characterId: '{request.CharacterId ?? "null"}'");
+                // Get default user if no userID provided (single-user application)
+                var userId = request.UserId;
+                if (!userId.HasValue)
+                {
+                    var defaultUser = await _dbContext.Users.FirstOrDefaultAsync();
+                    if (defaultUser == null)
+                    {
+                        _logger.LogError("[CHAT] No default user found and no userID provided");
+                        return BadRequest("No user found. Please ensure the application is properly initialized.");
+                    }
+                    userId = defaultUser.Id;
+                    _logger.LogInfo($"[CHAT] Using default user ID: {userId}");
+                }
+
+                _logger.LogInfo($"[CHAT] Received chat message for conversation {request.ConversationId}, user {userId}, characterId: '{request.CharacterId ?? "null"}'");
 
                 // Load character system prompt if characterId is provided
                 if (!string.IsNullOrEmpty(request.CharacterId))
                 {
                     _logger.LogInfo($"[CHAT] Loading character '{request.CharacterId}' into conversation {request.ConversationId}");
-                    await LoadCharacterIntoConversationAsync(request.ConversationId, request.CharacterId, request.UserId);
+                    await LoadCharacterIntoConversationAsync(request.ConversationId, request.CharacterId, userId.Value);
                 }
 
                 // Generate and store the AI response (with auto-memory support)
                 var aiResponse = await _aiChatService.GenerateAndStoreResponseAsync(
-                    request.ConversationId, request.UserId, request.Message, request.SaveMemory, request.MemoryCategory);
+                    request.ConversationId, userId.Value, request.Message, request.SaveMemory, request.MemoryCategory);
 
                 _logger.LogInfo($"[CHAT] Successfully generated AI response for conversation {request.ConversationId}");
                 return Ok(new { response = aiResponse });
@@ -367,10 +407,10 @@ namespace SwAIvyn.Controllers
                 // Handle default character case - load first available character from database
                 if (characterId.Equals("default", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogInfo($"[CHARACTER_LOAD] Processing 'default' character selection - loading first available character");
+                    _logger.LogInfo($"[CHARACTER_LOAD] Processing 'default' character selection - loading first available character (single-user app)");
 
+                    // Get first available character (single-user application)
                     character = await _dbContext.Avatars
-                        .Where(a => a.UserId == userId)
                         .OrderBy(a => a.CreatedAt)
                         .FirstOrDefaultAsync();
 
@@ -392,8 +432,8 @@ namespace SwAIvyn.Controllers
                     }
                     else
                     {
-                        _logger.LogError($"[CHARACTER_LOAD] ❌ No characters found in database for user {userId}");
-                        throw new ArgumentException("No characters available for this user");
+                        _logger.LogError($"[CHARACTER_LOAD] ❌ No characters found in database");
+                        throw new ArgumentException("No characters available");
                     }
                 }
                 else
@@ -402,8 +442,9 @@ namespace SwAIvyn.Controllers
                     _logger.LogInfo($"[CHARACTER_LOAD] Parsing character GUID: '{characterId}'");
                     if (Guid.TryParse(characterId, out var characterGuid))
                     {
-                        _logger.LogInfo($"[CHARACTER_LOAD] Loading character from database with GUID: {characterGuid}");
-                        character = await _dbContext.Avatars.FirstOrDefaultAsync(a => a.Id == characterGuid && a.UserId == userId);
+                        _logger.LogInfo($"[CHARACTER_LOAD] Loading character from database with GUID: {characterGuid} (single-user app)");
+                        // Get character by ID (single-user application)
+                        character = await _dbContext.Avatars.FirstOrDefaultAsync(a => a.Id == characterGuid);
 
                         if (character != null)
                         {
@@ -423,7 +464,7 @@ namespace SwAIvyn.Controllers
                         }
                         else
                         {
-                            _logger.LogError($"[CHARACTER_LOAD] ❌ No character found in database with GUID: {characterGuid} for user {userId}");
+                            _logger.LogError($"[CHARACTER_LOAD] ❌ No character found in database with GUID: {characterGuid}");
                             throw new ArgumentException($"Character with ID {characterId} not found");
                         }
                     }
@@ -486,10 +527,9 @@ You must respond as this character at all times. Stay in character and respond a
     public class CreateConversationRequest
     {
         /// <summary>
-        /// Gets or sets the user ID
+        /// Gets or sets the user ID (optional - uses default user if not provided)
         /// </summary>
-        [Required]
-        public Guid UserId { get; set; }
+        public Guid? UserId { get; set; }
 
         /// <summary>
         /// Gets or sets the folder ID
@@ -501,6 +541,19 @@ You must respond as this character at all times. Stay in character and respond a
         /// </summary>
         [Required]
         public required string Title { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for conversation response to avoid circular reference issues
+    /// </summary>
+    public class ConversationDto
+    {
+        public Guid Id { get; set; }
+        public Guid UserId { get; set; }
+        public Guid? FolderId { get; set; }
+        public string Title { get; set; }
+        public string CreatedAt { get; set; }
+        public string LastUpdated { get; set; }
     }
 
     /// <summary>
@@ -568,10 +621,9 @@ You must respond as this character at all times. Stay in character and respond a
         public Guid ConversationId { get; set; }
 
         /// <summary>
-        /// Gets or sets the user ID
+        /// Gets or sets the user ID (optional - uses default user if not provided)
         /// </summary>
-        [Required]
-        public Guid UserId { get; set; }
+        public Guid? UserId { get; set; }
 
         /// <summary>
         /// Gets or sets the message content

@@ -22,7 +22,9 @@ namespace SwAIvyn.Services.Graph
         private string _neo4jUri;
         private string _neo4jUser;
         private string _neo4jPassword;
-        private readonly bool _isEmbedded;        private bool _isInitialized;
+        private readonly bool _isEmbedded;
+        private readonly int _vectorDimensions;
+        private bool _isInitialized;
         private bool _isInitializing;
         private bool _online;
         private readonly Timer _reconnectTimer;
@@ -42,8 +44,9 @@ namespace SwAIvyn.Services.Graph
             _neo4jUser = configuration["AppSettings:Neo4jUser"] ?? "neo4j";
             _neo4jPassword = configuration["AppSettings:Neo4jPassword"] ?? "password";
             _isEmbedded = configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", true);
+            _vectorDimensions = configuration.GetValue<int>("AppSettings:VectorDimensions", 768);
 
-            _logger.LogInfo($"Initial Neo4j configuration -> Uri={_neo4jUri}, User={_neo4jUser}, Embedded={_isEmbedded}");
+            _logger.LogInfo($"Initial Neo4j configuration -> Uri={_neo4jUri}, User={_neo4jUser}, Embedded={_isEmbedded}, VectorDimensions={_vectorDimensions}");
 
             // Ping every 30 s to keep status fresh
             _reconnectTimer = new Timer(async _ => await CheckConnectionAsync(),
@@ -143,9 +146,9 @@ namespace SwAIvyn.Services.Graph
                     "Memory.id uniqueness constraint"
                 );
 
-                // 2. Create vector index for Memory.embedding (1536 dimensions, cosine similarity)  
+                // 2. Create vector index for Memory.embedding (configured dimensions, cosine similarity)
                 await ExecuteDdlQueryAsync(
-                    "CREATE VECTOR INDEX memory_embedding_vector IF NOT EXISTS FOR (m:Memory) ON (m.embedding) OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}",
+                    $"CREATE VECTOR INDEX memory_embedding_vector IF NOT EXISTS FOR (m:Memory) ON (m.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {_vectorDimensions}, `vector.similarity_function`: 'cosine'}}}}",
                     "Memory.embedding vector index"
                 );
 

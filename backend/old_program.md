@@ -10,7 +10,6 @@ using SwAIvyn.Services.VectorStore;
 using SwAIvyn.Services.Graph;
 using SwAIvyn.Hubs;
 using SwAIvyn.Middleware;
-using SwAIvyn.HostedServices;
 using System;
 using System.IO;
 using System.Text;
@@ -27,107 +26,7 @@ using System.Collections.Generic;
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
 
-// Targeted Neo4j port cleanup method
-static void CleanupAllNeo4jProcesses()
-{
-    try
-    {
-        Console.WriteLine("[CLEANUP] Starting targeted Neo4j port cleanup...");
-
-        // Kill any processes using ports 7474 or 7687 (Neo4j's default ports)
-        KillProcessesUsingPorts([7474, 7687]);
-
-        // Also kill any processes specifically named neo4j (but not all Java)
-        var neo4jProcesses = Process.GetProcesses()
-            .Where(p => p.ProcessName.Contains("neo4j", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (neo4jProcesses.Count > 0)
-        {
-            Console.WriteLine($"[CLEANUP] Found {neo4jProcesses.Count} Neo4j-named processes to terminate");
-            foreach (var process in neo4jProcesses)
-            {
-                try
-                {
-                    Console.WriteLine($"[CLEANUP] Killing Neo4j process {process.Id}: {process.ProcessName}");
-                    process.Kill();
-                    process.WaitForExit(3000);
-                    Console.WriteLine($"[CLEANUP] Neo4j process {process.Id} terminated");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[CLEANUP] Failed to kill Neo4j process {process.Id}: {ex.Message}");
-                }
-            }
-        }
-        else
-        {
-            Console.WriteLine("[CLEANUP] No Neo4j-named processes found");
-        }
-
-        Console.WriteLine("[CLEANUP] Neo4j port cleanup completed");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[CLEANUP] Error during Neo4j port cleanup: {ex.Message}");
-    }
-}
-
-// Helper method to kill processes using specific ports
-static void KillProcessesUsingPorts(int[] ports)
-{
-    try
-    {
-        foreach (var port in ports)
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "netstat",
-                Arguments = "-ano",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(startInfo);
-            if (process != null)
-            {
-                var output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit();
-
-                var lines = output.Split('\n');
-                foreach (var line in lines)
-                {
-                    if (line.Contains($":{port}") && line.Contains("LISTENING"))
-                    {
-                        var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length > 0 && int.TryParse(parts[^1], out var pid))
-                        {
-                            try
-                            {
-                                var processToKill = Process.GetProcessById(pid);
-                                Console.WriteLine($"[CLEANUP] Killing process {pid} using port {port}: {processToKill.ProcessName}");
-                                processToKill.Kill();
-                                processToKill.WaitForExit(3000);
-                                Console.WriteLine($"[CLEANUP] Process {pid} terminated");
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"[CLEANUP] Failed to kill process {pid} on port {port}: {ex.Message}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[CLEANUP] Error checking ports: {ex.Message}");
-    }
-}
-
-// Kill any existing SwAIvyn processes and orphaned Neo4j processes to prevent conflicts
+// Kill any existing SwAIvyn processes to prevent Neo4j lock conflicts
 try
 {
     var currentProcess = Process.GetCurrentProcess();
@@ -161,10 +60,6 @@ try
     {
         Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
     }
-
-    // Kill all orphaned Neo4j processes (aggressive cleanup)
-    Console.WriteLine("[STARTUP] Performing aggressive Neo4j process cleanup...");
-    CleanupAllNeo4jProcesses();
 }
 catch (Exception ex)
 {
@@ -213,10 +108,11 @@ builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
     var csBuilder = new SqliteConnectionStringBuilder(connectionString);
     if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
     {
-        // Ensure the DataSource path is made absolute, relative to the application base directory
-        // This handles cases like "Data Source=Sqldatabase/swai-vyn.db" or "Data Source=../data/swai-vyn.db"
-        // by preserving the full relative path structure.
-        csBuilder.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csBuilder.DataSource));
+        // Ensure the DataSource path is made absolute, relative to the resolvedDataDirectory
+        // This handles cases like "Data Source=swai-vyn.db" or "Data Source=../data/swai-vyn.db"
+        // by ensuring the final path is within the intended data directory structure.
+        string dbFileName = Path.GetFileName(csBuilder.DataSource); // Extracts "swai-vyn.db"
+        csBuilder.DataSource = Path.GetFullPath(Path.Combine(resolvedDataDirectory, dbFileName));
     }
     connectionString = csBuilder.ToString();
     var loggerForDb = sp.GetRequiredService<ISimpleLoggerService>(); // Assuming ISimpleLoggerService is registered as Singleton or Scoped
@@ -248,8 +144,8 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
     var csBuilder = new SqliteConnectionStringBuilder(connectionString);
     if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
     {
-        // Ensure the DataSource path is made absolute, relative to the application base directory
-        csBuilder.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csBuilder.DataSource));
+        string dbFileName = Path.GetFileName(csBuilder.DataSource);
+        csBuilder.DataSource = Path.GetFullPath(Path.Combine(resolvedDataDirectory, dbFileName));
     }
     connectionString = csBuilder.ToString();
     var loggerForDbFactory = sp.GetRequiredService<ISimpleLoggerService>();  // Assuming ISimpleLoggerService is registered as Singleton or Scoped
@@ -271,10 +167,7 @@ builder.Services.AddScoped<IDirectDatabaseService, DirectDatabaseService>();
 builder.Services.AddSingleton<DirectoryInitializerService>();
 
 // Add backup service
-builder.Services.AddHostedService<SwAIvyn.HostedServices.BackupService>();
-
-// Add search service hosted service
-builder.Services.AddHostedService<SearchServiceHostedService>();
+builder.Services.AddHostedService<BackupService>();
 
 // Add conversation and folder services
 builder.Services.AddScoped<IConversationService, ConversationService>();
@@ -306,9 +199,6 @@ builder.Services.AddScoped<IVectorRouter, VectorRouter>();
 // Register BrainService with IVectorRouter instead of IVectorStore
 builder.Services.AddScoped<IBrainService, BrainService>();
 
-// Register HybridSearchService for calling search.py API
-builder.Services.AddHttpClient<IHybridSearchService, HybridSearchService>();
-
 // Add Neo4j and BrainGraph services
 builder.Services.AddScoped<INeo4jService, Neo4jService>();
 builder.Services.AddSingleton<Neo4jRuntimeService>();
@@ -322,7 +212,6 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<SwAIvyn.Services.Memory.MemoryReindexService>();
 
 // Add character services
-builder.Services.AddScoped<ICharacterService, CharacterService>();
 builder.Services.AddScoped<CharacterCardLoaderService>();
 builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 
@@ -391,8 +280,87 @@ using (var scope = app.Services.CreateScope())
     }    // Skip Neo4j health check completely
     logger.LogInfo("Startup health checks completed.");
 
-    // Memory sync will be performed after Neo4j initialization
-    logger.LogInfo("Memory synchronization will be performed after Neo4j initialization");
+    // Perform memory sync on startup (optional feature)
+    try
+    {
+        logger.LogInfo("Performing memory synchronization on startup...");
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var brainGraphService = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
+        
+        const string defaultUserId = "00000000-0000-0000-0000-000000000001";
+        var userId = Guid.Parse(defaultUserId);
+        
+        // Check sync status first
+        var sqliteMemories = await dbContext.Memories
+            .Where(m => m.UserId == userId)
+            .ToListAsync();
+        
+        var neo4jMemoryIds = new List<Guid>();
+        try
+        {
+            neo4jMemoryIds = await brainGraphService.GetAllMemoryIdsAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Failed to get Neo4j memories during startup sync: {ex.Message}");
+        }
+        
+        var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
+        var neo4jIds = neo4jMemoryIds.ToHashSet();
+        var missingInNeo4j = sqliteIds.Except(neo4jIds).ToList();
+        
+        if (missingInNeo4j.Count > 0)
+        {
+            logger.LogInfo($"Found {missingInNeo4j.Count} memories missing from Neo4j. Performing repair...");
+            
+            int successCount = 0;
+            int failureCount = 0;
+            
+            foreach (var memoryId in missingInNeo4j)
+            {
+                var memory = sqliteMemories.First(m => m.Id == memoryId);
+                
+                try
+                {
+                    var metadata = new Dictionary<string, string>
+                    {
+                        { "category", memory.Category ?? "general" },
+                        { "userId", memory.UserId.ToString() },
+                        { "isShared", memory.IsShared.ToString() },
+                        { "createdAt", memory.CreatedAt.ToString("O") },
+                        { "source", "startup-sync" }
+                    };
+
+                    var success = await brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                    
+                    if (success)
+                    {
+                        successCount++;
+                    }
+                    else
+                    {
+                        failureCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failureCount++;
+                    logger.LogWarning($"Failed to sync memory {memory.Id} during startup: {ex.Message}");
+                }
+            }
+            
+            logger.LogInfo($"Startup memory repair completed: {successCount} successful, {failureCount} failed");
+        }
+        else
+        {
+            logger.LogInfo("Memory databases are already in sync.");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError("Failed to perform startup memory sync", ex);
+        // Don't fail startup for sync issues
+    }
 }
 
 // Initialize directories
@@ -428,11 +396,23 @@ try
 catch (Exception ex)
 {
     logger.LogCritical("Failed to initialize database", ex);
-    // Don't exit - continue with startup even if database initialization fails
-    logger.LogWarning("Continuing startup despite database initialization failure");
 }
 
-logger.LogInfo("Skipping Neo4j database schema initialization - will be done after Neo4j runtime starts");
+// Initialize Neo4j database schema
+try
+{
+    logger.LogInfo("Initializing Neo4j database schema...");
+    using (var scope = app.Services.CreateScope())
+    {
+        var neo4jService = scope.ServiceProvider.GetRequiredService<INeo4jService>();
+        await neo4jService.InitializeDatabaseSchemaAsync();
+        logger.LogInfo("Neo4j database schema initialization completed successfully");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogWarning($"Failed to initialize Neo4j database schema - this is expected if Neo4j is not available. Error: {ex.Message}");
+}
 
 // Initialize Weaviate vector store schema
 try
@@ -467,7 +447,7 @@ try
 
             var defaultUser = new SwAIvyn.Data.Entities.AppUser
             {
-                Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                Id = Guid.NewGuid(),
                 Username = "Default User",
                 PasswordHash = "", // No password needed for single-user app
                 PINCode = "",
@@ -653,7 +633,6 @@ try
         await neo4jService.InitializeAsync();
         logger.LogInfo("Neo4j service initialization completed successfully");
 
-
         // Check if Neo4j is available
         var graphOk = await neo4jService.PingAsync();
         if (!graphOk && requireNeo4j)
@@ -692,91 +671,6 @@ try
 catch (Exception ex)
 {
     logger.LogError($"Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
-}
-
-// Perform memory synchronization after Neo4j is fully initialized
-try
-{
-    logger.LogInfo("Performing memory synchronization after Neo4j initialization...");
-    using (var scope = app.Services.CreateScope())
-    {
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var brainGraphService = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
-
-        const string defaultUserId = "00000000-0000-0000-0000-000000000001";
-        var userId = Guid.Parse(defaultUserId);
-
-        // Check sync status first
-        var sqliteMemories = await dbContext.Memories
-            .Where(m => m.UserId == userId)
-            .ToListAsync();
-
-        var neo4jMemoryIds = new List<Guid>();
-        try
-        {
-            neo4jMemoryIds = await brainGraphService.GetAllMemoryIdsAsync(userId);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Failed to get Neo4j memories during startup sync: {ex.Message}");
-        }
-
-        var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
-        var neo4jIds = neo4jMemoryIds.ToHashSet();
-        var missingInNeo4j = sqliteIds.Except(neo4jIds).ToList();
-
-        if (missingInNeo4j.Count > 0)
-        {
-            logger.LogInfo($"Found {missingInNeo4j.Count} memories missing from Neo4j. Performing repair...");
-
-            int successCount = 0;
-            int failureCount = 0;
-
-            foreach (var memoryId in missingInNeo4j)
-            {
-                var memory = sqliteMemories.First(m => m.Id == memoryId);
-
-                try
-                {
-                    var metadata = new Dictionary<string, string>
-                    {
-                        { "category", memory.Category ?? "general" },
-                        { "userId", memory.UserId.ToString() },
-                        { "isShared", memory.IsShared.ToString() },
-                        { "createdAt", memory.CreatedAt.ToString("O") },
-                        { "source", "startup-sync" }
-                    };
-
-                    var success = await brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
-
-                    if (success)
-                    {
-                        successCount++;
-                    }
-                    else
-                    {
-                        failureCount++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failureCount++;
-                    logger.LogWarning($"Failed to sync memory {memory.Id} during startup: {ex.Message}");
-                }
-            }
-
-            logger.LogInfo($"Startup memory repair completed: {successCount} successful, {failureCount} failed");
-        }
-        else
-        {
-            logger.LogInfo("Memory databases are already in sync.");
-        }
-    }
-}
-catch (Exception ex)
-{
-    logger.LogError("Failed to perform startup memory sync", ex);
-    // Don't fail startup for sync issues
 }
 
 // Set up global exception handler

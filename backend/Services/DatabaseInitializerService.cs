@@ -85,14 +85,41 @@ namespace SwAIvyn.Services
                 // We just need to ensure _dataDirectory itself exists.                // Create database if it doesn't exist and run migrations
                 using (var context = await _dbContextFactory.CreateDbContextAsync())
                 {
-                    _logger.LogInfo("Running database migrations...");
-                    await context.Database.MigrateAsync();
-                    
+                    try
+                    {
+                        _logger.LogInfo("Running database migrations...");
+                        await context.Database.MigrateAsync();
+                        _logger.LogInfo("Database migrations completed successfully");
+                    }
+                    catch (Exception migrationEx)
+                    {
+                        _logger.LogWarning($"Database migration failed (this may be normal if tables already exist): {migrationEx.Message}");
+
+                        // Try to ensure database can connect even if migrations failed
+                        try
+                        {
+                            await context.Database.EnsureCreatedAsync();
+                            _logger.LogInfo("Database ensured to exist after migration failure");
+                        }
+                        catch (Exception ensureEx)
+                        {
+                            _logger.LogWarning($"Database ensure creation also failed: {ensureEx.Message}");
+                        }
+                    }
+
                     // Enable WAL mode for better concurrency
-                    _logger.LogInfo("Enabling WAL mode...");
-                    await context.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
-                    await context.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL;");
-                    
+                    try
+                    {
+                        _logger.LogInfo("Enabling WAL mode...");
+                        await context.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
+                        await context.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL;");
+                        _logger.LogInfo("WAL mode enabled successfully");
+                    }
+                    catch (Exception walEx)
+                    {
+                        _logger.LogWarning($"Failed to enable WAL mode: {walEx.Message}");
+                    }
+
                     _logger.LogInfo("Database initialization completed successfully");
                 }
             }

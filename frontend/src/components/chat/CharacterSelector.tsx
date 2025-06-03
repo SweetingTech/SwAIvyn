@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, User, Bot } from 'lucide-react';
 import apiService from '../../services/apiService';
-import { USER_ID } from '../../constants';
+import { useInitialization } from '../../contexts/InitializationContext';
 
 interface Character {
   id: string;
@@ -28,6 +28,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   onCharacterSelect,
   disabled = false
 }) => {
+  const { user } = useInitialization();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,8 +46,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
       localStorage.removeItem('selectedCharacterId');
     }
 
-    loadCharacters();
-  }, []);
+    if (user?.id) {
+      loadCharacters();
+    }
+  }, [user?.id]);
 
   // Validate current selection when characters are loaded
   useEffect(() => {
@@ -74,9 +77,16 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
     try {
       setLoading(true);
       setError(null);
-      console.log('Loading characters for user:', USER_ID);
 
-      const response = await apiService.get(`/api/character/user/${USER_ID}`);
+      if (!user?.id) {
+        console.warn('No user available, cannot load characters');
+        setCharacters([]);
+        return;
+      }
+
+      console.log('Loading characters for user:', user.id);
+
+      const response = await apiService.get(`/api/character/user/${user.id}`);
       const charactersData = Array.isArray(response) ? response : [];
 
       // Validate each character object

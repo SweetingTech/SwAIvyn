@@ -12,14 +12,18 @@ import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import apiService from '../services/apiService';
 import { Message } from '../types/chat';
-import { USER_ID, USER_NAME } from '../constants';
+import { USER_NAME } from '../constants';
 import { parseChatUrl, generateChatUrl, createDefaultChatUrl } from '../utils/chatUrls';
+import { useInitialization } from '../contexts/InitializationContext';
 
 /**
  * ChatPage component manages the chat interface including message display,
  * input area, and integration with the AI chat service.
  */
 const ChatPage = () => {
+  // Get user from initialization context
+  const { user } = useInitialization();
+
   // URL parameters and navigation
   const { sessionCharacter } = useParams<{ sessionCharacter?: string }>();
   const navigate = useNavigate();
@@ -55,8 +59,13 @@ const ChatPage = () => {
   useEffect(() => {
     const loadCharacterFromUrl = async () => {
       try {
+        if (!user?.id) {
+          console.warn('No user available, cannot load characters');
+          return;
+        }
+
         // Load all available characters
-        const characters = await apiService.get(`/api/character/user/${USER_ID}`);
+        const characters = await apiService.get(`/api/character/user/${user.id}`);
 
         if (urlInfo.characterName) {
           // Find character by name from URL
@@ -98,17 +107,24 @@ const ChatPage = () => {
       }
     };
 
-    loadCharacterFromUrl();
-  }, [sessionCharacter, navigate]);
+    if (user?.id) {
+      loadCharacterFromUrl();
+    }
+  }, [sessionCharacter, navigate, user?.id]);
 
   // Load the most recent conversation or start a new one
   useEffect(() => {
     const loadConversation = async () => {
       try {
-        console.log('Using hard-coded user:', USER_ID);
+        if (!user?.id) {
+          console.warn('No user available, cannot load conversation');
+          return;
+        }
+
+        console.log('Using user from context:', user.id);
 
         // Load recent conversation for this user
-        const recent = await conversationService.getRecentConversation(USER_ID);
+        const recent = await conversationService.getRecentConversation(user.id);
 
         if (recent && recent.id) {
           // Load existing conversation
@@ -154,8 +170,10 @@ const ChatPage = () => {
       }
     };
 
-    loadConversation();
-  }, []);
+    if (user?.id) {
+      loadConversation();
+    }
+  }, [user?.id]);
 
   // Handle character selection
   const handleCharacterSelect = async (character: any) => {
@@ -282,7 +300,7 @@ const ChatPage = () => {
           : userMessage.text;
 
         // Create a new conversation
-        const newConversation = await conversationService.createConversation(USER_ID, title);
+        const newConversation = await conversationService.createConversation(title);
 
         conversationId = newConversation.id; // Use this right away
         setCurrentConversation({
@@ -298,11 +316,11 @@ const ChatPage = () => {
         navigate(newUrl, { replace: true });
 
         // Set character context if we have a selected character
-        if (selectedCharacter && selectedCharacter.systemPrompt) {
+        if (selectedCharacter && selectedCharacter.systemPrompt && user?.id) {
           try {
             await conversationService.setCharacterContext(
               conversationId,
-              USER_ID,
+              user.id,
               selectedCharacter.id || null,
               selectedCharacter.systemPrompt
             );
@@ -320,18 +338,19 @@ const ChatPage = () => {
       }
 
       // Store the user message in the database
-      await conversationService.appendMessage(
-        conversationId,
-        USER_ID,
-        'user',
-        userMessage.text
-      );
+      if (user?.id) {
+        await conversationService.appendMessage(
+          conversationId,
+          user.id,
+          'user',
+          userMessage.text
+        );
+      }
 
       // Send message to API and get AI response (include character ID if selected)
       console.log('ChatPage: Sending message with character ID:', selectedCharacter?.id, 'Character name:', selectedCharacter?.name);
       const aiResponse = await chatService.sendMessage(
         conversationId,
-        USER_ID,
         inputText,
         selectedCharacter?.id || null
       );
@@ -348,12 +367,14 @@ const ChatPage = () => {
       setMessages(prev => [...prev, aiMessage]);
 
       // Store the AI response in the database
-      await conversationService.appendMessage(
-        conversationId,
-        USER_ID,
-        'assistant',
-        aiResponse
-      );
+      if (user?.id) {
+        await conversationService.appendMessage(
+          conversationId,
+          user.id,
+          'assistant',
+          aiResponse
+        );
+      }
     } catch (error) {
       console.error('Error sending message:', error);
 
@@ -382,7 +403,7 @@ const ChatPage = () => {
         {/* Chat Sidebar */}
         <div className="w-64 border-r">
           <ChatSidebar
-            userId={USER_ID}
+            userId={user?.id || ''}
             currentSessionId={currentConversation.id || null}
             onSelectSession={handleSelectConversation}
             onNewSession={handleNewConversation}

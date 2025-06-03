@@ -89,7 +89,7 @@ namespace SwAIvyn.Services
                         VALUES (@Id, @Username, @PasswordHash, @PINCode, @RecoveryPhrase, @CreatedAt, @LastLogin);";
 
                     using var insertCommand = new SqliteCommand(insertUserSql, connection);
-                    var userId = Guid.NewGuid().ToString();
+                    var userId = "00000000-0000-0000-0000-000000000001";
                     var currentTime = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
 
                     insertCommand.Parameters.AddWithValue("@Id", userId);

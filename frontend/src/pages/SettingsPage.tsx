@@ -9,6 +9,7 @@ import { Tooltip } from '../components/Tooltip';
 import chatService from '../services/chatService';
 import CharacterEditor from './CharacterEditor';
 import yaml from 'js-yaml';
+import { useInitialization } from '../contexts/InitializationContext';
 
 const tabs = [
   { id: 'account', label: 'Account', icon: <User size={16} /> },
@@ -94,6 +95,7 @@ const SettingsPage = () => {
 };
 
 const AccountSettings = () => {
+  const { user } = useInitialization();
   const [recoveryCodes, setRecoveryCodes] = useState<string[]|null>(null);
   const [pin, setPin] = useState('');
   const [pinSet, setPinSet] = useState(false);
@@ -114,9 +116,19 @@ const AccountSettings = () => {
   const loadUserInfo = async () => {
     try {
       setLoading(true);
-      // Use the default and only user ID for this application
-      const defaultUserId = '00000000-0000-0000-0000-000000000001';
-      const response = await fetch(`/api/user/${defaultUserId}`);
+
+      if (!user?.id) {
+        // If no user from context, use fallback data
+        setUserInfo({
+          username: 'Default User',
+          email: 'user@example.com',
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString()
+        });
+        return;
+      }
+
+      const response = await fetch(`/api/user/${user.id}`);
       if (response.ok) {
         const userData = await response.json();
         setUserInfo({
@@ -294,6 +306,7 @@ const AccountSettings = () => {
 };
 
 const ModelSettings = () => {
+  const { user } = useInitialization();
   const [selectedEngine, setSelectedEngine] = useState(''); // Start empty to avoid race conditions
   const [selectedModel, setSelectedModel] = useState('');
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
@@ -305,38 +318,24 @@ const ModelSettings = () => {
   const [saveError, setSaveError] = useState('');
   const [settingsLoaded, setSettingsLoaded] = useState(false); // Track if settings have been loaded
 
-  // User ID state
-  const [userId, setUserId] = useState<string>('');
-
-  // Load user ID first, then settings
+  // Load settings when user is available
   useEffect(() => {
     console.log('🚀 SettingsPage useEffect starting...');
 
     const loadUserAndSettings = async () => {
       try {
         console.log('🔄 Starting loadUserAndSettings...');
-        // Fetch the default user from backend (same as ChatPage.tsx)
-        let validUserId = null;
 
-        // Use the default and only user ID for this application
-        validUserId = '00000000-0000-0000-0000-000000000001';
-        console.log('✅ Using default user ID:', validUserId);
-
-        // If we don't have a valid user ID, use demo mode but don't load settings yet
-        if (!validUserId) {
-          console.warn('⚠️ No valid user available, using demo mode');
-          setUserId('demo-user-id');
-          // Don't load settings without a valid user ID
+        if (!user?.id) {
+          console.warn('⚠️ No user available from context yet');
           return;
         }
 
-        // We have a valid user ID
-        console.log('✅ Setting userId to:', validUserId);
-        setUserId(validUserId);
+        console.log('✅ Using user ID from context:', user.id);
 
         // Now load settings with the user ID
-        console.log('🔄 About to load settings with userId:', validUserId);
-        await loadSettings(validUserId);
+        console.log('🔄 About to load settings with userId:', user.id);
+        await loadSettings(user.id);
       } catch (error) {
         console.error('❌ Error loading user and settings:', error);
         setSaveError('Failed to load user information. Please try again.');
@@ -344,7 +343,7 @@ const ModelSettings = () => {
     };
 
     loadUserAndSettings();
-  }, []);
+  }, [user?.id]);
 
   // Debug useEffect to track selectedEngine changes
   useEffect(() => {
@@ -360,7 +359,7 @@ const ModelSettings = () => {
   useEffect(() => {
     const loadModelsForEngine = async () => {
       // Only proceed if we have a valid setup and settings have been loaded
-      if (!userId || loading || !settingsLoaded || !selectedEngine) return;
+      if (!user?.id || loading || !settingsLoaded || !selectedEngine) return;
 
       try {
         if (selectedEngine === 'ollama') {
@@ -384,7 +383,7 @@ const ModelSettings = () => {
     };
 
     loadModelsForEngine();
-  }, [selectedEngine, userId, settingsLoaded]);
+  }, [selectedEngine, user?.id, settingsLoaded]);
 
   // Load current settings function
   const loadSettings = async (userIdToUse: string) => {
@@ -526,13 +525,13 @@ const ModelSettings = () => {
       setSaveError('');
 
       // Skip saving if no valid user ID
-      if (!userId || userId === 'demo-user-id') {
+      if (!user?.id) {
         setSaveError('Cannot save settings: No valid user ID available');
         return;
       }
 
       // Save LLM settings with user ID
-      await chatService.updateLlmSettings(selectedEngine, selectedModel, userId);
+      await chatService.updateLlmSettings(selectedEngine, selectedModel, user.id);
 
       // Save connection settings to API with user ID
       try {
@@ -542,7 +541,7 @@ const ModelSettings = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            UserId: userId, // Pass the actual user ID (capital U to match backend)
+            UserId: user.id, // Pass the actual user ID (capital U to match backend)
             OllamaApiUrl: ollamaApiUrl || '', // Capital O and A to match backend, ensure not null
             LmStudioApiUrl: lmStudioApiUrl || '', // Capital L, S, A, U to match backend, ensure not null
             Neo4jUri: '', // Include Neo4jUri as empty string (required by backend model)

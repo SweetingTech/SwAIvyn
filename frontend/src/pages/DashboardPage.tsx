@@ -50,71 +50,90 @@ const DashboardPage = () => {
 
   const loadSystemStatus = async () => {
     try {
-      // Use user from initialization context
-      const userId = user?.id || '00000000-0000-0000-0000-000000000001';
-      console.log('🔍 Dashboard: About to call LLM settings API with userId:', userId);
-      const llmUrl = `/api/settings/llm?userId=${userId}`;
-      console.log('🔍 Dashboard: Full URL:', llmUrl);
-      const llmResponse = await fetch(llmUrl);
-      console.log('🔍 Dashboard: LLM API response status:', llmResponse.status);
-      console.log('🔍 Dashboard: LLM API response ok:', llmResponse.ok);
-      const llmData = llmResponse.ok ? await llmResponse.json() : { engine: 'Unknown', model: 'Unknown' };
-      console.log('🔍 Dashboard: LLM API response data:', llmData);
+      console.log('🔍 Dashboard: Loading system status...');
 
-      // Get the actual current model from the respective service
-      let actualModel = 'Unknown';
-      let llmConnected = false;
+      // Get comprehensive system status from new dashboard API
+      const statusResponse = await fetch('/api/dashboard/status');
 
-      try {
-        if (llmData.engine === 'ollama') {
-          const testResponse = await fetch('/api/llm/ollama/models');
-          llmConnected = testResponse.ok;
-          if (testResponse.ok) {
-            // For Ollama, use the model from database settings
-            actualModel = llmData.model || 'Not selected';
-          }
-        } else if (llmData.engine === 'lmstudio') {
-          const testResponse = await fetch('/api/llm/lmstudio/models');
-          llmConnected = testResponse.ok;
-          if (testResponse.ok) {
-            // For LM Studio, get the actual loaded model from the API
-            const modelsData = await testResponse.json();
-            if (modelsData.data && modelsData.data.length > 0) {
-              actualModel = modelsData.data[0].id; // Use the first (current) model
-            } else {
-              actualModel = 'No model loaded';
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        console.log('🔍 Dashboard: Status data received:', statusData);
+
+        setSystemStatus({
+          llmEngine: statusData.llm?.engine || 'Unknown',
+          llmModel: statusData.llm?.model || 'Not selected',
+          llmConnected: statusData.llm?.connected || false,
+          charactersLoaded: statusData.metrics?.characterCount || 0,
+          memoryItems: statusData.metrics?.memoryCount || 0,
+          chatSessions: statusData.metrics?.conversationCount || 0,
+          uptime: calculateUptime(),
+          lastActivity: new Date().toLocaleTimeString()
+        });
+      } else {
+        console.error('🔍 Dashboard: Failed to load status, falling back to individual APIs');
+
+        // Fallback to individual API calls if dashboard API fails
+        const userId = user?.id || '00000000-0000-0000-0000-000000000001';
+
+        // Get LLM settings
+        let llmData = { engine: 'Unknown', model: 'Unknown' };
+        let llmConnected = false;
+
+        try {
+          const llmResponse = await fetch(`/api/settings/llm?userId=${userId}`);
+          if (llmResponse.ok) {
+            llmData = await llmResponse.json();
+
+            // Test LLM connection
+            if (llmData.engine === 'ollama') {
+              const testResponse = await fetch('/api/llm/ollama/models');
+              llmConnected = testResponse.ok;
+            } else if (llmData.engine === 'lmstudio') {
+              const testResponse = await fetch('/api/llm/lmstudio/models');
+              llmConnected = testResponse.ok;
             }
           }
+        } catch (error) {
+          console.error('Failed to get LLM settings:', error);
         }
-      } catch {
-        llmConnected = false;
-        actualModel = 'Connection failed';
-      }
 
-      // Get character count using user ID from context
-      let charactersLoaded = 0;
-      try {
-        const charResponse = await fetch(`/api/character/user/${userId}`);
-        if (charResponse.ok) {
-          const characters = await charResponse.json();
-          charactersLoaded = Array.isArray(characters) ? characters.length : 0;
+        // Get character count
+        let charactersLoaded = 0;
+        try {
+          const charResponse = await fetch(`/api/character/user/${userId}`);
+          if (charResponse.ok) {
+            const characters = await charResponse.json();
+            charactersLoaded = Array.isArray(characters) ? characters.length : 0;
+          }
+        } catch (error) {
+          console.error('Failed to get character count:', error);
         }
-      } catch {
-        charactersLoaded = 0;
-      }
 
-      setSystemStatus({
-        llmEngine: llmData.engine || 'Unknown',
-        llmModel: llmData.model || 'Not selected',
-        llmConnected,
-        charactersLoaded,
-        memoryItems: 0, // TODO: Implement memory count API
-        chatSessions: 0, // TODO: Implement chat sessions count API
-        uptime: calculateUptime(),
-        lastActivity: new Date().toLocaleTimeString()
-      });
+        setSystemStatus({
+          llmEngine: llmData.engine,
+          llmModel: llmData.model,
+          llmConnected,
+          charactersLoaded,
+          memoryItems: 0, // Will be available when dashboard API works
+          chatSessions: 0, // Will be available when dashboard API works
+          uptime: calculateUptime(),
+          lastActivity: new Date().toLocaleTimeString()
+        });
+      }
     } catch (error) {
       console.error('Error loading system status:', error);
+
+      // Set default values on error
+      setSystemStatus({
+        llmEngine: 'Error',
+        llmModel: 'Error',
+        llmConnected: false,
+        charactersLoaded: 0,
+        memoryItems: 0,
+        chatSessions: 0,
+        uptime: calculateUptime(),
+        lastActivity: 'Error'
+      });
     } finally {
       setLoading(false);
     }

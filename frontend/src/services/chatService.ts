@@ -7,24 +7,23 @@ const chatService = {
   /**
    * Sends a message to the AI and gets a response
    * @param conversationId The ID of the conversation
-   * @param userId The ID of the user
    * @param message The message to send
    * @param characterId Optional character ID to use for this message
    * @returns The AI's response
    */
-  async sendMessage(conversationId: string, userId: string, message: string, characterId?: string | null): Promise<string> {
+  async sendMessage(conversationId: string, message: string, characterId?: string | null): Promise<string> {
     try {
-      // Skip API call if userId or conversationId is not valid
-      if (!userId || userId === 'demo-user-id' || !conversationId || conversationId.startsWith('temp-')) {
-        console.warn('Invalid IDs for chat message, returning mock response');
+      // Skip API call if conversationId is not valid
+      if (!conversationId || conversationId.startsWith('temp-')) {
+        console.warn('Invalid conversation ID for chat message, returning mock response');
         // Return a mock AI response
-        return `I'm sorry, but I'm currently in demo mode and can't process your request: "${message}". Please ensure you have a valid user account to use the full functionality.`;
+        return `I'm sorry, but I'm currently in demo mode and can't process your request: "${message}". Please ensure you have a valid conversation.`;
       }
 
       const requestBody: any = {
         conversationId,
-        userId,
         message
+        // Note: userID removed - backend will use default user automatically
       };
 
       // Add characterId if provided and valid, otherwise use "default"

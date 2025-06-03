@@ -85,6 +85,14 @@ namespace SwAIvyn.Services.Graph
         /// <param name="userId">User ID</param>
         /// <returns>List of memory IDs</returns>
         Task<List<Guid>> GetAllMemoryIdsAsync(Guid userId);
+
+        /// <summary>
+        /// Simple search that returns memory content as strings
+        /// </summary>
+        /// <param name="query">Search query</param>
+        /// <param name="limit">Maximum number of results</param>
+        /// <returns>List of memory content strings</returns>
+        Task<List<string>> SearchMemoriesAsync(string query, int limit = 10);
     }
 
     /// <summary>
@@ -648,6 +656,27 @@ namespace SwAIvyn.Services.Graph
                     };
                 }
 
+                // Get memory count
+                try
+                {
+                    var memoryCountQuery = "MATCH (m:Memory) RETURN count(m) as memoryCount";
+                    var memoryCountResult = await _neo4jService.ExecuteQueryAsync(memoryCountQuery);
+
+                    if (memoryCountResult.Count > 0 && memoryCountResult[0].ContainsKey("memoryCount"))
+                    {
+                        status["memoryCount"] = memoryCountResult[0]["memoryCount"];
+                    }
+                    else
+                    {
+                        status["memoryCount"] = 0;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Failed to get memory count: {ex.Message}");
+                    status["memoryCount"] = 0;
+                }
+
                 status["Initialized"] = _isInitialized;
 
                 return status;
@@ -669,14 +698,12 @@ namespace SwAIvyn.Services.Graph
 
             try
             {
-                _logger.LogInfo($"Getting all memory IDs for user {userId}");
+                _logger.LogInfo($"Getting all memory IDs from Neo4j (single-user app)");
 
-                // Query Neo4j for all memory nodes for this user
-                var query = "MATCH (m:Memory) WHERE m.userId = $userId RETURN m.id as memoryId";
-                var parameters = new Dictionary<string, object>
-                {
-                    { "userId", userId.ToString() }
-                };
+                // Query Neo4j for ALL memory nodes (single-user application)
+                // Since this is a single-user app, we get all Memory nodes regardless of userId
+                var query = "MATCH (m:Memory) RETURN m.id as memoryId";
+                var parameters = new Dictionary<string, object>();
 
                 var result = await _neo4jService.ExecuteQueryAsync(query, parameters);
                 var memoryIds = new List<Guid>();
@@ -688,18 +715,56 @@ namespace SwAIvyn.Services.Graph
                         if (Guid.TryParse(idValue.ToString(), out var memoryId))
                         {
                             memoryIds.Add(memoryId);
+                            _logger.LogInfo($"Found memory ID: {memoryId}");
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"Could not parse memory ID: {idValue}");
                         }
                     }
                 }
 
-                _logger.LogInfo($"Found {memoryIds.Count} memory IDs in Neo4j for user {userId}");
+                _logger.LogInfo($"Found {memoryIds.Count} total memory IDs in Neo4j");
                 return memoryIds;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to get memory IDs for user {userId}", ex);
+                _logger.LogError($"Failed to get memory IDs from Neo4j: {ex.Message}", ex);
                 // Return empty list instead of throwing to allow the sync status to continue
                 return new List<Guid>();
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<List<string>> SearchMemoriesAsync(string query, int limit = 10)
+        {
+            if (!_isInitialized)
+                await InitializeAsync();
+
+            try
+            {
+                // Generate embedding for the query
+                var queryEmbedding = await _embeddingService.EmbedTextAsync(query);
+
+                // Search Neo4j vector store for memories
+                var hits = await _neo4jVectorStore.SearchAsync(queryEmbedding, limit);
+
+                // Extract just the text content from the search hits
+                var results = new List<string>();
+                foreach (var hit in hits)
+                {
+                    if (hit.Metadata != null && hit.Metadata.TryGetValue("content", out var content) && !string.IsNullOrEmpty(content))
+                    {
+                        results.Add(content);
+                    }
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Failed to search memories", ex);
+                return new List<string>();
             }
         }
     }

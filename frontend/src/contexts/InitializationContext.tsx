@@ -61,7 +61,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       }
       const userData = await userResponse.json();
       const user: User = {
-        id: userData.id || '00000000-0000-0000-0000-000000000001',
+        id: userData.id,
         username: userData.username || 'User',
         email: userData.email || 'user@example.com'
       };

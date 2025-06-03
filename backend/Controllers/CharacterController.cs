@@ -56,17 +56,18 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Gets all character profiles for a user.
+        /// Gets all character profiles. Since this is a single-user application,
+        /// we return ALL characters regardless of the userId parameter.
         /// </summary>
-        /// <param name="userId">User ID</param>
+        /// <param name="userId">User ID (ignored for single-user app)</param>
         /// <returns>List of character profiles</returns>
         [HttpGet("user/{userId}")]
         public async Task<IActionResult> GetCharacters(Guid userId)
         {
-            var characters = await _dbContext.Avatars
-                .Where(c => c.UserId == userId)
-                .ToListAsync();
+            // Get ALL characters for single-user application
+            var characters = await _dbContext.Avatars.ToListAsync();
 
+            _logger.LogInformation($"Retrieved {characters.Count} characters for single-user application");
             return Ok(characters);
         }
 
@@ -78,10 +79,13 @@ namespace SwAIvyn.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateCharacter([FromBody] CreateCharacterRequest request)
         {
+            // Use default user ID for single-user application
+            var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
             var character = new AvatarInfo
             {
                 Id = Guid.NewGuid(),
-                UserId = request.UserId,
+                UserId = defaultUserId,
                 Name = request.Name,
                 ImagePath = request.ImagePath,
                 Personality = request.Personality,
@@ -93,6 +97,7 @@ namespace SwAIvyn.Controllers
             _dbContext.Avatars.Add(character);
             await _dbContext.SaveChangesAsync();
 
+            _logger.LogInformation($"Created character '{request.Name}' with default user ID for single-user application");
             return Ok(character);
         }
 
@@ -154,10 +159,13 @@ namespace SwAIvyn.Controllers
             {
                 var characterCard = System.Text.Json.JsonSerializer.Deserialize<CharacterCard>(request.CharacterCardJson);
 
+                // Use default user ID for single-user application
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
                 var character = new SwAIvyn.Data.Entities.AvatarInfo
                 {
                     Id = Guid.NewGuid(),
-                    UserId = request.UserId,
+                    UserId = defaultUserId,
                     Name = characterCard.Name ?? "Unnamed Character",
                     Description = characterCard.Description ?? "",
                     Personality = characterCard.Personality ?? "",
@@ -273,10 +281,13 @@ namespace SwAIvyn.Controllers
 
                 var yamlData = deserializer.Deserialize<Dictionary<string, object>>(request.YamlProfile);
 
+                // Use default user ID for single-user application
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
                 var character = new SwAIvyn.Data.Entities.AvatarInfo
                 {
                     Id = Guid.NewGuid(),
-                    UserId = request.UserId,
+                    UserId = defaultUserId,
                     YamlProfile = request.YamlProfile,
                     Name = yamlData.ContainsKey("name") ? yamlData["name"]?.ToString() ?? "YAML Character" : "YAML Character",
                     Description = yamlData.ContainsKey("description") ? yamlData["description"]?.ToString() ?? "" : "",

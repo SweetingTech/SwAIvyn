@@ -28,18 +28,98 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Gets all memory items for a user.
+        /// Gets all memory items from both SQL database and Neo4j.
+        /// Since this is a single-user application, we don't filter by userId.
         /// </summary>
-        /// <param name="userId">User ID</param>
+        /// <param name="userId">User ID (ignored for single-user app)</param>
         /// <returns>List of memory items</returns>
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetMemories(Guid userId)
         {
-            var memories = await _dbContext.Memories
-                .Where(m => m.UserId == userId)
-                .ToListAsync();
+            try
+            {
+                // Get ALL memories from SQL database (single-user app)
+                var sqlMemories = await _dbContext.Memories.ToListAsync();
 
-            return Ok(memories);
+                // Get ALL memory IDs from Neo4j (single-user app)
+                // Use the default user ID for Neo4j operations
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+                var neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(defaultUserId);
+
+                // Find memories that exist in Neo4j but not in SQL
+                var sqlMemoryIds = sqlMemories.Select(m => m.Id).ToHashSet();
+                var missingMemoryIds = neo4jMemoryIds.Where(id => !sqlMemoryIds.Contains(id)).ToList();
+
+                // If there are memories in Neo4j that aren't in SQL, we need to create placeholder entries
+                // This handles memories created through the chat system
+                var allMemories = new List<MemoryItem>(sqlMemories);
+
+                if (missingMemoryIds.Any())
+                {
+                    Console.WriteLine($"Found {missingMemoryIds.Count} memories in Neo4j that aren't in SQL database");
+
+                    // For each missing memory, try to get its content from Neo4j and create a SQL entry
+                    foreach (var memoryId in missingMemoryIds)
+                    {
+                        try
+                        {
+                            // Search for this specific memory in Neo4j to get its content
+                            var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", limit: 1);
+
+                            if (searchResults.Any())
+                            {
+                                var result = searchResults.First();
+                                var hit = result.Hit;
+
+                                // Get content from metadata (Neo4j vector store stores content in metadata)
+                                var content = hit.Metadata?.TryGetValue("content", out var contentValue) == true ? contentValue : "Memory content not available";
+
+                                // Extract metadata if available
+                                var category = hit.Metadata?.TryGetValue("category", out var cat) == true ? cat : "Chat Memory";
+                                var createdAtStr = hit.Metadata?.TryGetValue("createdAt", out var created) == true ? created : DateTime.UtcNow.ToString("O");
+                                var isSharedStr = hit.Metadata?.TryGetValue("isShared", out var shared) == true ? shared : "false";
+
+                                DateTime.TryParse(createdAtStr, out var createdAt);
+                                bool.TryParse(isSharedStr, out var isShared);
+
+                                // Create a memory item for display (but don't save to SQL yet to avoid duplicates)
+                                var memoryItem = new MemoryItem
+                                {
+                                    Id = memoryId,
+                                    UserId = defaultUserId, // Use default user ID for single-user app
+                                    Content = content,
+                                    Category = category,
+                                    IsShared = isShared,
+                                    CreatedAt = createdAt == default ? DateTime.UtcNow : createdAt,
+                                    LastAccessed = DateTime.UtcNow
+                                };
+
+                                allMemories.Add(memoryItem);
+                                Console.WriteLine($"Added Neo4j memory to display: {memoryId} - {content.Substring(0, Math.Min(50, content.Length))}...");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Failed to retrieve memory {memoryId} from Neo4j: {ex.Message}");
+                        }
+                    }
+                }
+
+                // Sort by creation date (newest first)
+                allMemories = allMemories.OrderByDescending(m => m.CreatedAt).ToList();
+
+                Console.WriteLine($"Returning {allMemories.Count} total memories ({sqlMemories.Count} from SQL, {missingMemoryIds.Count} from Neo4j)");
+                return Ok(allMemories);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting memories: {ex.Message}");
+                // Fallback to just SQL memories if there's an error (single-user app)
+                var fallbackMemories = await _dbContext.Memories
+                    .OrderByDescending(m => m.CreatedAt)
+                    .ToListAsync();
+                return Ok(fallbackMemories);
+            }
         }
 
         /// <summary>
