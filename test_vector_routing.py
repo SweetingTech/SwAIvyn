@@ -85,7 +85,7 @@ def test_neo4j_direct():
         
         if response.status_code == 200:
             result = response.json()
-            print(f"✅ Neo4j query successful")
+            print("✅ Neo4j query successful")
             
             if result.get('results') and result['results'][0].get('data'):
                 memories = result['results'][0]['data']
@@ -123,7 +123,7 @@ def test_vector_indexes():
         
         if response.status_code == 200:
             result = response.json()
-            print(f"✅ Index query successful")
+            print("✅ Index query successful")
             
             if result.get('results') and result['results'][0].get('data'):
                 indexes = result['results'][0]['data']

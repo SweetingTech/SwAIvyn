@@ -12,27 +12,26 @@ namespace SwAIvyn.Controllers
     public class LlmController : ControllerBase
     {
         private readonly ILlmConnectorService _llmConnectorService;
-        private readonly ISettingsService _settingsService;
         private readonly IAiChatService _aiChatService;
         private readonly ISimpleLoggerService _logger;
 
         public LlmController(
             ILlmConnectorService llmConnectorService,
-            ISettingsService settingsService,
             IAiChatService aiChatService,
             ISimpleLoggerService logger)
         {
             _llmConnectorService = llmConnectorService;
-            _settingsService = settingsService;
             _aiChatService = aiChatService;
             _logger = logger;
         }
 
+        //
+        // === Ollama Endpoints ===
+        //
+
         /// <summary>
-        /// Gets available Ollama models
+        /// Gets available Ollama models.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>List of available Ollama models</returns>
         [HttpGet("ollama/models")]
         public async Task<IActionResult> GetOllamaModels([FromQuery] Guid? userId = null)
         {
@@ -48,6 +47,92 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        /// <summary>
+        /// Tests connection to Ollama by fetching its model list.
+        /// </summary>
+        [HttpGet("ollama/test")]
+        public async Task<IActionResult> TestOllamaConnection([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetOllamaModelsAsync(userId);
+                var modelCount = models?.Count() ?? 0;
+                return Ok(new
+                {
+                    connected = true,
+                    modelCount,
+                    message = $"Connected successfully. Found {modelCount} models."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing Ollama connection", ex);
+                return Ok(new
+                {
+                    connected = false,
+                    modelCount = 0,
+                    message = $"Connection failed: {ex.Message}"
+                });
+            }
+        }
+
+        //
+        // === LM Studio Endpoints ===
+        //
+
+        /// <summary>
+        /// Gets the current LM Studio model name.
+        /// </summary>
+        [HttpGet("lmstudio/model")]
+        public async Task<IActionResult> GetLmStudioModel([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var model = await _llmConnectorService.GetLmStudioModelAsync(userId);
+                return Ok(new { model });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting LM Studio model", ex);
+                return StatusCode(500, "An error occurred while getting LM Studio model");
+            }
+        }
+
+        /// <summary>
+        /// Tests connection to LM Studio by fetching the current model.
+        /// </summary>
+        [HttpGet("lmstudio/test")]
+        public async Task<IActionResult> TestLmStudioConnection([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var model = await _llmConnectorService.GetLmStudioModelAsync(userId);
+                return Ok(new
+                {
+                    connected = true,
+                    model,
+                    message = $"Connected successfully. Current model: {model}"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing LM Studio connection", ex);
+                return Ok(new
+                {
+                    connected = false,
+                    model = "Unknown",
+                    message = $"Connection failed: {ex.Message}"
+                });
+            }
+        }
+
+        //
+        // === OpenAI Endpoints ===
+        //
+
+        /// <summary>
+        /// Gets available OpenAI models.
+        /// </summary>
         [HttpGet("openai/models")]
         public async Task<IActionResult> GetOpenAiModels([FromQuery] Guid? userId = null)
         {
@@ -63,6 +148,32 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        /// <summary>
+        /// Tests connection to OpenAI by fetching its model list.
+        /// </summary>
+        [HttpGet("openai/test")]
+        public async Task<IActionResult> TestOpenAiConnection([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                var count = models?.Count() ?? 0;
+                return Ok(new { connected = true, modelCount = count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing OpenAI connection", ex);
+                return Ok(new { connected = false, message = $"Connection failed: {ex.Message}" });
+            }
+        }
+
+        //
+        // === Claude Endpoints ===
+        //
+
+        /// <summary>
+        /// Gets available Claude models.
+        /// </summary>
         [HttpGet("claude/models")]
         public async Task<IActionResult> GetClaudeModels([FromQuery] Guid? userId = null)
         {
@@ -79,87 +190,31 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Gets the current LM Studio model
+        /// Tests connection to Claude by fetching its model list.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Current LM Studio model name</returns>
-        [HttpGet("lmstudio/model")]
-        public async Task<IActionResult> GetLmStudioModel([FromQuery] Guid? userId = null)
+        [HttpGet("claude/test")]
+        public async Task<IActionResult> TestClaudeConnection([FromQuery] Guid? userId = null)
         {
             try
             {
-                var model = await _llmConnectorService.GetLmStudioModelAsync(userId);
-                return Ok(new { model = model });
+                var models = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                var count = models?.Count() ?? 0;
+                return Ok(new { connected = true, modelCount = count });
             }
             catch (Exception ex)
             {
-                _logger.LogError("Error getting LM Studio model", ex);
-                return StatusCode(500, "An error occurred while getting LM Studio model");
+                _logger.LogError("Error testing Claude connection", ex);
+                return Ok(new { connected = false, message = $"Connection failed: {ex.Message}" });
             }
         }
 
-        /// <summary>
-        /// Tests connection to Ollama
-        /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Connection status</returns>
-        [HttpGet("ollama/test")]
-        public async Task<IActionResult> TestOllamaConnection([FromQuery] Guid? userId = null)
-        {
-            try
-            {
-                var models = await _llmConnectorService.GetOllamaModelsAsync(userId);
-                var modelCount = models?.Count() ?? 0;
-                return Ok(new {
-                    connected = true,
-                    modelCount = modelCount,
-                    message = $"Connected successfully. Found {modelCount} models."
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Error testing Ollama connection", ex);
-                return Ok(new {
-                    connected = false,
-                    modelCount = 0,
-                    message = $"Connection failed: {ex.Message}"
-                });
-            }
-        }
+        //
+        // === Aggregate Endpoint: Get All Models ===
+        //
 
         /// <summary>
-        /// Tests connection to LM Studio
+        /// Gets all available models from Ollama, LM Studio, OpenAI, and Claude.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Connection status</returns>
-        [HttpGet("lmstudio/test")]
-        public async Task<IActionResult> TestLmStudioConnection([FromQuery] Guid? userId = null)
-        {
-            try
-            {
-                var model = await _llmConnectorService.GetLmStudioModelAsync(userId);
-                return Ok(new {
-                    connected = true,
-                    model = model,
-                    message = $"Connected successfully. Current model: {model}"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Error testing LM Studio connection", ex);
-                return Ok(new {
-                    connected = false,
-                    model = "Unknown",
-                    message = $"Connection failed: {ex.Message}"
-                });
-            }
-        }
-
-        /// <summary>
-        /// Gets all available models from all engines
-        /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Models grouped by engine</returns>
         [HttpGet("models")]
         public async Task<IActionResult> GetAllModels([FromQuery] Guid? userId = null)
         {
@@ -167,72 +222,80 @@ namespace SwAIvyn.Controllers
             {
                 var result = new Dictionary<string, object>();
 
-                // Get Ollama models
+                // 1) Ollama
                 try
                 {
                     var ollamaModels = await _llmConnectorService.GetOllamaModelsAsync(userId);
-                    result["ollama"] = new {
+                    result["ollama"] = new
+                    {
                         available = true,
                         models = ollamaModels?.ToList() ?? new List<string>()
                     };
                 }
                 catch (Exception ex)
                 {
-                    result["ollama"] = new {
+                    result["ollama"] = new
+                    {
                         available = false,
                         error = ex.Message,
                         models = new List<string>()
                     };
                 }
 
-                // Get LM Studio model
+                // 2) LM Studio
                 try
                 {
                     var lmStudioModel = await _llmConnectorService.GetLmStudioModelAsync(userId);
-                    result["lmstudio"] = new {
+                    result["lmstudio"] = new
+                    {
                         available = true,
                         models = new List<string> { lmStudioModel }
                     };
                 }
                 catch (Exception ex)
                 {
-                    result["lmstudio"] = new {
+                    result["lmstudio"] = new
+                    {
                         available = false,
                         error = ex.Message,
                         models = new List<string>()
                     };
                 }
 
-                // Get OpenAI models
+                // 3) OpenAI
                 try
                 {
                     var openAiModels = await _llmConnectorService.GetOpenAiModelsAsync(userId);
-                    result["openai"] = new {
+                    result["openai"] = new
+                    {
                         available = true,
                         models = openAiModels?.ToList() ?? new List<string>()
                     };
                 }
                 catch (Exception ex)
                 {
-                    result["openai"] = new {
+                    result["openai"] = new
+                    {
                         available = false,
                         error = ex.Message,
                         models = new List<string>()
                     };
                 }
 
-                // Get Claude models
+                // 4) Claude
                 try
                 {
                     var claudeModels = await _llmConnectorService.GetClaudeModelsAsync(userId);
-                    result["claude"] = new {
+                    result["claude"] = new
+                    {
                         available = true,
                         models = claudeModels?.ToList() ?? new List<string>()
                     };
                 }
                 catch (Exception ex)
                 {
-                    result["claude"] = new {
+                    result["claude"] = new
+                    {
                         available = false,
                         error = ex.Message,
                         models = new List<string>()
@@ -248,10 +311,13 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        //
+        // === Engines Endpoint ===
+        //
+
         /// <summary>
-        /// Gets available engines
+        /// Gets a list of available LLM engines.
         /// </summary>
-        /// <returns>List of available engines</returns>
         [HttpGet("engines")]
         public IActionResult GetEngines()
         {
@@ -274,13 +340,13 @@ namespace SwAIvyn.Controllers
                     new {
                         id = "openai",
                         name = "OpenAI",
-                        description = "OpenAI models",
+                        description = "Remote AI models via OpenAI",
                         defaultUrl = "https://api.openai.com/v1"
                     },
                     new {
                         id = "claude",
                         name = "Claude",
-                        description = "Anthropic Claude models",
+                        description = "Remote AI models via Anthropic Claude",
                         defaultUrl = "https://api.anthropic.com/v1"
                     }
                 };
@@ -294,11 +360,13 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        //
+        // === LLM Settings (Get/Set) ===
+        //
+
         /// <summary>
-        /// Gets current LLM settings
+        /// Gets current LLM settings for a user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Current LLM settings</returns>
         [HttpGet("settings")]
         public async Task<IActionResult> GetLlmSettings([FromQuery] Guid? userId = null)
         {
@@ -315,20 +383,23 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Sets the default LLM engine and model
+        /// Sets the default LLM engine and model for a user.
         /// </summary>
-        /// <param name="request">LLM settings request</param>
-        /// <returns>Success status</returns>
         [HttpPost("settings")]
         public async Task<IActionResult> SetLlmSettings([FromBody] SetLlmSettingsRequest request)
         {
             try
             {
-                var success = await _aiChatService.SetDefaultLlmSettingsAsync(request.UserId, request.Engine, request.Model);
+                var success = await _aiChatService.SetDefaultLlmSettingsAsync(
+                    request.UserId,
+                    request.Engine,
+                    request.Model);
+
                 if (success)
                 {
                     return Ok(new { message = "LLM settings updated successfully" });
                 }
+
                 return StatusCode(500, "Failed to update LLM settings");
             }
             catch (Exception ex)
@@ -338,23 +409,26 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        //
+        // === Text‐Based Generation Endpoints ===
+        //
+
         /// <summary>
-        /// Generates a response using the specified engine and model
+        /// Generates a response from a single‐prompt LLM (Ollama, LM Studio, etc.).
         /// </summary>
-        /// <param name="request">Generation request</param>
-        /// <returns>AI response</returns>
         [HttpPost("generate")]
         public async Task<IActionResult> GenerateResponse([FromBody] GenerateRequest request)
         {
             try
             {
+                var engine = string.IsNullOrEmpty(request.Engine) ? "ollama" : request.Engine;
                 var response = await _llmConnectorService.GenerateResponseAsync(
                     request.Prompt,
-                    request.Engine ?? "ollama",
+                    engine,
                     request.Model,
                     request.UserId);
 
-                return Ok(new { response = response });
+                return Ok(new { response });
             }
             catch (Exception ex)
             {
@@ -363,13 +437,28 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        /// <summary>
+        /// Generates a chat‐style response using the OpenAI chat endpoint.
+        /// </summary>
         [HttpPost("openai/generate")]
         public async Task<IActionResult> GenerateOpenAi([FromBody] GenerateMessagesRequest request)
         {
             try
             {
-                var response = await _llmConnectorService.GenerateOpenAiResponseAsync(request.Messages, request.Model, request.UserId);
-                return Ok(new { response });
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                var result = await _llmConnectorService.GenerateOpenAiResponseAsync(
+                    messages,
+                    request.Model,
+                    request.UserId);
+
+                return Ok(new { response = result });
             }
             catch (Exception ex)
             {
@@ -378,13 +467,28 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        /// <summary>
+        /// Generates a chat‐style response using the Claude chat endpoint.
+        /// </summary>
         [HttpPost("claude/generate")]
         public async Task<IActionResult> GenerateClaude([FromBody] GenerateMessagesRequest request)
         {
             try
             {
-                var response = await _llmConnectorService.GenerateClaudeResponseAsync(request.Messages, request.Model, request.UserId);
-                return Ok(new { response });
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                var result = await _llmConnectorService.GenerateClaudeResponseAsync(
+                    messages,
+                    request.Model,
+                    request.UserId);
+
+                return Ok(new { response = result });
             }
             catch (Exception ex)
             {
@@ -405,7 +509,7 @@ namespace SwAIvyn.Controllers
     }
 
     /// <summary>
-    /// Request model for generating responses
+    /// Request model for single‐prompt generation
     /// </summary>
     public class GenerateRequest
     {
@@ -416,12 +520,18 @@ namespace SwAIvyn.Controllers
     }
 
     /// <summary>
-    /// Request model for generating responses with message format
+    /// Request model for chat‐style generation
     /// </summary>
     public class GenerateMessagesRequest
     {
-        public List<Dictionary<string, string>> Messages { get; set; }
-        public string Model { get; set; }
         public Guid? UserId { get; set; }
+        public string Model { get; set; }
+        public List<MessageDto> Messages { get; set; } = new();
+    }
+
+    public class MessageDto
+    {
+        public string Role { get; set; }
+        public string Content { get; set; }
     }
 }

@@ -1,176 +1,140 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
 namespace SwAIvyn.Services
 {
-    /// <summary>
-    /// Interface for the settings provider
-    /// </summary>
-    public interface ISettingsProvider
+    public interface IConfigurationService
     {
-        /// <summary>
-        /// Gets a setting value from configuration
-        /// </summary>
-        /// <param name="key">Setting key</param>
-        /// <param name="defaultValue">Default value if setting not found</param>
-        /// <returns>Setting value</returns>
-        string GetSetting(string key, string defaultValue = null);
+        string GetApiBaseUrl();
+        string GetSignalRHubUrl(string hubName);
+        Dictionary<string, string> GetAllEndpoints();
 
-        /// <summary>
-        /// Gets the Ollama API URL from configuration
-        /// </summary>
-        /// <returns>Ollama API URL</returns>
         string GetOllamaApiUrl();
-
-        /// <summary>
-        /// Gets the LM Studio API URL from configuration
-        /// </summary>
-        /// <returns>LM Studio API URL</returns>
         string GetLmStudioApiUrl();
-
-        /// <summary>
-        /// Gets the OpenAI API URL from configuration
-        /// </summary>
         string GetOpenAiApiUrl();
-
-        /// <summary>
-        /// Gets the OpenAI API key from configuration
-        /// </summary>
         string GetOpenAiApiKey();
-
-        /// <summary>
-        /// Gets the Claude API URL from configuration
-        /// </summary>
         string GetClaudeApiUrl();
-
-        /// <summary>
-        /// Gets the Claude API key from configuration
-        /// </summary>
         string GetClaudeApiKey();
-
-        /// <summary>
-        /// Gets the Neo4j URI from configuration
-        /// </summary>
-        /// <returns>Neo4j URI</returns>
         string GetNeo4jUri();
-
-        /// <summary>
-        /// Gets the Neo4j Bolt port from configuration
-        /// </summary>
-        /// <returns>Neo4j Bolt port</returns>
         int GetNeo4jBoltPort();
-
-        /// <summary>
-        /// Gets the Neo4j HTTP port from configuration
-        /// </summary>
-        /// <returns>Neo4j HTTP port</returns>
         int GetNeo4jHttpPort();
     }
 
-    /// <summary>
-    /// Provider for application settings from configuration
-    /// </summary>
-    public class SettingsProvider : ISettingsProvider
+    public class ConfigurationService : IConfigurationService
     {
         private readonly IConfiguration _configuration;
+        private readonly ISettingsProvider _settingsProvider;
         private readonly ISimpleLoggerService _logger;
+        private readonly string _baseUrl;
 
-        // Setting keys
-        private const string OLLAMA_API_URL_KEY = "OllamaApiUrl";
-        private const string LM_STUDIO_API_URL_KEY = "LmStudioApiUrl";
-        private const string OPENAI_API_URL_KEY = "OpenAiApiUrl";
-        private const string OPENAI_API_KEY_KEY = "OpenAiApiKey";
-        private const string CLAUDE_API_URL_KEY = "ClaudeApiUrl";
-        private const string CLAUDE_API_KEY_KEY = "ClaudeApiKey";
-        private const string NEO4J_URI_KEY = "Neo4jUri";
-        private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
-        private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
-
-        /// <summary>
-        /// Initializes a new instance of the SettingsProvider
-        /// </summary>
-        /// <param name="configuration">Application configuration</param>
-        /// <param name="logger">Logger service</param>
-        public SettingsProvider(
+        public ConfigurationService(
             IConfiguration configuration,
+            ISettingsProvider settingsProvider,
             ISimpleLoggerService logger)
         {
             _configuration = configuration;
+            _settingsProvider = settingsProvider;
             _logger = logger;
+
+            // Get the base URL from configuration or use default
+            _baseUrl = _configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
         }
 
-        /// <inheritdoc/>
-        public string GetSetting(string key, string defaultValue = null)
+        public string GetApiBaseUrl()
+        {
+            return _baseUrl;
+        }
+
+        public string GetSignalRHubUrl(string hubName)
+        {
+            return $"{_baseUrl}/hubs/{hubName}";
+        }
+
+        public Dictionary<string, string> GetAllEndpoints()
         {
             try
             {
-                // Get from configuration
-                var configValue = _configuration[$"AppSettings:{key}"];
-                return configValue ?? defaultValue;
+                var endpoints = new Dictionary<string, string>
+                {
+                    { "api", GetApiBaseUrl() },
+                    { "chatHub", GetSignalRHubUrl("chat") },
+                    { "voiceHub", GetSignalRHubUrl("voice") },
+                    { "notificationHub", GetSignalRHubUrl("notification") },
+                    { "ollamaApi", GetOllamaApiUrl() },
+                    { "lmStudioApi", GetLmStudioApiUrl() },
+                    { "openAiApi", GetOpenAiApiUrl() },
+                    { "claudeApi", GetClaudeApiUrl() },
+                    { "neo4jHttp", GetNeo4jUri() },
+                    { "neo4jBolt", $"bolt://localhost:{GetNeo4jBoltPort()}" }
+                };
+
+                return endpoints;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error getting setting {key}", ex);
-                return defaultValue;
+                _logger.LogError("Error getting all endpoints", ex);
+
+                // Fallback to default values
+                return new Dictionary<string, string>
+                {
+                    { "api", GetApiBaseUrl() },
+                    { "chatHub", GetSignalRHubUrl("chat") },
+                    { "voiceHub", GetSignalRHubUrl("voice") },
+                    { "notificationHub", GetSignalRHubUrl("notification") },
+                    { "ollamaApi", _configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434" },
+                    { "lmStudioApi", _configuration["AppSettings:LmStudioApiUrl"] ?? "http://localhost:1234" },
+                    { "openAiApi", _configuration["AppSettings:OpenAiApiUrl"] ?? "https://api.openai.com/v1" },
+                    { "claudeApi", _configuration["AppSettings:ClaudeApiUrl"] ?? "https://api.anthropic.com/v1" },
+                    { "neo4jHttp", _configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474" },
+                    { "neo4jBolt", $"bolt://localhost:{_configuration.GetValue<int>("AppSettings:Neo4jBoltPort", 7687)}" }
+                };
             }
         }
 
-        /// <inheritdoc/>
         public string GetOllamaApiUrl()
         {
-            return GetSetting(OLLAMA_API_URL_KEY, "http://localhost:11434");
+            return _settingsProvider.GetOllamaApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetLmStudioApiUrl()
         {
-            return GetSetting(LM_STUDIO_API_URL_KEY, "http://localhost:1234");
+            return _settingsProvider.GetLmStudioApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetOpenAiApiUrl()
         {
-            return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+            return _settingsProvider.GetOpenAiApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetOpenAiApiKey()
         {
-            return GetSetting(OPENAI_API_KEY_KEY, string.Empty);
+            return _settingsProvider.GetOpenAiApiKey();
         }
 
-        /// <inheritdoc/>
         public string GetClaudeApiUrl()
         {
-            return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+            return _settingsProvider.GetClaudeApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetClaudeApiKey()
         {
-            return GetSetting(CLAUDE_API_KEY_KEY, string.Empty);
+            return _settingsProvider.GetClaudeApiKey();
         }
 
-        /// <inheritdoc/>
         public string GetNeo4jUri()
         {
-            return GetSetting(NEO4J_URI_KEY, "http://localhost:7474");
+            return _settingsProvider.GetNeo4jUri();
         }
 
-        /// <inheritdoc/>
         public int GetNeo4jBoltPort()
         {
-            var portStr = GetSetting(NEO4J_BOLT_PORT_KEY, "7687");
-            return int.TryParse(portStr, out int port) ? port : 7687;
+            return _settingsProvider.GetNeo4jBoltPort();
         }
 
-        /// <inheritdoc/>
         public int GetNeo4jHttpPort()
         {
-            var portStr = GetSetting(NEO4J_HTTP_PORT_KEY, "7474");
-            return int.TryParse(portStr, out int port) ? port : 7474;
+            return _settingsProvider.GetNeo4jHttpPort();
         }
     }
 }

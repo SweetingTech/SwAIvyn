@@ -20,9 +20,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Initializes a new instance of the SettingsController
         /// </summary>
-        /// <param name="settingsService">Settings service</param>
-        /// <param name="aiChatService">AI chat service</param>
-        /// <param name="logger">Logger service</param>
         public SettingsController(
             ISettingsService settingsService,
             IAiChatService aiChatService,
@@ -36,8 +33,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets all settings for a user
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Dictionary of settings</returns>
         [HttpGet]
         public async Task<IActionResult> GetSettings([FromQuery] Guid? userId = null)
         {
@@ -56,9 +51,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets a specific setting for a user
         /// </summary>
-        /// <param name="key">Setting key</param>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Setting value</returns>
         [HttpGet("{key}")]
         public async Task<IActionResult> GetSetting(string key, [FromQuery] Guid? userId = null)
         {
@@ -81,9 +73,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Sets a specific setting for a user
         /// </summary>
-        /// <param name="key">Setting key</param>
-        /// <param name="request">Setting request</param>
-        /// <returns>Success status</returns>
         [HttpPut("{key}")]
         public async Task<IActionResult> SetSetting(string key, [FromBody] SetSettingRequest request)
         {
@@ -106,8 +95,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Sets multiple settings for a user
         /// </summary>
-        /// <param name="request">Batch settings request</param>
-        /// <returns>Success status</returns>
         [HttpPut]
         public async Task<IActionResult> SetSettings([FromBody] SetSettingsRequest request)
         {
@@ -130,8 +117,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets connection settings for a user
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Connection settings</returns>
         [HttpGet("connections")]
         public async Task<IActionResult> GetConnectionSettings([FromQuery] Guid? userId = null)
         {
@@ -139,16 +124,16 @@ namespace SwAIvyn.Controllers
             {
                 var settings = new ConnectionSettings
                 {
-                    OllamaApiUrl = await _settingsService.GetOllamaApiUrlAsync(userId),
-                    LmStudioApiUrl = await _settingsService.GetLmStudioApiUrlAsync(userId),
-                    OpenAiApiUrl = await _settingsService.GetOpenAiApiUrlAsync(userId),
-                    OpenAiApiKey = await _settingsService.GetOpenAiApiKeyAsync(userId),
-                    ClaudeApiUrl = await _settingsService.GetClaudeApiUrlAsync(userId),
-                    ClaudeApiKey = await _settingsService.GetClaudeApiKeyAsync(userId),
-                    Neo4jUri = await _settingsService.GetNeo4jUriAsync(userId),
-                    Neo4jBoltPort = await _settingsService.GetNeo4jBoltPortAsync(userId),
-                    Neo4jHttpPort = await _settingsService.GetNeo4jHttpPortAsync(userId),
-                    EnableStreaming = await _settingsService.GetEnableStreamingAsync(userId)
+                    OllamaApiUrl     = await _settingsService.GetOllamaApiUrlAsync(userId),
+                    LmStudioApiUrl   = await _settingsService.GetLmStudioApiUrlAsync(userId),
+                    OpenAiApiUrl     = await _settingsService.GetOpenAiApiUrlAsync(userId),
+                    OpenAiApiKey     = await _settingsService.GetOpenAiApiKeyAsync(userId),
+                    ClaudeApiUrl     = await _settingsService.GetClaudeApiUrlAsync(userId),
+                    ClaudeApiKey     = await _settingsService.GetClaudeApiKeyAsync(userId),
+                    Neo4jUri         = await _settingsService.GetNeo4jUriAsync(userId),
+                    Neo4jBoltPort    = await _settingsService.GetNeo4jBoltPortAsync(userId),
+                    Neo4jHttpPort    = await _settingsService.GetNeo4jHttpPortAsync(userId),
+                    EnableStreaming  = await _settingsService.GetEnableStreamingAsync(userId)
                 };
                 return Ok(settings);
             }
@@ -162,8 +147,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Updates connection settings for a user
         /// </summary>
-        /// <param name="request">Connection settings request</param>
-        /// <returns>Success status</returns>
         [HttpPut("connections")]
         public async Task<IActionResult> UpdateConnectionSettings([FromBody] UpdateConnectionSettingsRequest request)
         {
@@ -172,54 +155,34 @@ namespace SwAIvyn.Controllers
                 var settings = new Dictionary<string, string>();
 
                 if (!string.IsNullOrEmpty(request.OllamaApiUrl))
-                {
                     settings["OllamaApiUrl"] = request.OllamaApiUrl;
-                }
 
                 if (!string.IsNullOrEmpty(request.LmStudioApiUrl))
-                {
                     settings["LmStudioApiUrl"] = request.LmStudioApiUrl;
-                }
 
                 if (!string.IsNullOrEmpty(request.OpenAiApiUrl))
-                {
                     settings["OpenAiApiUrl"] = request.OpenAiApiUrl;
-                }
 
                 if (!string.IsNullOrEmpty(request.OpenAiApiKey))
-                {
                     settings["OpenAiApiKey"] = request.OpenAiApiKey;
-                }
 
                 if (!string.IsNullOrEmpty(request.ClaudeApiUrl))
-                {
                     settings["ClaudeApiUrl"] = request.ClaudeApiUrl;
-                }
 
                 if (!string.IsNullOrEmpty(request.ClaudeApiKey))
-                {
                     settings["ClaudeApiKey"] = request.ClaudeApiKey;
-                }
 
                 if (!string.IsNullOrEmpty(request.Neo4jUri))
-                {
                     settings["Neo4jUri"] = request.Neo4jUri;
-                }
 
                 if (request.Neo4jBoltPort.HasValue)
-                {
                     settings["Neo4jBoltPort"] = request.Neo4jBoltPort.Value.ToString();
-                }
 
                 if (request.Neo4jHttpPort.HasValue)
-                {
                     settings["Neo4jHttpPort"] = request.Neo4jHttpPort.Value.ToString();
-                }
 
                 if (request.EnableStreaming.HasValue)
-                {
                     settings["EnableStreaming"] = request.EnableStreaming.Value.ToString();
-                }
 
                 var success = await _settingsService.SetSettingsAsync(request.UserId, settings);
                 if (success)
@@ -238,8 +201,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets LLM settings for a user
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>LLM settings</returns>
         [HttpGet("llm")]
         public async Task<IActionResult> GetLlmSettings([FromQuery] Guid? userId = null)
         {
@@ -258,8 +219,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Updates LLM settings for a user
         /// </summary>
-        /// <param name="request">LLM settings request</param>
-        /// <returns>Success status</returns>
         [HttpPut("llm")]
         public async Task<IActionResult> UpdateLlmSettings([FromBody] UpdateLlmSettingsRequest request)
         {
@@ -269,9 +228,8 @@ namespace SwAIvyn.Controllers
                     request.UserId, request.Engine, request.Model);
 
                 if (success)
-                {
                     return Ok(new { message = "LLM settings updated successfully" });
-                }
+
                 return StatusCode(500, "Failed to update LLM settings");
             }
             catch (ArgumentException ex)
@@ -323,23 +281,54 @@ namespace SwAIvyn.Controllers
     /// </summary>
     public class ConnectionSettings
     {
+        /// <summary>
+        /// Ollama API URL
+        /// </summary>
         public string OllamaApiUrl { get; set; }
+
+        /// <summary>
+        /// LM Studio API URL
+        /// </summary>
         public string LmStudioApiUrl { get; set; }
 
+        /// <summary>
+        /// OpenAI API URL
+        /// </summary>
         public string OpenAiApiUrl { get; set; }
 
+        /// <summary>
+        /// OpenAI API Key
+        /// </summary>
         public string OpenAiApiKey { get; set; }
 
+        /// <summary>
+        /// Claude API URL
+        /// </summary>
         public string ClaudeApiUrl { get; set; }
 
+        /// <summary>
+        /// Claude API Key
+        /// </summary>
         public string ClaudeApiKey { get; set; }
-        public string OpenAiApiUrl { get; set; }
-        public string OpenAiApiKey { get; set; }
-        public string ClaudeApiUrl { get; set; }
-        public string ClaudeApiKey { get; set; }
+
+        /// <summary>
+        /// Neo4j URI
+        /// </summary>
         public string Neo4jUri { get; set; }
+
+        /// <summary>
+        /// Neo4j Bolt port
+        /// </summary>
         public int Neo4jBoltPort { get; set; }
+
+        /// <summary>
+        /// Neo4j HTTP port
+        /// </summary>
         public int Neo4jHttpPort { get; set; }
+
+        /// <summary>
+        /// Enable streaming responses
+        /// </summary>
         public bool EnableStreaming { get; set; }
     }
 
@@ -362,6 +351,26 @@ namespace SwAIvyn.Controllers
         /// LM Studio API URL
         /// </summary>
         public string LmStudioApiUrl { get; set; }
+
+        /// <summary>
+        /// OpenAI API URL
+        /// </summary>
+        public string OpenAiApiUrl { get; set; }
+
+        /// <summary>
+        /// OpenAI API Key
+        /// </summary>
+        public string OpenAiApiKey { get; set; }
+
+        /// <summary>
+        /// Claude API URL
+        /// </summary>
+        public string ClaudeApiUrl { get; set; }
+
+        /// <summary>
+        /// Claude API Key
+        /// </summary>
+        public string ClaudeApiKey { get; set; }
 
         /// <summary>
         /// Neo4j URI
@@ -395,7 +404,7 @@ namespace SwAIvyn.Controllers
         public Guid? UserId { get; set; }
 
         /// <summary>
-        /// LLM engine (ollama or lmstudio)
+        /// LLM engine (ollama, lmstudio, openai, or claude)
         /// </summary>
         public string Engine { get; set; }
 
