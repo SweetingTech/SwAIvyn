@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot } from 'lucide-react';
+import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 
 const Navigation = () => {
@@ -24,6 +24,7 @@ const Navigation = () => {
             <NavItem to="/chat/new" icon={<MessageSquare size={18} />} label={t('navigation.chat')} />
             <NavItem to="/voice-room" icon={<Headphones size={18} />} label={t('navigation.voiceRoom')} />
             <NavItem to="/memory" icon={<Brain size={18} />} label={t('navigation.memory')} />
+            <NavItem to="/knowledge-upload" icon={<Upload size={18} />} label="Knowledge" />
             <NavItem to="/modules" icon={<Puzzle size={18} />} label={t('navigation.modules')} />
             <NavItem to="/agents" icon={<Bot size={18} />} label={t('navigation.agents')} />
             <NavItem to="/profile" icon={<User size={18} />} label={t('navigation.profile')} />

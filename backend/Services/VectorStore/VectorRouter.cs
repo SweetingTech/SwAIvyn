@@ -83,6 +83,34 @@ namespace SwAIvyn.Services.VectorStore
         }
 
         /// <inheritdoc/>
+        public async Task<IReadOnlyList<SearchHit>> SearchKnowledgeAsync(string query, int k = 8)
+        {
+            try
+            {
+                _logger.LogInfo($"[VECTOR_ROUTER] Searching knowledge documents with query: '{query}'");
+
+                // Generate embedding for the query
+                var queryVector = await _embeddingService.EmbedTextAsync(query);
+
+                // Search in Weaviate for knowledge documents
+                var results = await _weaviateStore.SearchAsync(queryVector, k, VectorScope.All);
+
+                // Filter for knowledge scope documents (no user filtering for general knowledge)
+                var filteredResults = results
+                    .Where(hit => hit.Metadata?.GetValueOrDefault("scope") == "knowledge")
+                    .ToList();
+
+                _logger.LogInfo($"[VECTOR_ROUTER] Found {filteredResults.Count} knowledge document results");
+                return filteredResults.AsReadOnly();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[VECTOR_ROUTER] Error searching knowledge documents", ex);
+                return new List<SearchHit>().AsReadOnly();
+            }
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> StoreMemoryAsync(Guid id, float[] vector, IDictionary<string, string> metadata)
         {
             try

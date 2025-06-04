@@ -326,6 +326,10 @@ builder.Services.AddScoped<ICharacterService, CharacterService>();
 builder.Services.AddScoped<CharacterCardLoaderService>();
 builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 
+// Add document upload and processing services
+builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
+builder.Services.AddScoped<IDocumentUploadService, DocumentUploadService>();
+
 builder.Services.AddSignalR().AddJsonProtocol();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

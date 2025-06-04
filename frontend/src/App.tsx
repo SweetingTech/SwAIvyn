@@ -13,6 +13,7 @@ import UserProfilePage from './pages/UserProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MemoryBrowser from './pages/MemoryBrowser';
 import ConversationManagement from './pages/ConversationManagement';
+import KnowledgeUploadPage from './pages/KnowledgeUploadPage';
 import { InitializationProvider, useInitialization } from './contexts/InitializationContext';
 
 // Initialize i18n
@@ -47,6 +48,7 @@ function AppContent() {
           <Route path="agents" element={<AgentsPage />} />
           <Route path="profile" element={<UserProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
           <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
           <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
         </Route>

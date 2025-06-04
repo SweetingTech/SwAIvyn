@@ -30,6 +30,14 @@ namespace SwAIvyn.Services.VectorStore
         Task<IReadOnlyList<SearchHit>> SearchUploadsAsync(Guid userId, string query, int k = 8);
 
         /// <summary>
+        /// Searches for general knowledge documents in Weaviate vector store (no user filtering)
+        /// </summary>
+        /// <param name="query">Search query text</param>
+        /// <param name="k">Number of results to return</param>
+        /// <returns>List of knowledge document search hits</returns>
+        Task<IReadOnlyList<SearchHit>> SearchKnowledgeAsync(string query, int k = 8);
+
+        /// <summary>
         /// Stores a memory vector in Neo4j
         /// </summary>
         /// <param name="id">Memory ID</param>
