@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using System;
 using System.Net.Http;
 using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -52,10 +53,17 @@ namespace SwAIvyn.Services.VectorStore
                     return new float[_dimensions];
                 }
 
-                // Create a deterministic embedding based on the text hash
+                // Create a deterministic embedding based on the text using a
+                // stable hash. String.GetHashCode is randomised per-process
+                // which would yield different embeddings across runs. To keep
+                // behaviour consistent we derive the random seed from a SHA256
+                // hash of the input text.
+
+                var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(text));
+                var seed = BitConverter.ToInt32(hashBytes, 0);
+
                 var embedding = new float[_dimensions];
-                var hash = text.GetHashCode();
-                var random = new Random(hash);
+                var random = new Random(seed);
 
                 for (int i = 0; i < _dimensions; i++)
                 {

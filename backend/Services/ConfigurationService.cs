@@ -86,6 +86,8 @@ namespace SwAIvyn.Services
                     { "notificationHub", GetSignalRHubUrl("notification") },
                     { "ollamaApi", _configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434" },
                     { "lmStudioApi", _configuration["AppSettings:LmStudioApiUrl"] ?? "http://localhost:1234" },
+                    { "openAiApi", _configuration["AppSettings:OpenAiApiUrl"] ?? "https://api.openai.com/v1" },
+                    { "claudeApi", _configuration["AppSettings:ClaudeApiUrl"] ?? "https://api.anthropic.com/v1" },
                     { "neo4jHttp", _configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474" },
                     { "neo4jBolt", $"bolt://localhost:{_configuration.GetValue<int>("AppSettings:Neo4jBoltPort", 7687)}" }
                 };

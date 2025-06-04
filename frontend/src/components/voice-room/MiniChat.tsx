@@ -21,6 +21,24 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [inputText, setInputText] = useState('');
 
+  const playTts = async (text: string) => {
+    try {
+      const resp = await fetch('/api/tts/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+      }
+    } catch (err) {
+      console.error('TTS failed', err);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
@@ -44,6 +62,7 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, aiMessage]);
+      playTts(aiMessage.text);
     }, 1000);
   };
   
