@@ -15,7 +15,7 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 ### System Requirements
 
 - Windows 10/11
-- .NET 9.0 Runtime (installed automatically if needed)
+- .NET 8.0 Runtime (installed automatically if needed)
 - 4GB RAM minimum (8GB recommended)
 - Local LLM server (optional): Ollama or LM Studio
 - SQLite-VSS extension (for vector search)
@@ -82,7 +82,7 @@ SwAIvyn uses a service-based architecture with:
 
 ## Dependencies
 
-- .NET 9.0
+- .NET 8.0
 - React 18
 - TailwindCSS
 - SQLite (with WAL mode)

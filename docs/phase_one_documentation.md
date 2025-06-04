@@ -5,7 +5,7 @@ This document provides detailed documentation of the work completed in Phase One
 ## Backend Setup
 
 ### Project Structure
-- ASP.NET Core (.NET 7) project with controllers, SignalR hubs, and EF Core integration.
+- ASP.NET Core (.NET 8) project with controllers, SignalR hubs, and EF Core integration.
 - Program.cs configures services and middleware including CORS, Swagger, SignalR hubs, and EF Core with SQLite.
 
 ### Database
