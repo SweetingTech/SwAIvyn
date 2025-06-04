@@ -73,6 +73,11 @@ namespace SwAIvyn.Data
         public DbSet<DocumentChunk> DocumentChunks { get; set; }
 
         /// <summary>
+        /// Gets or sets the Agents DbSet.
+        /// </summary>
+        public DbSet<Agent> Agents { get; set; }
+
+        /// <summary>
         /// Configures the model relationships and constraints.
         /// </summary>
         /// <param name="modelBuilder">The model builder to configure entities.</param>
@@ -211,6 +216,17 @@ namespace SwAIvyn.Data
                 .HasIndex(dc => new { dc.UploadDocumentId, dc.ChunkIndex });
             modelBuilder.Entity<DocumentChunk>()
                 .HasIndex(dc => dc.IsStoredInWeaviate);
+
+            // Agent
+            modelBuilder.Entity<Agent>()
+                .HasKey(a => a.Id);
+            modelBuilder.Entity<Agent>()
+                .HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<Agent>()
+                .HasIndex(a => new { a.UserId, a.Name });
 
             // Add SQL trigger for folder cascade delete
             modelBuilder.Entity<Folder>()
