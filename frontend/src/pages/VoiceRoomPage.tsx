@@ -3,10 +3,25 @@ import { motion } from 'framer-motion';
 import { Mic, Volume2, MessageSquare, Camera, Paperclip } from 'lucide-react';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
+import { playTts } from '../utils/playTts';
 
 const VoiceRoomPage = () => {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+
+  const playSampleTts = async () => {
+    try {
+      const response = await fetch('/api/tts?text=Hello');
+      if (!response.ok) {
+        throw new Error('Failed to fetch TTS');
+      }
+      const blob = await response.blob();
+      await playTts(blob);
+    } catch (err) {
+      console.error('Error fetching TTS:', err);
+      alert('Unable to play TTS.');
+    }
+  };
   
   const toggleListening = () => {
     setIsListening(!isListening);
@@ -50,6 +65,7 @@ const VoiceRoomPage = () => {
               
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
+                onClick={playSampleTts}
               >
                 <Volume2 size={24} />
               </button>
