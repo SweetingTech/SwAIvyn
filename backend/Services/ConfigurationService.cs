@@ -12,6 +12,10 @@ namespace SwAIvyn.Services
         Dictionary<string, string> GetAllEndpoints();
         string GetOllamaApiUrl();
         string GetLmStudioApiUrl();
+        string GetOpenAiApiUrl();
+        string GetOpenAiApiKey();
+        string GetClaudeApiUrl();
+        string GetClaudeApiKey();
         string GetNeo4jUri();
         int GetNeo4jBoltPort();
         int GetNeo4jHttpPort();
@@ -62,6 +66,8 @@ namespace SwAIvyn.Services
                 // Add user-configurable endpoints
                 endpoints["ollamaApi"] = GetOllamaApiUrl();
                 endpoints["lmStudioApi"] = GetLmStudioApiUrl();
+                endpoints["openAiApi"] = GetOpenAiApiUrl();
+                endpoints["claudeApi"] = GetClaudeApiUrl();
                 endpoints["neo4jHttp"] = GetNeo4jUri();
                 endpoints["neo4jBolt"] = $"bolt://localhost:{GetNeo4jBoltPort()}";
 
@@ -94,6 +100,26 @@ namespace SwAIvyn.Services
         public string GetLmStudioApiUrl()
         {
             return _settingsProvider.GetLmStudioApiUrl();
+        }
+
+        public string GetOpenAiApiUrl()
+        {
+            return _settingsProvider.GetOpenAiApiUrl();
+        }
+
+        public string GetOpenAiApiKey()
+        {
+            return _settingsProvider.GetOpenAiApiKey();
+        }
+
+        public string GetClaudeApiUrl()
+        {
+            return _settingsProvider.GetClaudeApiUrl();
+        }
+
+        public string GetClaudeApiKey()
+        {
+            return _settingsProvider.GetClaudeApiKey();
         }
 
         public string GetNeo4jUri()

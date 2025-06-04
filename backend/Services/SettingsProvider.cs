@@ -47,6 +47,26 @@ namespace SwAIvyn.Services
         /// </summary>
         /// <returns>Neo4j HTTP port</returns>
         int GetNeo4jHttpPort();
+
+        /// <summary>
+        /// Gets the OpenAI API key
+        /// </summary>
+        string GetOpenAiApiKey();
+
+        /// <summary>
+        /// Gets the OpenAI API base URL
+        /// </summary>
+        string GetOpenAiApiUrl();
+
+        /// <summary>
+        /// Gets the Claude API key
+        /// </summary>
+        string GetClaudeApiKey();
+
+        /// <summary>
+        /// Gets the Claude API base URL
+        /// </summary>
+        string GetClaudeApiUrl();
     }
 
     /// <summary>
@@ -63,6 +83,10 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string OPENAI_API_KEY = "OpenAiApiKey";
+        private const string OPENAI_API_URL = "OpenAiApiUrl";
+        private const string CLAUDE_API_KEY = "ClaudeApiKey";
+        private const string CLAUDE_API_URL = "ClaudeApiUrl";
 
         /// <summary>
         /// Initializes a new instance of the SettingsProvider
@@ -123,6 +147,30 @@ namespace SwAIvyn.Services
         {
             var portStr = GetSetting(NEO4J_HTTP_PORT_KEY, "7474");
             return int.TryParse(portStr, out int port) ? port : 7474;
+        }
+
+        /// <inheritdoc/>
+        public string GetOpenAiApiKey()
+        {
+            return GetSetting(OPENAI_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public string GetOpenAiApiUrl()
+        {
+            return GetSetting(OPENAI_API_URL, "https://api.openai.com");
+        }
+
+        /// <inheritdoc/>
+        public string GetClaudeApiKey()
+        {
+            return GetSetting(CLAUDE_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public string GetClaudeApiUrl()
+        {
+            return GetSetting(CLAUDE_API_URL, "https://api.anthropic.com");
         }
     }
 }

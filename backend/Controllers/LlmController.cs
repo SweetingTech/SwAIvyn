@@ -68,6 +68,36 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        [HttpGet("openai/models")]
+        public async Task<IActionResult> GetOpenAiModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting OpenAI models", ex);
+                return StatusCode(500, "An error occurred while getting OpenAI models");
+            }
+        }
+
+        [HttpGet("claude/models")]
+        public async Task<IActionResult> GetClaudeModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting Claude models", ex);
+                return StatusCode(500, "An error occurred while getting Claude models");
+            }
+        }
+
         /// <summary>
         /// Tests connection to Ollama
         /// </summary>
@@ -125,6 +155,38 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        [HttpGet("openai/test")]
+        public async Task<IActionResult> TestOpenAiConnection([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                var count = models?.Count() ?? 0;
+                return Ok(new { connected = true, modelCount = count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing OpenAI connection", ex);
+                return Ok(new { connected = false, message = $"Connection failed: {ex.Message}" });
+            }
+        }
+
+        [HttpGet("claude/test")]
+        public async Task<IActionResult> TestClaudeConnection([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                var count = models?.Count() ?? 0;
+                return Ok(new { connected = true, modelCount = count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing Claude connection", ex);
+                return Ok(new { connected = false, message = $"Connection failed: {ex.Message}" });
+            }
+        }
+
         /// <summary>
         /// Gets all available models from all engines
         /// </summary>
@@ -163,6 +225,33 @@ namespace SwAIvyn.Controllers
                         available = true,
                         models = new List<string> { lmStudioModel }
                     };
+                }
+                // Get OpenAI models
+                try
+                {
+                    var openAiModels = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                    result["openai"] = new {
+                        available = true,
+                        models = openAiModels?.ToList() ?? new List<string>()
+                    };
+                }
+                catch (Exception ex)
+                {
+                    result["openai"] = new { available = false, error = ex.Message, models = new List<string>() };
+                }
+
+                // Get Claude models
+                try
+                {
+                    var claudeModels = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                    result["claude"] = new {
+                        available = true,
+                        models = claudeModels?.ToList() ?? new List<string>()
+                    };
+                }
+                catch (Exception ex)
+                {
+                    result["claude"] = new { available = false, error = ex.Message, models = new List<string>() };
                 }
                 catch (Exception ex)
                 {
@@ -204,6 +293,18 @@ namespace SwAIvyn.Controllers
                         name = "LM Studio",
                         description = "Local AI models via LM Studio",
                         defaultUrl = "http://localhost:1234"
+                    },
+                    new {
+                        id = "openai",
+                        name = "OpenAI",
+                        description = "Remote models via OpenAI",
+                        defaultUrl = "https://api.openai.com"
+                    },
+                    new {
+                        id = "claude",
+                        name = "Claude",
+                        description = "Remote models via Anthropic Claude",
+                        defaultUrl = "https://api.anthropic.com"
                     }
                 };
 
