@@ -7,6 +7,24 @@ import MiniChat from '../components/voice-room/MiniChat';
 const VoiceRoomPage = () => {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+
+  const playTts = async (text: string) => {
+    try {
+      const resp = await fetch('/api/tts/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+      }
+    } catch (err) {
+      console.error('TTS failed', err);
+    }
+  };
   
   const toggleListening = () => {
     setIsListening(!isListening);
@@ -50,6 +68,7 @@ const VoiceRoomPage = () => {
               
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
+                onClick={() => playTts('Hello, how can I assist you today?')}
               >
                 <Volume2 size={24} />
               </button>
