@@ -12,18 +12,15 @@ namespace SwAIvyn.Controllers
     public class LlmController : ControllerBase
     {
         private readonly ILlmConnectorService _llmConnectorService;
-        private readonly ISettingsService _settingsService;
         private readonly IAiChatService _aiChatService;
         private readonly ISimpleLoggerService _logger;
 
         public LlmController(
             ILlmConnectorService llmConnectorService,
-            ISettingsService settingsService,
             IAiChatService aiChatService,
             ISimpleLoggerService logger)
         {
             _llmConnectorService = llmConnectorService;
-            _settingsService = settingsService;
             _aiChatService = aiChatService;
             _logger = logger;
         }
@@ -35,8 +32,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets available Ollama models.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>List of available Ollama models</returns>
         [HttpGet("ollama/models")]
         public async Task<IActionResult> GetOllamaModels([FromQuery] Guid? userId = null)
         {
@@ -55,8 +50,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Tests connection to Ollama by fetching its model list.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Connection status (connected/modelCount/message)</returns>
         [HttpGet("ollama/test")]
         public async Task<IActionResult> TestOllamaConnection([FromQuery] Guid? userId = null)
         {
@@ -67,7 +60,7 @@ namespace SwAIvyn.Controllers
                 return Ok(new
                 {
                     connected = true,
-                    modelCount = modelCount,
+                    modelCount,
                     message = $"Connected successfully. Found {modelCount} models."
                 });
             }
@@ -90,15 +83,13 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets the current LM Studio model name.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Current LM Studio model name</returns>
         [HttpGet("lmstudio/model")]
         public async Task<IActionResult> GetLmStudioModel([FromQuery] Guid? userId = null)
         {
             try
             {
                 var model = await _llmConnectorService.GetLmStudioModelAsync(userId);
-                return Ok(new { model = model });
+                return Ok(new { model });
             }
             catch (Exception ex)
             {
@@ -110,8 +101,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Tests connection to LM Studio by fetching the current model.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Connection status (connected/model/message)</returns>
         [HttpGet("lmstudio/test")]
         public async Task<IActionResult> TestLmStudioConnection([FromQuery] Guid? userId = null)
         {
@@ -121,7 +110,7 @@ namespace SwAIvyn.Controllers
                 return Ok(new
                 {
                     connected = true,
-                    model = model,
+                    model,
                     message = $"Connected successfully. Current model: {model}"
                 });
             }
@@ -144,8 +133,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets available OpenAI models.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>List of available OpenAI models</returns>
         [HttpGet("openai/models")]
         public async Task<IActionResult> GetOpenAiModels([FromQuery] Guid? userId = null)
         {
@@ -164,8 +151,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Tests connection to OpenAI by fetching its model list.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Connection status (connected/modelCount/message)</returns>
         [HttpGet("openai/test")]
         public async Task<IActionResult> TestOpenAiConnection([FromQuery] Guid? userId = null)
         {
@@ -189,8 +174,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets available Claude models.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>List of available Claude models</returns>
         [HttpGet("claude/models")]
         public async Task<IActionResult> GetClaudeModels([FromQuery] Guid? userId = null)
         {
@@ -209,8 +192,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Tests connection to Claude by fetching its model list.
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Connection status (connected/modelCount/message)</returns>
         [HttpGet("claude/test")]
         public async Task<IActionResult> TestClaudeConnection([FromQuery] Guid? userId = null)
         {
@@ -233,10 +214,7 @@ namespace SwAIvyn.Controllers
 
         /// <summary>
         /// Gets all available models from Ollama, LM Studio, OpenAI, and Claude.
-        /// Each engine is reported under its own key with available flag and models (or error).
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Models grouped by engine</returns>
         [HttpGet("models")]
         public async Task<IActionResult> GetAllModels([FromQuery] Guid? userId = null)
         {
@@ -338,7 +316,7 @@ namespace SwAIvyn.Controllers
         //
 
         /// <summary>
-        /// Gets a list of available LLM engines (no per-user customization here).
+        /// Gets a list of available LLM engines.
         /// </summary>
         [HttpGet("engines")]
         public IActionResult GetEngines()
@@ -362,14 +340,14 @@ namespace SwAIvyn.Controllers
                     new {
                         id = "openai",
                         name = "OpenAI",
-                        description = "Remote models via OpenAI",
-                        defaultUrl = "https://api.openai.com"
+                        description = "Remote AI models via OpenAI",
+                        defaultUrl = "https://api.openai.com/v1"
                     },
                     new {
                         id = "claude",
                         name = "Claude",
-                        description = "Remote models via Anthropic Claude",
-                        defaultUrl = "https://api.anthropic.com"
+                        description = "Remote AI models via Anthropic Claude",
+                        defaultUrl = "https://api.anthropic.com/v1"
                     }
                 };
 
@@ -388,7 +366,6 @@ namespace SwAIvyn.Controllers
 
         /// <summary>
         /// Gets current LLM settings for a user (or global if userId is null).
-        /// Delegates to IAiChatService.GetCurrentLlmSettingsAsync.
         /// </summary>
         [HttpGet("settings")]
         public async Task<IActionResult> GetLlmSettings([FromQuery] Guid? userId = null)
@@ -407,7 +384,6 @@ namespace SwAIvyn.Controllers
 
         /// <summary>
         /// Sets the default LLM engine and model for a user.
-        /// Delegates to IAiChatService.SetDefaultLlmSettingsAsync.
         /// </summary>
         [HttpPost("settings")]
         public async Task<IActionResult> SetLlmSettings([FromBody] SetLlmSettingsRequest request)
@@ -438,9 +414,7 @@ namespace SwAIvyn.Controllers
         //
 
         /// <summary>
-        /// Generates a response from a single‐prompt LLM (e.g. Ollama or LM Studio).
-        /// If request.Engine is null, defaults to "ollama".
-        /// Delegates to ILlmConnectorService.GenerateResponseAsync.
+        /// Generates a response from a single‐prompt LLM (Ollama, LM Studio, etc.).
         /// </summary>
         [HttpPost("generate")]
         public async Task<IActionResult> GenerateResponse([FromBody] GenerateRequest request)
@@ -454,7 +428,7 @@ namespace SwAIvyn.Controllers
                     request.Model,
                     request.UserId);
 
-                return Ok(new { response = response });
+                return Ok(new { response });
             }
             catch (Exception ex)
             {
@@ -465,7 +439,6 @@ namespace SwAIvyn.Controllers
 
         /// <summary>
         /// Generates a chat‐style response using the OpenAI chat endpoint.
-        /// Delegates to ILlmConnectorService.GenerateOpenAiResponseAsync.
         /// </summary>
         [HttpPost("openai/generate")]
         public async Task<IActionResult> GenerateOpenAi([FromBody] GenerateMessagesRequest request)
@@ -496,7 +469,6 @@ namespace SwAIvyn.Controllers
 
         /// <summary>
         /// Generates a chat‐style response using the Claude chat endpoint.
-        /// Delegates to ILlmConnectorService.GenerateClaudeResponseAsync.
         /// </summary>
         [HttpPost("claude/generate")]
         public async Task<IActionResult> GenerateClaude([FromBody] GenerateMessagesRequest request)

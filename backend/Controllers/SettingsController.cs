@@ -124,16 +124,16 @@ namespace SwAIvyn.Controllers
             {
                 var settings = new ConnectionSettings
                 {
-                    OllamaApiUrl   = await _settingsService.GetOllamaApiUrlAsync(userId),
-                    LmStudioApiUrl = await _settingsService.GetLmStudioApiUrlAsync(userId),
-                    OpenAiApiUrl   = await _settingsService.GetOpenAiApiUrlAsync(userId),
-                    OpenAiApiKey   = await _settingsService.GetOpenAiApiKeyAsync(userId),
-                    ClaudeApiUrl   = await _settingsService.GetClaudeApiUrlAsync(userId),
-                    ClaudeApiKey   = await _settingsService.GetClaudeApiKeyAsync(userId),
-                    Neo4jUri       = await _settingsService.GetNeo4jUriAsync(userId),
-                    Neo4jBoltPort  = await _settingsService.GetNeo4jBoltPortAsync(userId),
-                    Neo4jHttpPort  = await _settingsService.GetNeo4jHttpPortAsync(userId),
-                    EnableStreaming = await _settingsService.GetEnableStreamingAsync(userId)
+                    OllamaApiUrl     = await _settingsService.GetOllamaApiUrlAsync(userId),
+                    LmStudioApiUrl   = await _settingsService.GetLmStudioApiUrlAsync(userId),
+                    OpenAiApiUrl     = await _settingsService.GetOpenAiApiUrlAsync(userId),
+                    OpenAiApiKey     = await _settingsService.GetOpenAiApiKeyAsync(userId),
+                    ClaudeApiUrl     = await _settingsService.GetClaudeApiUrlAsync(userId),
+                    ClaudeApiKey     = await _settingsService.GetClaudeApiKeyAsync(userId),
+                    Neo4jUri         = await _settingsService.GetNeo4jUriAsync(userId),
+                    Neo4jBoltPort    = await _settingsService.GetNeo4jBoltPortAsync(userId),
+                    Neo4jHttpPort    = await _settingsService.GetNeo4jHttpPortAsync(userId),
+                    EnableStreaming  = await _settingsService.GetEnableStreamingAsync(userId)
                 };
                 return Ok(settings);
             }
@@ -404,7 +404,7 @@ namespace SwAIvyn.Controllers
         public Guid? UserId { get; set; }
 
         /// <summary>
-        /// LLM engine (ollama or lmstudio)
+        /// LLM engine (ollama, lmstudio, openai, or claude)
         /// </summary>
         public string Engine { get; set; }
 

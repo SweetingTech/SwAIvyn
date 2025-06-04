@@ -1,212 +1,140 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 
 namespace SwAIvyn.Services
 {
-    /// <summary>
-    /// Interface for retrieving application settings from configuration.
-    /// </summary>
-    public interface ISettingsProvider
+    public interface IConfigurationService
     {
-        /// <summary>
-        /// Gets a raw setting value from configuration (falls back to default if missing).
-        /// </summary>
-        /// <param name="key">The configuration key (under "AppSettings").</param>
-        /// <param name="defaultValue">Value to return if the key is not found.</param>
-        /// <returns>The configured value or <paramref name="defaultValue"/>.</returns>
-        string GetSetting(string key, string defaultValue = null);
+        string GetApiBaseUrl();
+        string GetSignalRHubUrl(string hubName);
+        Dictionary<string, string> GetAllEndpoints();
 
-        /// <summary>
-        /// Gets the Ollama API URL from configuration.
-        /// Default: http://localhost:11434
-        /// </summary>
         string GetOllamaApiUrl();
-
-        /// <summary>
-        /// Gets the LM Studio API URL from configuration.
-        /// Default: http://localhost:1234
-        /// </summary>
         string GetLmStudioApiUrl();
-
-        /// <summary>
-        /// Gets the OpenAI API URL from configuration.
-        /// Default: https://api.openai.com/v1
-        /// </summary>
         string GetOpenAiApiUrl();
-
-        /// <summary>
-        /// Gets the OpenAI API key from configuration.
-        /// </summary>
         string GetOpenAiApiKey();
-
-        /// <summary>
-        /// Gets the Claude API URL from configuration.
-        /// Default: https://api.anthropic.com/v1
-        /// </summary>
         string GetClaudeApiUrl();
-
-        /// <summary>
-        /// Gets the Claude API key from configuration.
-        /// </summary>
         string GetClaudeApiKey();
-
-        /// <summary>
-        /// Gets the Neo4j Bolt URI (host + port) or just the URI string if you prefer.
-        /// Default: bolt://localhost
-        /// </summary>
         string GetNeo4jUri();
-
-        /// <summary>
-        /// Gets the Neo4j Bolt port from configuration.
-        /// Default: 7687
-        /// </summary>
         int GetNeo4jBoltPort();
-
-        /// <summary>
-        /// Gets the Neo4j HTTP port from configuration.
-        /// Default: 7474
-        /// </summary>
         int GetNeo4jHttpPort();
-
-        /// <summary>
-        /// Gets the ElevenLabs API key from configuration.
-        /// </summary>
-        string GetElevenLabsApiKey();
-
-        /// <summary>
-        /// Gets the default ElevenLabs voice ID from configuration.
-        /// </summary>
-        string GetElevenLabsVoiceId();
     }
 
-    /// <summary>
-    /// Default implementation of ISettingsProvider, pulling from IConfiguration.
-    /// </summary>
-    public class SettingsProvider : ISettingsProvider
+    public class ConfigurationService : IConfigurationService
     {
         private readonly IConfiguration _configuration;
+        private readonly ISettingsProvider _settingsProvider;
         private readonly ISimpleLoggerService _logger;
+        private readonly string _baseUrl;
 
-        // --------------------------
-        // Configuration keys (AppSettings)
-        // --------------------------
-        private const string OLLAMA_API_URL_KEY       = "OllamaApiUrl";
-        private const string LM_STUDIO_API_URL_KEY    = "LmStudioApiUrl";
-
-        private const string OPENAI_API_URL_KEY       = "OpenAiApiUrl";
-        private const string OPENAI_API_KEY_KEY       = "OpenAiApiKey";
-
-        private const string CLAUDE_API_URL_KEY       = "ClaudeApiUrl";
-        private const string CLAUDE_API_KEY_KEY       = "ClaudeApiKey";
-
-        private const string NEO4J_URI_KEY            = "Neo4jUri";
-        private const string NEO4J_BOLT_PORT_KEY      = "Neo4jBoltPort";
-        private const string NEO4J_HTTP_PORT_KEY      = "Neo4jHttpPort";
-
-        private const string ELEVENLABS_API_KEY_KEY   = "ElevenLabsApiKey";
-        private const string ELEVENLABS_VOICE_ID_KEY  = "ElevenLabsVoiceId";
-
-        /// <summary>
-        /// Constructs a new SettingsProvider.
-        /// </summary>
-        /// <param name="configuration">An IConfiguration containing an "AppSettings" section.</param>
-        /// <param name="logger">A simple logger to capture any exceptions if a key is missing.</param>
-        public SettingsProvider(
+        public ConfigurationService(
             IConfiguration configuration,
+            ISettingsProvider settingsProvider,
             ISimpleLoggerService logger)
         {
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _configuration = configuration;
+            _settingsProvider = settingsProvider;
+            _logger = logger;
+
+            // Get the base URL from configuration or use default
+            _baseUrl = _configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
         }
 
-        /// <inheritdoc/>
-        public string GetSetting(string key, string defaultValue = null)
+        public string GetApiBaseUrl()
+        {
+            return _baseUrl;
+        }
+
+        public string GetSignalRHubUrl(string hubName)
+        {
+            return $"{_baseUrl}/hubs/{hubName}";
+        }
+
+        public Dictionary<string, string> GetAllEndpoints()
         {
             try
             {
-                // All keys are expected under "AppSettings:<key>"
-                var configValue = _configuration[$"AppSettings:{key}"];
-                return string.IsNullOrEmpty(configValue) ? defaultValue : configValue;
+                var endpoints = new Dictionary<string, string>
+                {
+                    { "api", GetApiBaseUrl() },
+                    { "chatHub", GetSignalRHubUrl("chat") },
+                    { "voiceHub", GetSignalRHubUrl("voice") },
+                    { "notificationHub", GetSignalRHubUrl("notification") },
+                    { "ollamaApi", GetOllamaApiUrl() },
+                    { "lmStudioApi", GetLmStudioApiUrl() },
+                    { "openAiApi", GetOpenAiApiUrl() },
+                    { "claudeApi", GetClaudeApiUrl() },
+                    { "neo4jHttp", GetNeo4jUri() },
+                    { "neo4jBolt", $"bolt://localhost:{GetNeo4jBoltPort()}" }
+                };
+
+                return endpoints;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error getting setting '{key}' from configuration", ex);
-                return defaultValue;
+                _logger.LogError("Error getting all endpoints", ex);
+
+                // Fallback to default values
+                return new Dictionary<string, string>
+                {
+                    { "api", GetApiBaseUrl() },
+                    { "chatHub", GetSignalRHubUrl("chat") },
+                    { "voiceHub", GetSignalRHubUrl("voice") },
+                    { "notificationHub", GetSignalRHubUrl("notification") },
+                    { "ollamaApi", _configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434" },
+                    { "lmStudioApi", _configuration["AppSettings:LmStudioApiUrl"] ?? "http://localhost:1234" },
+                    { "openAiApi", _configuration["AppSettings:OpenAiApiUrl"] ?? "https://api.openai.com/v1" },
+                    { "claudeApi", _configuration["AppSettings:ClaudeApiUrl"] ?? "https://api.anthropic.com/v1" },
+                    { "neo4jHttp", _configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474" },
+                    { "neo4jBolt", $"bolt://localhost:{_configuration.GetValue<int>("AppSettings:Neo4jBoltPort", 7687)}" }
+                };
             }
         }
 
-        /// <inheritdoc/>
         public string GetOllamaApiUrl()
         {
-            // Fallback: http://localhost:11434
-            return GetSetting(OLLAMA_API_URL_KEY, "http://localhost:11434");
+            return _settingsProvider.GetOllamaApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetLmStudioApiUrl()
         {
-            // Fallback: http://localhost:1234
-            return GetSetting(LM_STUDIO_API_URL_KEY, "http://localhost:1234");
+            return _settingsProvider.GetLmStudioApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetOpenAiApiUrl()
         {
-            // Fallback: https://api.openai.com/v1
-            return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+            return _settingsProvider.GetOpenAiApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetOpenAiApiKey()
         {
-            // No default—must be provided via config or secrets
-            return GetSetting(OPENAI_API_KEY_KEY, string.Empty);
+            return _settingsProvider.GetOpenAiApiKey();
         }
 
-        /// <inheritdoc/>
         public string GetClaudeApiUrl()
         {
-            // Fallback: https://api.anthropic.com/v1
-            return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+            return _settingsProvider.GetClaudeApiUrl();
         }
 
-        /// <inheritdoc/>
         public string GetClaudeApiKey()
         {
-            return GetSetting(CLAUDE_API_KEY_KEY, string.Empty);
+            return _settingsProvider.GetClaudeApiKey();
         }
 
-        /// <inheritdoc/>
         public string GetNeo4jUri()
         {
-            // Fallback: bolt://localhost
-            return GetSetting(NEO4J_URI_KEY, "bolt://localhost");
+            return _settingsProvider.GetNeo4jUri();
         }
 
-        /// <inheritdoc/>
         public int GetNeo4jBoltPort()
         {
-            var portStr = GetSetting(NEO4J_BOLT_PORT_KEY, "7687");
-            return int.TryParse(portStr, out int port) ? port : 7687;
+            return _settingsProvider.GetNeo4jBoltPort();
         }
 
-        /// <inheritdoc/>
         public int GetNeo4jHttpPort()
         {
-            var portStr = GetSetting(NEO4J_HTTP_PORT_KEY, "7474");
-            return int.TryParse(portStr, out int port) ? port : 7474;
-        }
-
-        /// <inheritdoc/>
-        public string GetElevenLabsApiKey()
-        {
-            return GetSetting(ELEVENLABS_API_KEY_KEY, string.Empty);
-        }
-
-        /// <inheritdoc/>
-        public string GetElevenLabsVoiceId()
-        {
-            return GetSetting(ELEVENLABS_VOICE_ID_KEY, string.Empty);
+            return _settingsProvider.GetNeo4jHttpPort();
         }
     }
 }

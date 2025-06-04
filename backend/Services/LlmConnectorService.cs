@@ -139,7 +139,7 @@ namespace SwAIvyn.Services
                     }
                 }
 
-                // Fallback to legacy /models endpoint if available
+                // Fallback to legacy /models endpoint
                 var legacyResponse = await _httpClient.GetAsync($"{lmStudioApiUrl}/models");
                 if (legacyResponse.IsSuccessStatusCode)
                 {
@@ -193,6 +193,10 @@ namespace SwAIvyn.Services
                 return new List<string>();
             }
         }
+
+        //
+        // === Claude ===
+        //
 
         public async Task<IEnumerable<string>> GetClaudeModelsAsync(Guid? userId = null)
         {
