@@ -7,7 +7,7 @@ SwAIvyn is a desktop application that provides an AI assistant interface with ch
 ## Architecture
 
 The application follows a client-server architecture:
-- **Backend**: .NET 9.0 API with SignalR for real-time communication
+- **Backend**: .NET 8.0 API with SignalR for real-time communication
 - **Frontend**: React with TypeScript, using Vite as the build tool
 - **Database**:
   - SQLite (WAL mode) for relational data
