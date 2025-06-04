@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Bot, 
   Plus, 
@@ -28,51 +28,52 @@ interface Agent {
 }
 
 const AgentsPage = () => {
-  const [agents] = useState<Agent[]>([
-    {
-      id: '1',
-      name: 'Task Scheduler',
-      description: 'Manages and schedules automated tasks and reminders',
-      type: 'task',
-      status: 'active',
-      lastRun: '2 minutes ago',
-      tasksCompleted: 47,
-      enabled: true
-    },
-    {
-      id: '2',
-      name: 'Memory Organizer',
-      description: 'Automatically categorizes and indexes conversation memories',
-      type: 'analysis',
-      status: 'active',
-      lastRun: '5 minutes ago',
-      tasksCompleted: 23,
-      enabled: true
-    },
-    {
-      id: '3',
-      name: 'Context Monitor',
-      description: 'Monitors conversation context and suggests relevant information',
-      type: 'monitoring',
-      status: 'inactive',
-      lastRun: '1 hour ago',
-      tasksCompleted: 12,
-      enabled: false
-    },
-    {
-      id: '4',
-      name: 'Response Quality Checker',
-      description: 'Analyzes AI responses for quality and appropriateness',
-      type: 'analysis',
-      status: 'active',
-      lastRun: '30 seconds ago',
-      tasksCompleted: 156,
-      enabled: true
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadAgents();
+  }, []);
+
+  const loadAgents = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/agents');
+      if (response.ok) {
+        const data = await response.json();
+        setAgents(data || []);
+      } else {
+        setAgents([]);
+      }
+    } catch (err) {
+      console.error('Failed to load agents', err);
+      setAgents([]);
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
+
+  const toggleAgent = async (agent: Agent) => {
+    try {
+      const action = agent.enabled ? 'stop' : 'start';
+      await fetch(`/api/agents/${agent.id}/${action}`, { method: 'POST' });
+      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, enabled: !a.enabled, status: a.enabled ? 'inactive' : 'active' } : a));
+    } catch (err) {
+      console.error('Failed to toggle agent', err);
+    }
+  };
+
+  const deleteAgent = async (id: string) => {
+    try {
+      await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+      setAgents(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      console.error('Failed to delete agent', err);
+    }
+  };
 
   const filteredAgents = agents.filter(agent => {
     const matchesSearch = agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -179,7 +180,12 @@ const AgentsPage = () => {
 
         {/* Agents Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAgents.map((agent) => (
+          {loading && (
+            <div className="col-span-full text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+            </div>
+          )}
+          {!loading && filteredAgents.map((agent) => (
             <div key={agent.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               {/* Agent Header */}
               <div className="flex items-start justify-between mb-4">
@@ -228,6 +234,7 @@ const AgentsPage = () => {
               <div className="flex items-center justify-between pt-4 border-t border-gray-200">
                 <div className="flex items-center space-x-2">
                   <button
+                    onClick={() => toggleAgent(agent)}
                     className={`p-2 rounded-md ${
                       agent.enabled
                         ? 'text-green-600 bg-green-50 hover:bg-green-100'
@@ -238,6 +245,7 @@ const AgentsPage = () => {
                     {agent.enabled ? <Pause size={16} /> : <Play size={16} />}
                   </button>
                   <button
+                    onClick={() => deleteAgent(agent.id)}
                     className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
                     title="Delete Agent"
                   >
