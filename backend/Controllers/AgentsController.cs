@@ -1,10 +1,9 @@
+using System;
+using System.ComponentModel.DataAnnotations;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using SwAIvyn.Data.Entities;
 using SwAIvyn.Services;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Threading.Tasks;
 
 namespace SwAIvyn.Controllers
 {
@@ -20,17 +19,17 @@ namespace SwAIvyn.Controllers
 
         public AgentsController(IAgentService agentService, ISimpleLoggerService logger)
         {
-            _agentService = agentService;
-            _logger = logger;
+            _agentService = agentService 
+                ?? throw new ArgumentNullException(nameof(agentService));
+            _logger = logger 
+                ?? throw new ArgumentNullException(nameof(logger));
         }
 
         /// <summary>
         /// Gets all agents for a user.
         /// </summary>
-        /// <param name="userId">User ID</param>
-        /// <returns>List of agents</returns>
         [HttpGet]
-        public async Task<IActionResult> GetAgents([FromQuery] Guid userId)
+        public async Task<IActionResult> GetAgents([FromQuery][Required] Guid userId)
         {
             var agents = await _agentService.GetAgentsAsync(userId);
             return Ok(agents);
@@ -42,27 +41,46 @@ namespace SwAIvyn.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateAgent([FromBody] CreateAgentRequest request)
         {
-            var agent = await _agentService.CreateAgentAsync(request.UserId, request.Name, request.Description, request.Type);
-            return Ok(agent);
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                var agent = await _agentService.CreateAgentAsync(
+                    request.UserId,
+                    request.Name,
+                    request.Description,
+                    request.Type
+                );
+                return Ok(agent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating agent");
+                return StatusCode(500, "Failed to create agent");
+            }
         }
 
         /// <summary>
         /// Updates an existing agent.
         /// </summary>
-        [HttpPut("{id}")]
+        [HttpPut("{id:guid}")]
         public async Task<IActionResult> UpdateAgent(Guid id, [FromBody] UpdateAgentRequest request)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             var agent = new Agent
             {
                 Id = id,
+                UserId = request.UserId,
                 Name = request.Name,
                 Description = request.Description,
                 Type = request.Type,
                 Status = request.Status,
-                TasksCompleted = request.TasksCompleted,
-                Enabled = request.Enabled,
                 LastRun = request.LastRun,
-                UserId = request.UserId
+                TasksCompleted = request.TasksCompleted,
+                Enabled = request.Enabled
             };
 
             var success = await _agentService.UpdateAgentAsync(agent);
@@ -75,7 +93,7 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Deletes an agent.
         /// </summary>
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:guid}")]
         public async Task<IActionResult> DeleteAgent(Guid id)
         {
             var success = await _agentService.DeleteAgentAsync(id);
@@ -88,7 +106,7 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Starts an agent.
         /// </summary>
-        [HttpPost("{id}/start")]
+        [HttpPost("{id:guid}/start")]
         public async Task<IActionResult> StartAgent(Guid id)
         {
             var success = await _agentService.StartAgentAsync(id);
@@ -101,7 +119,7 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Stops an agent.
         /// </summary>
-        [HttpPost("{id}/stop")]
+        [HttpPost("{id:guid}/stop")]
         public async Task<IActionResult> StopAgent(Guid id)
         {
             var success = await _agentService.StopAgentAsync(id);
@@ -119,8 +137,10 @@ namespace SwAIvyn.Controllers
     {
         [Required]
         public Guid UserId { get; set; }
+
         [Required]
         public string Name { get; set; }
+
         public string Description { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
     }
@@ -132,13 +152,15 @@ namespace SwAIvyn.Controllers
     {
         [Required]
         public Guid UserId { get; set; }
+
         [Required]
         public string Name { get; set; }
+
         public string Description { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public string Status { get; set; } = "stopped";
         public DateTime? LastRun { get; set; }
         public int TasksCompleted { get; set; }
-        public bool Enabled { get; set; }
+        public bool Enabled { get; set; } = true;
     }
 }

@@ -333,6 +333,9 @@ builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
 builder.Services.AddScoped<IDocumentUploadService, DocumentUploadService>();
 
+// Add agent service
+builder.Services.AddScoped<IAgentService, AgentService>();
+
 builder.Services.AddSignalR().AddJsonProtocol();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

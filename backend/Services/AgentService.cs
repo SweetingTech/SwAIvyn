@@ -1,10 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
 using SwAIvyn.Data.Entities;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace SwAIvyn.Services
 {
@@ -13,12 +12,39 @@ namespace SwAIvyn.Services
     /// </summary>
     public interface IAgentService
     {
+        /// <summary>
+        /// Retrieves all agents for the given user.
+        /// </summary>
         Task<List<Agent>> GetAgentsAsync(Guid userId);
+
+        /// <summary>
+        /// Retrieves a single agent by its ID.
+        /// </summary>
         Task<Agent?> GetAgentAsync(Guid agentId);
+
+        /// <summary>
+        /// Creates a new agent for the specified user.
+        /// </summary>
         Task<Agent> CreateAgentAsync(Guid userId, string name, string description, string type);
+
+        /// <summary>
+        /// Updates an existing agent. Returns false if not found.
+        /// </summary>
         Task<bool> UpdateAgentAsync(Agent agent);
+
+        /// <summary>
+        /// Deletes an agent by its ID. Returns false if not found.
+        /// </summary>
         Task<bool> DeleteAgentAsync(Guid agentId);
+
+        /// <summary>
+        /// Starts an agent (marks it enabled and sets status to "running").
+        /// </summary>
         Task<bool> StartAgentAsync(Guid agentId);
+
+        /// <summary>
+        /// Stops an agent (marks it disabled and sets status to "stopped").
+        /// </summary>
         Task<bool> StopAgentAsync(Guid agentId);
     }
 
@@ -40,6 +66,7 @@ namespace SwAIvyn.Services
         public async Task<List<Agent>> GetAgentsAsync(Guid userId)
         {
             return await _dbContext.Agents
+                .AsNoTracking()
                 .Where(a => a.UserId == userId)
                 .OrderBy(a => a.Name)
                 .ToListAsync();
@@ -69,6 +96,7 @@ namespace SwAIvyn.Services
 
             _dbContext.Agents.Add(agent);
             await _dbContext.SaveChangesAsync();
+
             _logger.LogInfo($"Created agent {agent.Id} for user {userId}");
             return agent;
         }
@@ -115,7 +143,6 @@ namespace SwAIvyn.Services
             agent.Status = "running";
             agent.LastRun = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
-            // Placeholder for actual execution logic
             return true;
         }
 
