@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useInitialization } from '../contexts/InitializationContext';
 import { 
   Bot, 
   Plus, 
@@ -18,58 +19,54 @@ import {
 
 interface Agent {
   id: string;
+  userId: string;
   name: string;
   description: string;
-  type: 'task' | 'monitoring' | 'analysis' | 'communication';
-  status: 'active' | 'inactive' | 'error';
-  lastRun: string;
+  type: string;
+  status: string;
+  lastRun: string | null;
   tasksCompleted: number;
   enabled: boolean;
 }
 
 const AgentsPage = () => {
-  const [agents] = useState<Agent[]>([
-    {
-      id: '1',
-      name: 'Task Scheduler',
-      description: 'Manages and schedules automated tasks and reminders',
-      type: 'task',
-      status: 'active',
-      lastRun: '2 minutes ago',
-      tasksCompleted: 47,
-      enabled: true
-    },
-    {
-      id: '2',
-      name: 'Memory Organizer',
-      description: 'Automatically categorizes and indexes conversation memories',
-      type: 'analysis',
-      status: 'active',
-      lastRun: '5 minutes ago',
-      tasksCompleted: 23,
-      enabled: true
-    },
-    {
-      id: '3',
-      name: 'Context Monitor',
-      description: 'Monitors conversation context and suggests relevant information',
-      type: 'monitoring',
-      status: 'inactive',
-      lastRun: '1 hour ago',
-      tasksCompleted: 12,
-      enabled: false
-    },
-    {
-      id: '4',
-      name: 'Response Quality Checker',
-      description: 'Analyzes AI responses for quality and appropriateness',
-      type: 'analysis',
-      status: 'active',
-      lastRun: '30 seconds ago',
-      tasksCompleted: 156,
-      enabled: true
+  const { user } = useInitialization();
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      loadAgents();
     }
-  ]);
+  }, [user]);
+
+  const loadAgents = async () => {
+    if (!user) return;
+    try {
+      const resp = await fetch(`/api/agents?userId=${user.id}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setAgents(data);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startAgent = async (id: string) => {
+    await fetch(`/api/agents/${id}/start`, { method: 'POST' });
+    loadAgents();
+  };
+
+  const stopAgent = async (id: string) => {
+    await fetch(`/api/agents/${id}/stop`, { method: 'POST' });
+    loadAgents();
+  };
+
+  const deleteAgent = async (id: string) => {
+    await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+    loadAgents();
+  };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
@@ -228,6 +225,9 @@ const AgentsPage = () => {
               <div className="flex items-center justify-between pt-4 border-t border-gray-200">
                 <div className="flex items-center space-x-2">
                   <button
+                    onClick={() =>
+                      agent.enabled ? stopAgent(agent.id) : startAgent(agent.id)
+                    }
                     className={`p-2 rounded-md ${
                       agent.enabled
                         ? 'text-green-600 bg-green-50 hover:bg-green-100'
@@ -238,6 +238,7 @@ const AgentsPage = () => {
                     {agent.enabled ? <Pause size={16} /> : <Play size={16} />}
                   </button>
                   <button
+                    onClick={() => deleteAgent(agent.id)}
                     className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
                     title="Delete Agent"
                   >

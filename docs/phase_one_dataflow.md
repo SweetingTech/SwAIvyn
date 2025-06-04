@@ -5,7 +5,7 @@ This document describes the dataflow and architecture of the SwAIvyn project bac
 ## Backend
 
 ### 1. ASP.NET Core Hosting
-- The backend is hosted using ASP.NET Core (.NET 7).
+- The backend is hosted using ASP.NET Core (.NET 8).
 - Program.cs configures services including controllers, SignalR hubs, Swagger, CORS, and EF Core with SQLite.
 
 ### 2. Database Models and EF Core

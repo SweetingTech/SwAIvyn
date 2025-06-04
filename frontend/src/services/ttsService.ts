@@ -1,24 +1,37 @@
 import apiService from './apiService';
 
+interface VoiceSettings {
+  apiKey: string;
+  voice: string;
+}
+
 const ttsService = {
-  async getSettings() {
-    return await apiService.get('/api/tts/settings');
+  /**
+   * Fetch the ElevenLabs TTS settings (API key and default voice).
+   * If userId is provided, appends it as a query parameter.
+   */
+  async getSettings(userId?: string): Promise<VoiceSettings> {
+    const url = userId
+      ? `/api/tts/settings?userId=${userId}`
+      : '/api/tts/settings';
+    return apiService.get<VoiceSettings>(url);
   },
 
-  async updateSettings(apiKey: string, voiceId: string) {
-    return await apiService.post('/api/tts/settings', { apiKey, voiceId });
-  },
-
-  async synthesize(text: string) {
-    const response = await fetch('/api/tts/synthesize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
-    if (!response.ok) {
-      throw new Error('Failed to synthesize');
+  /**
+   * Update the ElevenLabs TTS settings.
+   * Sends apiKey and voice (and optional userId) to the backend.
+   */
+  async updateSettings(
+    apiKey: string,
+    voice: string,
+    userId?: string
+  ): Promise<boolean> {
+    const payload: Record<string, unknown> = { apiKey, voice };
+    if (userId) {
+      payload.userId = userId;
     }
-    return await response.blob();
+    const response = await apiService.put('/api/tts/settings', payload);
+    return !!response;
   }
 };
 

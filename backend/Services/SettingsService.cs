@@ -15,104 +15,115 @@ namespace SwAIvyn.Services
     public interface ISettingsService
     {
         /// <summary>
-        /// Gets a setting value for a specific user
+        /// Gets a setting value for a specific user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <param name="key">Setting key</param>
-        /// <param name="defaultValue">Default value if setting not found</param>
-        /// <returns>Setting value</returns>
         Task<string> GetSettingAsync(Guid? userId, string key, string defaultValue = null);
 
         /// <summary>
-        /// Gets all settings for a specific user
+        /// Gets all settings for a specific user (or global if userId is null),
+        /// merging in any missing keys from configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Dictionary of settings</returns>
         Task<Dictionary<string, string>> GetAllSettingsAsync(Guid? userId);
 
         /// <summary>
-        /// Sets a setting value for a specific user
+        /// Sets a setting value for a specific user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <param name="key">Setting key</param>
-        /// <param name="value">Setting value</param>
-        /// <returns>Success indicator</returns>
         Task<bool> SetSettingAsync(Guid? userId, string key, string value);
 
         /// <summary>
-        /// Sets multiple settings for a specific user
+        /// Sets multiple settings for a specific user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <param name="settings">Dictionary of settings</param>
-        /// <returns>Success indicator</returns>
         Task<bool> SetSettingsAsync(Guid? userId, Dictionary<string, string> settings);
 
         /// <summary>
-        /// Gets the Ollama API URL from settings or configuration
+        /// Gets the Ollama API URL from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Ollama API URL</returns>
         Task<string> GetOllamaApiUrlAsync(Guid? userId);
 
         /// <summary>
-        /// Gets the LM Studio API URL from settings or configuration
+        /// Gets the LM Studio API URL from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>LM Studio API URL</returns>
         Task<string> GetLmStudioApiUrlAsync(Guid? userId);
 
         /// <summary>
-        /// Gets the streaming enabled setting for a user
+        /// Gets the OpenAI API URL from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>True if streaming is enabled, false otherwise</returns>
+        Task<string> GetOpenAiApiUrlAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the OpenAI API key from settings or configuration.
+        /// </summary>
+        Task<string> GetOpenAiApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the Claude API URL from settings or configuration.
+        /// </summary>
+        Task<string> GetClaudeApiUrlAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the Claude API key from settings or configuration.
+        /// </summary>
+        Task<string> GetClaudeApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Determines whether streaming is enabled (user-specific or global).
+        /// </summary>
         Task<bool> GetEnableStreamingAsync(Guid? userId);
 
         /// <summary>
-        /// Gets the Neo4j URI from settings or configuration
+        /// Gets the Neo4j URI from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Neo4j URI</returns>
         Task<string> GetNeo4jUriAsync(Guid? userId);
 
         /// <summary>
-        /// Gets the Neo4j Bolt port from settings or configuration
+        /// Gets the Neo4j Bolt port from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Neo4j Bolt port</returns>
         Task<int> GetNeo4jBoltPortAsync(Guid? userId);
 
         /// <summary>
-        /// Gets the Neo4j HTTP port from settings or configuration
+        /// Gets the Neo4j HTTP port from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Neo4j HTTP port</returns>
         Task<int> GetNeo4jHttpPortAsync(Guid? userId);
 
         /// <summary>
-        /// Initializes default settings for a user
+        /// Gets the ElevenLabs API key from settings or configuration.
         /// </summary>
-        /// <param name="userId">User ID</param>
-        /// <returns>Success indicator</returns>
+        Task<string> GetElevenLabsApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the default ElevenLabs voice ID from settings or configuration.
+        /// </summary>
+        Task<string> GetElevenLabsVoiceIdAsync(Guid? userId);
+
+        /// <summary>
+        /// Initializes a set of default settings for a brand-new user.
+        /// Does nothing if a given key already exists in the database.
+        /// </summary>
         Task<bool> InitializeDefaultSettingsAsync(Guid userId);
 
         /// <summary>
-        /// Gets the default LLM engine for a user
+        /// Gets the default LLM engine for a user (or global), falling back to "ollama".
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Default LLM engine</returns>
         Task<string> GetDefaultLlmEngineAsync(Guid? userId);
 
         /// <summary>
-        /// Gets the default LLM model for a user
+        /// Gets the default LLM model for a user (or global).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Default LLM model</returns>
         Task<string> GetDefaultLlmModelAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the ElevenLabs API key for text-to-speech.
+        /// </summary>
+        Task<string> GetTtsApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the selected ElevenLabs voice for text-to-speech.
+        /// </summary>
+        Task<string> GetTtsVoiceAsync(Guid? userId);
     }
 
     /// <summary>
-    /// Service for managing user and system settings
+    /// Service for managing user-scoped and global settings.
     /// </summary>
     public class SettingsService : ISettingsService
     {
@@ -120,29 +131,37 @@ namespace SwAIvyn.Services
         private readonly IConfiguration _configuration;
         private readonly ISimpleLoggerService _logger;
 
-        // Setting keys
-        private const string OLLAMA_API_URL_KEY = "OllamaApiUrl";
-        private const string LM_STUDIO_API_URL_KEY = "LmStudioApiUrl";
-        private const string NEO4J_URI_KEY = "Neo4jUri";
-        private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
-        private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
-        private const string ELEVENLABS_API_KEY = "ElevenLabsApiKey";
-        private const string ELEVENLABS_VOICE_ID = "ElevenLabsVoiceId";
+        // Configuration keys (AppSettings)
+        private const string OLLAMA_API_URL_KEY        = "OllamaApiUrl";
+        private const string LM_STUDIO_API_URL_KEY     = "LmStudioApiUrl";
+        private const string OPENAI_API_URL_KEY        = "OpenAiApiUrl";
+        private const string OPENAI_API_KEY_KEY        = "OpenAiApiKey";
+        private const string CLAUDE_API_URL_KEY        = "ClaudeApiUrl";
+        private const string CLAUDE_API_KEY_KEY        = "ClaudeApiKey";
+        private const string NEO4J_URI_KEY             = "Neo4jUri";
+        private const string NEO4J_BOLT_PORT_KEY       = "Neo4jBoltPort";
+        private const string NEO4J_HTTP_PORT_KEY       = "Neo4jHttpPort";
+        private const string ELEVENLABS_API_KEY_KEY    = "ElevenLabsApiKey";
+        private const string ELEVENLABS_VOICE_ID_KEY   = "ElevenLabsVoiceId";
+        private const string ENABLE_STREAMING_KEY      = "EnableStreaming";
+        private const string DEFAULT_LLM_ENGINE_KEY    = "DefaultLlmEngine";
+        private const string DEFAULT_LLM_MODEL_KEY     = "DefaultLlmModel";
+
+        // TTS-specific keys
+        private const string TTS_API_KEY               = "TtsElevenLabsApiKey";
+        private const string TTS_VOICE_KEY             = "TtsElevenLabsVoice";
 
         /// <summary>
-        /// Initializes a new instance of the SettingsService
+        /// Constructs a new SettingsService.
         /// </summary>
-        /// <param name="dbContext">Database context</param>
-        /// <param name="configuration">Application configuration</param>
-        /// <param name="logger">Logger service</param>
         public SettingsService(
             ApplicationDbContext dbContext,
             IConfiguration configuration,
             ISimpleLoggerService logger)
         {
-            _dbContext = dbContext;
-            _configuration = configuration;
-            _logger = logger;
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         /// <inheritdoc/>
@@ -150,6 +169,7 @@ namespace SwAIvyn.Services
         {
             try
             {
+                // 1) Look up in the database (user-scoped if userId != null; global if userId == null)
                 var setting = await _dbContext.Settings
                     .Where(s => s.UserId == userId && s.Key == key)
                     .FirstOrDefaultAsync();
@@ -159,13 +179,15 @@ namespace SwAIvyn.Services
                     return setting.Value;
                 }
 
-                // If user-specific setting not found, try to get from configuration
+                // 2) Fallback to configuration under "AppSettings:<key>"
                 var configValue = _configuration[$"AppSettings:{key}"];
-                return configValue ?? defaultValue;
+                return string.IsNullOrEmpty(configValue)
+                    ? defaultValue
+                    : configValue;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error getting setting {key} for user {userId}", ex);
+                _logger.LogError($"Error getting setting '{key}' for user '{userId}'", ex);
                 return defaultValue;
             }
         }
@@ -175,28 +197,31 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var settings = await _dbContext.Settings
+                // 1) Fetch all user-scoped (or global) settings from the DB
+                var dbSettings = await _dbContext.Settings
                     .Where(s => s.UserId == userId)
                     .ToDictionaryAsync(s => s.Key, s => s.Value);
 
-                // Add default settings from configuration if not present in database
-                var appSettings = _configuration.GetSection("AppSettings")
+                // 2) Grab everything under "AppSettings" from configuration
+                var appSettings = _configuration
+                    .GetSection("AppSettings")
                     .GetChildren()
                     .ToDictionary(x => x.Key, x => x.Value);
 
-                foreach (var setting in appSettings)
+                // 3) For any key in configuration not in DB, add it
+                foreach (var kv in appSettings)
                 {
-                    if (!settings.ContainsKey(setting.Key))
+                    if (!dbSettings.ContainsKey(kv.Key))
                     {
-                        settings[setting.Key] = setting.Value;
+                        dbSettings[kv.Key] = kv.Value;
                     }
                 }
 
-                return settings;
+                return dbSettings;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error getting all settings for user {userId}", ex);
+                _logger.LogError($"Error getting all settings for user '{userId}'", ex);
                 return new Dictionary<string, string>();
             }
         }
@@ -206,39 +231,27 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // If no userId provided, get the first available user
-                if (userId == null || userId == Guid.Empty)
-                {
-                    var firstUser = await _dbContext.Users.FirstOrDefaultAsync();
-                    if (firstUser == null)
-                    {
-                        _logger.LogError($"Cannot save setting '{key}': No users exist in the database");
-                        return false;
-                    }
-                    userId = firstUser.Id;
-                    _logger.LogInfo($"Using first available user ID {userId} for setting '{key}'");
-                }
-
-                var setting = await _dbContext.Settings
+                // Create or update a row with (UserId = userId, Key = key)
+                var existing = await _dbContext.Settings
                     .Where(s => s.UserId == userId && s.Key == key)
                     .FirstOrDefaultAsync();
 
-                if (setting == null)
+                if (existing == null)
                 {
-                    setting = new Settings
+                    var newSetting = new Settings
                     {
                         Id = Guid.NewGuid(),
-                        UserId = userId.Value,
+                        UserId = userId,   // null means “global”
                         Key = key,
                         Value = value,
                         LastModified = DateTime.UtcNow
                     };
-                    _dbContext.Settings.Add(setting);
+                    _dbContext.Settings.Add(newSetting);
                 }
                 else
                 {
-                    setting.Value = value;
-                    setting.LastModified = DateTime.UtcNow;
+                    existing.Value = value;
+                    existing.LastModified = DateTime.UtcNow;
                 }
 
                 await _dbContext.SaveChangesAsync();
@@ -246,7 +259,7 @@ namespace SwAIvyn.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error setting {key} = {value} for user {userId}", ex);
+                _logger.LogError($"Error setting '{key}' = '{value}' for user '{userId}'", ex);
                 return false;
             }
         }
@@ -256,15 +269,15 @@ namespace SwAIvyn.Services
         {
             try
             {
-                foreach (var setting in settings)
+                foreach (var kv in settings)
                 {
-                    await SetSettingAsync(userId, setting.Key, setting.Value);
+                    await SetSettingAsync(userId, kv.Key, kv.Value);
                 }
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error setting multiple settings for user {userId}", ex);
+                _logger.LogError($"Error setting multiple settings for user '{userId}'", ex);
                 return false;
             }
         }
@@ -282,10 +295,34 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
+        public async Task<string> GetOpenAiApiUrlAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetOpenAiApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, OPENAI_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetClaudeApiUrlAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetClaudeApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, CLAUDE_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
         {
-            var value = await GetSettingAsync(userId, "EnableStreaming", "true");
-            return bool.TryParse(value, out bool result) ? result : true; // Default to true
+            var raw = await GetSettingAsync(userId, ENABLE_STREAMING_KEY, "true");
+            return bool.TryParse(raw, out bool result) ? result : true;
         }
 
         /// <inheritdoc/>
@@ -297,15 +334,39 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public async Task<int> GetNeo4jBoltPortAsync(Guid? userId)
         {
-            var portStr = await GetSettingAsync(userId, NEO4J_BOLT_PORT_KEY, "7687");
-            return int.TryParse(portStr, out int port) ? port : 7687;
+            var raw = await GetSettingAsync(userId, NEO4J_BOLT_PORT_KEY, "7687");
+            return int.TryParse(raw, out int parsed) ? parsed : 7687;
         }
 
         /// <inheritdoc/>
         public async Task<int> GetNeo4jHttpPortAsync(Guid? userId)
         {
-            var portStr = await GetSettingAsync(userId, NEO4J_HTTP_PORT_KEY, "7474");
-            return int.TryParse(portStr, out int port) ? port : 7474;
+            var raw = await GetSettingAsync(userId, NEO4J_HTTP_PORT_KEY, "7474");
+            return int.TryParse(raw, out int parsed) ? parsed : 7474;
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetElevenLabsApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, ELEVENLABS_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetElevenLabsVoiceIdAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, ELEVENLABS_VOICE_ID_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetTtsApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, TTS_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetTtsVoiceAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, TTS_VOICE_KEY, "Rachel");
         }
 
         /// <inheritdoc/>
@@ -313,45 +374,46 @@ namespace SwAIvyn.Services
         {
             try
             {
-                _logger.LogInfo($"Initializing default settings for user {userId}");
+                _logger.LogInfo($"Initializing default settings for user '{userId}'");
 
                 var defaultSettings = new Dictionary<string, string>
                 {
-                    { "DefaultLlmEngine", "ollama" },
-                    { "DefaultLlmModel", "" },
-                    { OLLAMA_API_URL_KEY, "http://localhost:11434" },
-                    { LM_STUDIO_API_URL_KEY, "http://localhost:1234" },
-                    { NEO4J_URI_KEY, "http://localhost:7474" },
-                    { NEO4J_BOLT_PORT_KEY, "7687" },
-                    { NEO4J_HTTP_PORT_KEY, "7474" },
-                    { ELEVENLABS_API_KEY, "" },
-                    { ELEVENLABS_VOICE_ID, "" },
-                    { "EnableStreaming", "true" },
-                    { "Theme", "dark" },
-                    { "Language", "en" },
-                    { "AutoSave", "true" },
-                    { "ShowWelcomeMessage", "true" }
+                    { DEFAULT_LLM_ENGINE_KEY,    "ollama" },
+                    { DEFAULT_LLM_MODEL_KEY,     string.Empty },
+                    { OLLAMA_API_URL_KEY,        "http://localhost:11434" },
+                    { LM_STUDIO_API_URL_KEY,     "http://localhost:1234" },
+                    { OPENAI_API_URL_KEY,        "https://api.openai.com/v1" },
+                    { OPENAI_API_KEY_KEY,        string.Empty },
+                    { CLAUDE_API_URL_KEY,        "https://api.anthropic.com/v1" },
+                    { CLAUDE_API_KEY_KEY,        string.Empty },
+                    { NEO4J_URI_KEY,             "http://localhost:7474" },
+                    { NEO4J_BOLT_PORT_KEY,       "7687" },
+                    { NEO4J_HTTP_PORT_KEY,       "7474" },
+                    { ELEVENLABS_API_KEY_KEY,    string.Empty },
+                    { ELEVENLABS_VOICE_ID_KEY,   string.Empty },
+                    { ENABLE_STREAMING_KEY,      "true" },
+                    { TTS_API_KEY,               string.Empty },
+                    { TTS_VOICE_KEY,             "Rachel" }
                 };
 
-                foreach (var setting in defaultSettings)
+                foreach (var kv in defaultSettings)
                 {
-                    // Only set if the setting doesn't already exist
-                    var existingSetting = await _dbContext.Settings
-                        .Where(s => s.UserId == userId && s.Key == setting.Key)
-                        .FirstOrDefaultAsync();
+                    var exists = await _dbContext.Settings
+                        .Where(s => s.UserId == userId && s.Key == kv.Key)
+                        .AnyAsync();
 
-                    if (existingSetting == null)
+                    if (!exists)
                     {
-                        await SetSettingAsync(userId, setting.Key, setting.Value);
+                        await SetSettingAsync(userId, kv.Key, kv.Value);
                     }
                 }
 
-                _logger.LogInfo($"Default settings initialized for user {userId}");
+                _logger.LogInfo($"Default settings initialized for user '{userId}'");
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error initializing default settings for user {userId}", ex);
+                _logger.LogError($"Error initializing default settings for user '{userId}'", ex);
                 return false;
             }
         }
@@ -359,13 +421,13 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public async Task<string> GetDefaultLlmEngineAsync(Guid? userId)
         {
-            return await GetSettingAsync(userId, "DefaultLlmEngine", "ollama");
+            return await GetSettingAsync(userId, DEFAULT_LLM_ENGINE_KEY, "ollama");
         }
 
         /// <inheritdoc/>
         public async Task<string> GetDefaultLlmModelAsync(Guid? userId)
         {
-            return await GetSettingAsync(userId, "DefaultLlmModel", "");
+            return await GetSettingAsync(userId, DEFAULT_LLM_MODEL_KEY, string.Empty);
         }
     }
 }
