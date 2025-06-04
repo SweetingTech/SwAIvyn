@@ -312,6 +312,10 @@ const ModelSettings = () => {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
   const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
+  const [openAiApiUrl, setOpenAiApiUrl] = useState('https://api.openai.com');
+  const [openAiApiKey, setOpenAiApiKey] = useState('');
+  const [claudeApiUrl, setClaudeApiUrl] = useState('https://api.anthropic.com');
+  const [claudeApiKey, setClaudeApiKey] = useState('');
   const [enableStreaming, setEnableStreaming] = useState(true);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -475,6 +479,10 @@ const ModelSettings = () => {
             console.log('🔄 Connection settings loaded:', connectionSettings);
             setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
             setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
+            setOpenAiApiUrl(connectionSettings.openAiApiUrl || 'https://api.openai.com');
+            setOpenAiApiKey(connectionSettings.openAiApiKey || '');
+            setClaudeApiUrl(connectionSettings.claudeApiUrl || 'https://api.anthropic.com');
+            setClaudeApiKey(connectionSettings.claudeApiKey || '');
             setEnableStreaming(connectionSettings.enableStreaming !== false); // Default to true
           } else {
             console.warn('⚠️ Connection settings API call failed:', connectionResponse.status);
@@ -489,6 +497,10 @@ const ModelSettings = () => {
         // Use default values if API call fails
         setOllamaApiUrl('http://localhost:11434');
         setLmStudioApiUrl('http://localhost:1234');
+        setOpenAiApiUrl('https://api.openai.com');
+        setOpenAiApiKey('');
+        setClaudeApiUrl('https://api.anthropic.com');
+        setClaudeApiKey('');
         setEnableStreaming(true);
       }
 
@@ -544,6 +556,10 @@ const ModelSettings = () => {
             UserId: user.id, // Pass the actual user ID (capital U to match backend)
             OllamaApiUrl: ollamaApiUrl || '', // Capital O and A to match backend, ensure not null
             LmStudioApiUrl: lmStudioApiUrl || '', // Capital L, S, A, U to match backend, ensure not null
+            OpenAiApiUrl: openAiApiUrl || '',
+            OpenAiApiKey: openAiApiKey || '',
+            ClaudeApiUrl: claudeApiUrl || '',
+            ClaudeApiKey: claudeApiKey || '',
             Neo4jUri: '', // Include Neo4jUri as empty string (required by backend model)
             EnableStreaming: enableStreaming // Capital E and S to match backend
           })
@@ -578,7 +594,7 @@ const ModelSettings = () => {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
             LLM Engine
-            <Tooltip text="Choose which language model engine to use (Ollama or LM Studio)">
+            <Tooltip text="Choose which language model engine to use (Ollama, LM Studio, OpenAI, or Claude)">
               <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
             </Tooltip>
           </label>
@@ -629,6 +645,8 @@ const ModelSettings = () => {
           >
             <option value="ollama">Ollama</option>
             <option value="lmstudio">LM Studio</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
           </select>
         </div>
 
@@ -744,6 +762,52 @@ const ModelSettings = () => {
                 Test Connection
               </button>
             </div>
+          </div>
+        )}
+
+        {selectedEngine === 'openai' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              OpenAI API URL
+            </label>
+            <input
+              type="text"
+              value={openAiApiUrl}
+              onChange={e => setOpenAiApiUrl(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              disabled={loading}
+            />
+            <label className="block text-sm font-medium text-gray-700 mt-2">API Key</label>
+            <input
+              type="password"
+              value={openAiApiKey}
+              onChange={e => setOpenAiApiKey(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              disabled={loading}
+            />
+          </div>
+        )}
+
+        {selectedEngine === 'claude' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              Claude API URL
+            </label>
+            <input
+              type="text"
+              value={claudeApiUrl}
+              onChange={e => setClaudeApiUrl(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              disabled={loading}
+            />
+            <label className="block text-sm font-medium text-gray-700 mt-2">API Key</label>
+            <input
+              type="password"
+              value={claudeApiKey}
+              onChange={e => setClaudeApiKey(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              disabled={loading}
+            />
           </div>
         )}
 

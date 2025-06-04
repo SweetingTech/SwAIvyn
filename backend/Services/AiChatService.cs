@@ -356,9 +356,9 @@ namespace SwAIvyn.Services
             try
             {
                 // Validate engine
-                if (engine != "ollama" && engine != "lmstudio")
+                if (engine != "ollama" && engine != "lmstudio" && engine != "openai" && engine != "claude")
                 {
-                    throw new ArgumentException("Invalid engine. Must be 'ollama' or 'lmstudio'.");
+                    throw new ArgumentException("Invalid engine. Must be 'ollama', 'lmstudio', 'openai', or 'claude'.");
                 }
 
                 // Set the default engine

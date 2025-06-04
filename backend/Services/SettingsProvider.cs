@@ -47,6 +47,11 @@ namespace SwAIvyn.Services
         /// </summary>
         /// <returns>Neo4j HTTP port</returns>
         int GetNeo4jHttpPort();
+
+        string GetOpenAiApiUrl();
+        string GetOpenAiApiKey();
+        string GetClaudeApiUrl();
+        string GetClaudeApiKey();
     }
 
     /// <summary>
@@ -60,6 +65,10 @@ namespace SwAIvyn.Services
         // Setting keys
         private const string OLLAMA_API_URL_KEY = "OllamaApiUrl";
         private const string LM_STUDIO_API_URL_KEY = "LmStudioApiUrl";
+        private const string OPENAI_API_URL_KEY = "OpenAiApiUrl";
+        private const string OPENAI_API_KEY_KEY = "OpenAiApiKey";
+        private const string CLAUDE_API_URL_KEY = "ClaudeApiUrl";
+        private const string CLAUDE_API_KEY_KEY = "ClaudeApiKey";
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
@@ -123,6 +132,26 @@ namespace SwAIvyn.Services
         {
             var portStr = GetSetting(NEO4J_HTTP_PORT_KEY, "7474");
             return int.TryParse(portStr, out int port) ? port : 7474;
+        }
+
+        public string GetOpenAiApiUrl()
+        {
+            return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com");
+        }
+
+        public string GetOpenAiApiKey()
+        {
+            return GetSetting(OPENAI_API_KEY_KEY, string.Empty);
+        }
+
+        public string GetClaudeApiUrl()
+        {
+            return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com");
+        }
+
+        public string GetClaudeApiKey()
+        {
+            return GetSetting(CLAUDE_API_KEY_KEY, string.Empty);
         }
     }
 }

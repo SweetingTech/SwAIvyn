@@ -15,6 +15,11 @@ namespace SwAIvyn.Services
         string GetNeo4jUri();
         int GetNeo4jBoltPort();
         int GetNeo4jHttpPort();
+
+        string GetOpenAiApiUrl();
+        string GetOpenAiApiKey();
+        string GetClaudeApiUrl();
+        string GetClaudeApiKey();
     }
 
     public class ConfigurationService : IConfigurationService
@@ -62,6 +67,8 @@ namespace SwAIvyn.Services
                 // Add user-configurable endpoints
                 endpoints["ollamaApi"] = GetOllamaApiUrl();
                 endpoints["lmStudioApi"] = GetLmStudioApiUrl();
+                endpoints["openAiApi"] = GetOpenAiApiUrl();
+                endpoints["claudeApi"] = GetClaudeApiUrl();
                 endpoints["neo4jHttp"] = GetNeo4jUri();
                 endpoints["neo4jBolt"] = $"bolt://localhost:{GetNeo4jBoltPort()}";
 
@@ -80,6 +87,8 @@ namespace SwAIvyn.Services
                     { "notificationHub", GetSignalRHubUrl("notification") },
                     { "ollamaApi", _configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434" },
                     { "lmStudioApi", _configuration["AppSettings:LmStudioApiUrl"] ?? "http://localhost:1234" },
+                    { "openAiApi", _configuration["AppSettings:OpenAiApiUrl"] ?? "https://api.openai.com" },
+                    { "claudeApi", _configuration["AppSettings:ClaudeApiUrl"] ?? "https://api.anthropic.com" },
                     { "neo4jHttp", _configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474" },
                     { "neo4jBolt", $"bolt://localhost:{_configuration.GetValue<int>("AppSettings:Neo4jBoltPort", 7687)}" }
                 };
@@ -109,6 +118,26 @@ namespace SwAIvyn.Services
         public int GetNeo4jHttpPort()
         {
             return _settingsProvider.GetNeo4jHttpPort();
+        }
+
+        public string GetOpenAiApiUrl()
+        {
+            return _settingsProvider.GetOpenAiApiUrl();
+        }
+
+        public string GetOpenAiApiKey()
+        {
+            return _settingsProvider.GetOpenAiApiKey();
+        }
+
+        public string GetClaudeApiUrl()
+        {
+            return _settingsProvider.GetClaudeApiUrl();
+        }
+
+        public string GetClaudeApiKey()
+        {
+            return _settingsProvider.GetClaudeApiKey();
         }
     }
 }

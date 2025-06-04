@@ -82,6 +82,15 @@ const chatService = {
       console.error('Error updating LLM settings:', error);
       throw error;
     }
+  },
+
+  async getLlmModels(engine: string) {
+    try {
+      return await apiService.get(`/api/llm/models?engine=${engine}`);
+    } catch (error) {
+      console.error('Error getting models:', error);
+      throw error;
+    }
   }
 };
 

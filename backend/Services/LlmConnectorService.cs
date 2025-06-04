@@ -8,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 namespace SwAIvyn.Services
 {
     /// <summary>
-    /// Interface for connecting to local LLM engines such as Ollama and LM Studio.
+    /// Interface for connecting to LLM engines such as Ollama, LM Studio, OpenAI and Claude.
     /// </summary>
     public interface ILlmConnectorService
     {
@@ -159,6 +159,58 @@ namespace SwAIvyn.Services
                     }
 
                     return "No response from LM Studio";
+                }
+                else if (engine == "openai")
+                {
+                    var apiUrl = _configurationService.GetOpenAiApiUrl();
+                    var apiKey = _configurationService.GetOpenAiApiKey();
+                    _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
+
+                    _httpClient.DefaultRequestHeaders.Clear();
+                    if (!string.IsNullOrEmpty(apiKey))
+                        _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+
+                    var openAiRequest = new
+                    {
+                        model = model ?? "gpt-3.5-turbo",
+                        messages = messages.Select(m => new { role = m["role"], content = m["content"] }).ToArray(),
+                        temperature = 0.7,
+                        max_tokens = 1000
+                    };
+                    var openAiResponse = await _httpClient.PostAsJsonAsync($"{apiUrl}/v1/chat/completions", openAiRequest);
+                    if (openAiResponse.IsSuccessStatusCode)
+                    {
+                        var openAiResult = await openAiResponse.Content.ReadFromJsonAsync<OpenAiCompletionResponse>();
+                        if (openAiResult?.Choices?.Count > 0)
+                            return openAiResult.Choices[0].Message.Content;
+                    }
+                    return "No response from OpenAI";
+                }
+                else if (engine == "claude")
+                {
+                    var apiUrl = _configurationService.GetClaudeApiUrl();
+                    var apiKey = _configurationService.GetClaudeApiKey();
+                    _logger.LogInfo($"Using Claude API URL: {apiUrl}");
+
+                    _httpClient.DefaultRequestHeaders.Clear();
+                    if (!string.IsNullOrEmpty(apiKey))
+                        _httpClient.DefaultRequestHeaders.Add("x-api-key", apiKey);
+                    _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+
+                    var claudeRequest = new
+                    {
+                        model = model ?? "claude-3-sonnet-20240229",
+                        max_tokens = 1000,
+                        messages = messages.Select(m => new { role = m["role"], content = m["content"] }).ToArray()
+                    };
+                    var claudeResp = await _httpClient.PostAsJsonAsync($"{apiUrl}/v1/messages", claudeRequest);
+                    if (claudeResp.IsSuccessStatusCode)
+                    {
+                        var result = await claudeResp.Content.ReadFromJsonAsync<ClaudeResponse>();
+                        if (result?.Content?.Count > 0)
+                            return result.Content[0].Text ?? "";
+                    }
+                    return "No response from Claude";
                 }
                 else
                 {
@@ -320,6 +372,16 @@ namespace SwAIvyn.Services
         {
             public string Role { get; set; } = string.Empty;
             public string Content { get; set; } = string.Empty;
+        }
+
+        private class ClaudeResponse
+        {
+            public List<ClaudeContent> Content { get; set; } = new List<ClaudeContent>();
+        }
+
+        private class ClaudeContent
+        {
+            public string Text { get; set; } = string.Empty;
         }
 
         /// <summary>
