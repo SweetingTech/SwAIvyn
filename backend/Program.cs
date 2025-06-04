@@ -308,6 +308,7 @@ builder.Services.AddScoped<IBrainService, BrainService>();
 
 // Register HybridSearchService for calling search.py API
 builder.Services.AddHttpClient<IHybridSearchService, HybridSearchService>();
+builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
 
 // Add Neo4j and BrainGraph services
 builder.Services.AddScoped<INeo4jService, Neo4jService>();
