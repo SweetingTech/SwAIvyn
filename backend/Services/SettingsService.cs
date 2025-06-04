@@ -17,35 +17,22 @@ namespace SwAIvyn.Services
         /// <summary>
         /// Gets a setting value for a specific user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <param name="key">Setting key</param>
-        /// <param name="defaultValue">Value to return if setting not found</param>
-        /// <returns>Setting value</returns>
         Task<string> GetSettingAsync(Guid? userId, string key, string defaultValue = null);
 
         /// <summary>
         /// Gets all settings for a specific user (or global if userId is null),
         /// merging in any missing keys from configuration.
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <returns>Dictionary of settings</returns>
         Task<Dictionary<string, string>> GetAllSettingsAsync(Guid? userId);
 
         /// <summary>
         /// Sets a setting value for a specific user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <param name="key">Setting key</param>
-        /// <param name="value">Setting value</param>
-        /// <returns>True if saved successfully, false otherwise</returns>
         Task<bool> SetSettingAsync(Guid? userId, string key, string value);
 
         /// <summary>
         /// Sets multiple settings for a specific user (or global if userId is null).
         /// </summary>
-        /// <param name="userId">User ID (null for global settings)</param>
-        /// <param name="settings">Dictionary of settings</param>
-        /// <returns>True if all saved successfully, false otherwise</returns>
         Task<bool> SetSettingsAsync(Guid? userId, Dictionary<string, string> settings);
 
         /// <summary>
@@ -123,10 +110,20 @@ namespace SwAIvyn.Services
         /// Gets the default LLM model for a user (or global).
         /// </summary>
         Task<string> GetDefaultLlmModelAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the ElevenLabs API key for text-to-speech.
+        /// </summary>
+        Task<string> GetTtsApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the selected ElevenLabs voice for text-to-speech.
+        /// </summary>
+        Task<string> GetTtsVoiceAsync(Guid? userId);
     }
 
     /// <summary>
-    /// Service for managing user‐scoped and global settings.
+    /// Service for managing user-scoped and global settings.
     /// </summary>
     public class SettingsService : ISettingsService
     {
@@ -152,6 +149,10 @@ namespace SwAIvyn.Services
         private const string DEFAULT_LLM_ENGINE_KEY    = "DefaultLlmEngine";
         private const string DEFAULT_LLM_MODEL_KEY     = "DefaultLlmModel";
 
+        // TTS-specific keys
+        private const string TTS_API_KEY               = "TtsElevenLabsApiKey";
+        private const string TTS_VOICE_KEY             = "TtsElevenLabsVoice";
+
         /// <summary>
         /// Constructs a new SettingsService.
         /// </summary>
@@ -170,7 +171,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // First, look up in the database (user‐scoped if userId != null; global if userId == null)
+                // 1) Look up in the database (user-scoped if userId != null; global if userId == null)
                 var setting = await _dbContext.Settings
                     .Where(s => s.UserId == userId && s.Key == key)
                     .FirstOrDefaultAsync();
@@ -180,10 +181,10 @@ namespace SwAIvyn.Services
                     return setting.Value;
                 }
 
-                // Fallback to configuration under "AppSettings:<key>"
+                // 2) Fallback to configuration under "AppSettings:<key>"
                 var configValue = _configuration[$"AppSettings:{key}"];
-                return string.IsNullOrEmpty(configValue) 
-                    ? defaultValue 
+                return string.IsNullOrEmpty(configValue)
+                    ? defaultValue
                     : configValue;
             }
             catch (Exception ex)
@@ -198,7 +199,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // 1) Fetch all user‐scoped (or global) settings from the DB
+                // 1) Fetch all user-scoped (or global) settings from the DB
                 var dbSettings = await _dbContext.Settings
                     .Where(s => s.UserId == userId)
                     .ToDictionaryAsync(s => s.Key, s => s.Value);
@@ -209,7 +210,7 @@ namespace SwAIvyn.Services
                     .GetChildren()
                     .ToDictionary(x => x.Key, x => x.Value);
 
-                // 3) For any key in configuration that isn't in the DB, add it with its configured value
+                // 3) For any key in configuration not in DB, add it
                 foreach (var kv in appSettings)
                 {
                     if (!dbSettings.ContainsKey(kv.Key))
@@ -239,11 +240,10 @@ namespace SwAIvyn.Services
 
                 if (existing == null)
                 {
-                    // If no record exists yet (including global if userId == null), create a new row
                     var newSetting = new Settings
                     {
                         Id = Guid.NewGuid(),
-                        UserId = userId,             // null means “global”
+                        UserId = userId,   // null means “global”
                         Key = key,
                         Value = value,
                         LastModified = DateTime.UtcNow
@@ -273,7 +273,6 @@ namespace SwAIvyn.Services
             {
                 foreach (var kv in settings)
                 {
-                    // Reuse SetSettingAsync to avoid duplicate logic
                     await SetSettingAsync(userId, kv.Key, kv.Value);
                 }
                 return true;
@@ -288,7 +287,6 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public async Task<string> GetOllamaApiUrlAsync(Guid? userId)
         {
-            // Default if not in DB or config: "http://localhost:11434"
             return await GetSettingAsync(userId, OLLAMA_API_URL_KEY, "http://localhost:11434");
         }
 
@@ -325,7 +323,6 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
         {
-            // Default streaming = "true"
             var raw = await GetSettingAsync(userId, ENABLE_STREAMING_KEY, "true");
             return bool.TryParse(raw, out bool result) ? result : true;
         }
@@ -333,7 +330,6 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public async Task<string> GetNeo4jUriAsync(Guid? userId)
         {
-            // Default: "http://localhost:7474" (you can switch to "bolt://localhost" if that’s what your driver expects)
             return await GetSettingAsync(userId, NEO4J_URI_KEY, "http://localhost:7474");
         }
 
@@ -364,41 +360,52 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
+        public async Task<string> GetTtsApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, TTS_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetTtsVoiceAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, TTS_VOICE_KEY, "Rachel");
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> InitializeDefaultSettingsAsync(Guid userId)
         {
             try
             {
                 _logger.LogInfo($"Initializing default settings for user '{userId}'");
 
-                // Define all defaults in one dictionary
                 var defaultSettings = new Dictionary<string, string>
                 {
-                    { DEFAULT_LLM_ENGINE_KEY,   "ollama" },
-                    { DEFAULT_LLM_MODEL_KEY,    string.Empty },
-                    { OLLAMA_API_URL_KEY,       "http://localhost:11434" },
-                    { LM_STUDIO_API_URL_KEY,    "http://localhost:1234" },
-                    { OPENAI_API_URL_KEY,       "https://api.openai.com/v1" },
-                    { OPENAI_API_KEY_KEY,       string.Empty },
-                    { CLAUDE_API_URL_KEY,       "https://api.anthropic.com/v1" },
-                    { CLAUDE_API_KEY_KEY,       string.Empty },
-                    { NEO4J_URI_KEY,            "http://localhost:7474" },
-                    { NEO4J_BOLT_PORT_KEY,      "7687" },
-                    { NEO4J_HTTP_PORT_KEY,      "7474" },
-                    { ELEVENLABS_API_KEY_KEY,   string.Empty },
-                    { ELEVENLABS_VOICE_ID_KEY,  string.Empty },
-                    { ENABLE_STREAMING_KEY,     "true" }
+                    { DEFAULT_LLM_ENGINE_KEY,    "ollama" },
+                    { DEFAULT_LLM_MODEL_KEY,     string.Empty },
+                    { OLLAMA_API_URL_KEY,        "http://localhost:11434" },
+                    { LM_STUDIO_API_URL_KEY,     "http://localhost:1234" },
+                    { OPENAI_API_URL_KEY,        "https://api.openai.com/v1" },
+                    { OPENAI_API_KEY_KEY,        string.Empty },
+                    { CLAUDE_API_URL_KEY,        "https://api.anthropic.com/v1" },
+                    { CLAUDE_API_KEY_KEY,        string.Empty },
+                    { NEO4J_URI_KEY,             "http://localhost:7474" },
+                    { NEO4J_BOLT_PORT_KEY,       "7687" },
+                    { NEO4J_HTTP_PORT_KEY,       "7474" },
+                    { ELEVENLABS_API_KEY_KEY,    string.Empty },
+                    { ELEVENLABS_VOICE_ID_KEY,   string.Empty },
+                    { ENABLE_STREAMING_KEY,      "true" },
+                    { TTS_API_KEY,               string.Empty },
+                    { TTS_VOICE_KEY,             "Rachel" }
                 };
 
                 foreach (var kv in defaultSettings)
                 {
-                    // Only insert if it doesn’t already exist for this user
                     var exists = await _dbContext.Settings
                         .Where(s => s.UserId == userId && s.Key == kv.Key)
                         .AnyAsync();
 
                     if (!exists)
                     {
-                        // Reuse SetSettingAsync so LastModified is handled consistently
                         await SetSettingAsync(userId, kv.Key, kv.Value);
                     }
                 }
