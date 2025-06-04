@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "ManifestType": "Build",
+  "ManifestType": "Publish",
   "Endpoints": [
     {
       "Route": "assets/index-3EC480sP.5bngvt3iy4.js",
@@ -1341,7 +1341,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 03 Jun 2025 09:50:50 GMT"
+          "Value": "Wed, 04 Jun 2025 06:40:05 GMT"
         }
       ],
       "EndpointProperties": [
@@ -1378,7 +1378,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 03 Jun 2025 09:50:50 GMT"
+          "Value": "Wed, 04 Jun 2025 06:40:05 GMT"
         }
       ],
       "EndpointProperties": [
@@ -1833,7 +1833,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 03 Jun 2025 09:50:50 GMT"
+          "Value": "Wed, 04 Jun 2025 06:40:05 GMT"
         }
       ],
       "EndpointProperties": [
@@ -1870,7 +1870,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 03 Jun 2025 09:50:50 GMT"
+          "Value": "Wed, 04 Jun 2025 06:40:05 GMT"
         }
       ],
       "EndpointProperties": [
@@ -2489,7 +2489,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 03 Jun 2025 09:50:50 GMT"
+          "Value": "Wed, 04 Jun 2025 06:40:05 GMT"
         }
       ],
       "EndpointProperties": [
@@ -2526,7 +2526,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 03 Jun 2025 09:50:50 GMT"
+          "Value": "Wed, 04 Jun 2025 06:40:05 GMT"
         }
       ],
       "EndpointProperties": [

@@ -3,6 +3,7 @@
 # Build results
 [Bb]in/
 [Oo]bj/
+!backend/obj/
 [Dd]ist/
 [Bb]uild/
 [Rr]elease/
@@ -58,6 +59,7 @@ frontend/.env.production.local
 
 # Backend build output
 backend/wwwroot/
+!backend/wwwroot/
 backend/app-icon.ico
 
 # Database files
@@ -87,6 +89,9 @@ data/backups/*
 !data/backups/.gitkeep
 data/modules/*
 !data/modules/.gitkeep
+
+# Backend Data directory - ensure it's tracked
+!backend/Data/
 
 # Temporary files
 [Tt]emp/
