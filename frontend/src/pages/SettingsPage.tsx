@@ -387,6 +387,10 @@ const ModelSettings = () => {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
   const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
+  const [openAiApiUrl, setOpenAiApiUrl] = useState('https://api.openai.com');
+  const [openAiApiKey, setOpenAiApiKey] = useState('');
+  const [claudeApiUrl, setClaudeApiUrl] = useState('https://api.anthropic.com');
+  const [claudeApiKey, setClaudeApiKey] = useState('');
   const [enableStreaming, setEnableStreaming] = useState(true);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -447,6 +451,26 @@ const ModelSettings = () => {
           } else {
             // Use dummy data if API call fails
             setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi4:latest']);
+          }
+        } else if (selectedEngine === 'lmstudio') {
+          const modelsResponse = await fetch('/api/llm/lmstudio/models');
+          if (modelsResponse.ok) {
+            const data = await modelsResponse.json();
+            if (data.data && data.data.length > 0) {
+              setSelectedModel(data.data[0].id);
+            }
+          }
+        } else if (selectedEngine === 'openai') {
+          const modelsResponse = await fetch('/api/llm/openai/models');
+          if (modelsResponse.ok) {
+            const models = await modelsResponse.json();
+            if (models.length > 0) setSelectedModel(models[0]);
+          }
+        } else if (selectedEngine === 'claude') {
+          const modelsResponse = await fetch('/api/llm/claude/models');
+          if (modelsResponse.ok) {
+            const models = await modelsResponse.json();
+            if (models.length > 0) setSelectedModel(models[0]);
           }
         }
       } catch (error) {
@@ -514,6 +538,30 @@ const ModelSettings = () => {
         } catch (error) {
           console.error('Error getting Ollama models:', error);
         }
+      } else if (engineToSet === 'openai') {
+        try {
+          const resp = await fetch('/api/llm/openai/models');
+          if (resp.ok) {
+            const models = await resp.json();
+            if (models.length > 0) {
+              modelToSet = models[0];
+            }
+          }
+        } catch (error) {
+          console.error('Error getting OpenAI models:', error);
+        }
+      } else if (engineToSet === 'claude') {
+        try {
+          const resp = await fetch('/api/llm/claude/models');
+          if (resp.ok) {
+            const models = await resp.json();
+            if (models.length > 0) {
+              modelToSet = models[0];
+            }
+          }
+        } catch (error) {
+          console.error('Error getting Claude models:', error);
+        }
       }
 
       console.log('🔄 About to set engine to:', engineToSet);
@@ -550,12 +598,20 @@ const ModelSettings = () => {
             console.log('🔄 Connection settings loaded:', connectionSettings);
             setOllamaApiUrl(connectionSettings.ollamaApiUrl || 'http://localhost:11434');
             setLmStudioApiUrl(connectionSettings.lmStudioApiUrl || 'http://localhost:1234');
+            setOpenAiApiUrl(connectionSettings.openAiApiUrl || 'https://api.openai.com');
+            setOpenAiApiKey(connectionSettings.openAiApiKey || '');
+            setClaudeApiUrl(connectionSettings.claudeApiUrl || 'https://api.anthropic.com');
+            setClaudeApiKey(connectionSettings.claudeApiKey || '');
             setEnableStreaming(connectionSettings.enableStreaming !== false); // Default to true
           } else {
             console.warn('⚠️ Connection settings API call failed:', connectionResponse.status);
             // Use default values if API call fails
             setOllamaApiUrl('http://localhost:11434');
             setLmStudioApiUrl('http://localhost:1234');
+            setOpenAiApiUrl('https://api.openai.com');
+            setOpenAiApiKey('');
+            setClaudeApiUrl('https://api.anthropic.com');
+            setClaudeApiKey('');
             setEnableStreaming(true);
           }
         }
@@ -564,6 +620,10 @@ const ModelSettings = () => {
         // Use default values if API call fails
         setOllamaApiUrl('http://localhost:11434');
         setLmStudioApiUrl('http://localhost:1234');
+        setOpenAiApiUrl('https://api.openai.com');
+        setOpenAiApiKey('');
+        setClaudeApiUrl('https://api.anthropic.com');
+        setClaudeApiKey('');
         setEnableStreaming(true);
       }
 
@@ -619,6 +679,10 @@ const ModelSettings = () => {
             UserId: user.id, // Pass the actual user ID (capital U to match backend)
             OllamaApiUrl: ollamaApiUrl || '', // Capital O and A to match backend, ensure not null
             LmStudioApiUrl: lmStudioApiUrl || '', // Capital L, S, A, U to match backend, ensure not null
+            OpenAiApiUrl: openAiApiUrl || '',
+            OpenAiApiKey: openAiApiKey || '',
+            ClaudeApiUrl: claudeApiUrl || '',
+            ClaudeApiKey: claudeApiKey || '',
             Neo4jUri: '', // Include Neo4jUri as empty string (required by backend model)
             EnableStreaming: enableStreaming // Capital E and S to match backend
           })
@@ -695,6 +759,22 @@ const ModelSettings = () => {
                       setSelectedModel('');
                     }
                   }
+                } else if (newEngine === 'openai') {
+                  const resp = await fetch('/api/llm/openai/models');
+                  if (resp.ok) {
+                    const models = await resp.json();
+                    if (models.length > 0) setSelectedModel(models[0]);
+                  } else {
+                    setSelectedModel('');
+                  }
+                } else if (newEngine === 'claude') {
+                  const resp = await fetch('/api/llm/claude/models');
+                  if (resp.ok) {
+                    const models = await resp.json();
+                    if (models.length > 0) setSelectedModel(models[0]);
+                  } else {
+                    setSelectedModel('');
+                  }
                 }
               } catch (error) {
                 console.error('Error auto-detecting model for engine:', newEngine, error);
@@ -704,6 +784,8 @@ const ModelSettings = () => {
           >
             <option value="ollama">Ollama</option>
             <option value="lmstudio">LM Studio</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
           </select>
         </div>
 
@@ -819,6 +901,50 @@ const ModelSettings = () => {
                 Test Connection
               </button>
             </div>
+          </div>
+        )}
+
+        {selectedEngine === 'openai' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI API URL</label>
+            <input
+              type="text"
+              placeholder="https://api.openai.com"
+              value={openAiApiUrl}
+              onChange={e => setOpenAiApiUrl(e.target.value)}
+              className="w-full border rounded px-3 py-2 mb-2"
+              disabled={loading}
+            />
+            <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI API Key</label>
+            <input
+              type="password"
+              value={openAiApiKey}
+              onChange={e => setOpenAiApiKey(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              disabled={loading}
+            />
+          </div>
+        )}
+
+        {selectedEngine === 'claude' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Claude API URL</label>
+            <input
+              type="text"
+              placeholder="https://api.anthropic.com"
+              value={claudeApiUrl}
+              onChange={e => setClaudeApiUrl(e.target.value)}
+              className="w-full border rounded px-3 py-2 mb-2"
+              disabled={loading}
+            />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Claude API Key</label>
+            <input
+              type="password"
+              value={claudeApiKey}
+              onChange={e => setClaudeApiKey(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              disabled={loading}
+            />
           </div>
         )}
 
