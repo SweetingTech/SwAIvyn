@@ -126,6 +126,8 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string ELEVENLABS_API_KEY = "ElevenLabsApiKey";
+        private const string ELEVENLABS_VOICE_ID = "ElevenLabsVoiceId";
 
         /// <summary>
         /// Initializes a new instance of the SettingsService
@@ -322,6 +324,8 @@ namespace SwAIvyn.Services
                     { NEO4J_URI_KEY, "http://localhost:7474" },
                     { NEO4J_BOLT_PORT_KEY, "7687" },
                     { NEO4J_HTTP_PORT_KEY, "7474" },
+                    { ELEVENLABS_API_KEY, "" },
+                    { ELEVENLABS_VOICE_ID, "" },
                     { "EnableStreaming", "true" },
                     { "Theme", "dark" },
                     { "Language", "en" },

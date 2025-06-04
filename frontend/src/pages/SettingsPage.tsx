@@ -23,14 +23,66 @@ const tabs = [
   { id: 'network', label: 'Network', icon: <Network size={16} /> }
 ];
 
+import ttsService from '../services/ttsService';
+
 const VoiceSettings = () => {
+  const [apiKey, setApiKey] = useState('');
+  const [voiceId, setVoiceId] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await ttsService.getSettings();
+        setApiKey(data.apiKey || '');
+        setVoiceId(data.voiceId || '');
+      } catch (e) {
+        console.error('Failed to load TTS settings', e);
+      }
+    };
+    load();
+  }, []);
+
+  const save = async () => {
+    try {
+      await ttsService.updateSettings(apiKey, voiceId);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (e) {
+      console.error('Failed to save TTS settings', e);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-medium">Voice Settings</h2>
       <p className="text-sm text-gray-600 mb-4">
         Configure voice settings for your AI assistant.
       </p>
-      {/* Add voice settings content here */}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs API Key</label>
+        <input
+          type="text"
+          value={apiKey}
+          onChange={e => setApiKey(e.target.value)}
+          className="w-full border rounded px-3 py-2"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Voice ID</label>
+        <input
+          type="text"
+          value={voiceId}
+          onChange={e => setVoiceId(e.target.value)}
+          className="w-full border rounded px-3 py-2"
+        />
+      </div>
+
+      <button className="btn btn-primary" onClick={save}>Save</button>
+      {saveSuccess && (
+        <div className="text-green-600 text-sm">Settings saved</div>
+      )}
     </div>
   );
 };

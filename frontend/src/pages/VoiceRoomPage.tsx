@@ -3,10 +3,22 @@ import { motion } from 'framer-motion';
 import { Mic, Volume2, MessageSquare, Camera, Paperclip } from 'lucide-react';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
+import ttsService from '../services/ttsService';
 
 const VoiceRoomPage = () => {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+
+  const playSample = async () => {
+    try {
+      const blob = await ttsService.synthesize('Hello, how can I help you?');
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    } catch (e) {
+      console.error('Failed to play audio', e);
+    }
+  };
   
   const toggleListening = () => {
     setIsListening(!isListening);
@@ -50,6 +62,7 @@ const VoiceRoomPage = () => {
               
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
+                onClick={playSample}
               >
                 <Volume2 size={24} />
               </button>

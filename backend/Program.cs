@@ -299,6 +299,7 @@ builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
 builder.Services.AddScoped<Neo4jVectorStore>();        // brain memories (scoped because it depends on INeo4jService)
 builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
+builder.Services.AddHttpClient();
 
 // Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
 builder.Services.AddScoped<IVectorRouter, VectorRouter>();
