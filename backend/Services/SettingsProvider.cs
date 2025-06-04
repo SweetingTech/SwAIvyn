@@ -29,7 +29,7 @@ namespace SwAIvyn.Services
         string GetLmStudioApiUrl();
 
         /// <summary>
-        /// Gets the OpenAI API base URL from configuration.
+        /// Gets the OpenAI API URL from configuration.
         /// Default: https://api.openai.com/v1
         /// </summary>
         string GetOpenAiApiUrl();
@@ -52,8 +52,7 @@ namespace SwAIvyn.Services
 
         /// <summary>
         /// Gets the Neo4j Bolt URI (host + port) or just the URI string if you prefer.
-        /// Default host: bolt://localhost
-        /// Default port: 7687
+        /// Default: bolt://localhost
         /// </summary>
         string GetNeo4jUri();
 
@@ -91,7 +90,6 @@ namespace SwAIvyn.Services
         // --------------------------
         // Configuration keys (AppSettings)
         // --------------------------
-
         private const string OLLAMA_API_URL_KEY       = "OllamaApiUrl";
         private const string LM_STUDIO_API_URL_KEY    = "LmStudioApiUrl";
 
@@ -126,7 +124,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // We expect user to keep all keys under "AppSettings" in appsettings.json (or whatever source).
+                // All keys are expected under "AppSettings:<key>"
                 var configValue = _configuration[$"AppSettings:{key}"];
                 return string.IsNullOrEmpty(configValue) ? defaultValue : configValue;
             }
@@ -140,31 +138,35 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public string GetOllamaApiUrl()
         {
-            // Fallback to localhost port 11434 if nothing is configured
+            // Fallback: http://localhost:11434
             return GetSetting(OLLAMA_API_URL_KEY, "http://localhost:11434");
         }
 
         /// <inheritdoc/>
         public string GetLmStudioApiUrl()
         {
+            // Fallback: http://localhost:1234
             return GetSetting(LM_STUDIO_API_URL_KEY, "http://localhost:1234");
         }
 
         /// <inheritdoc/>
         public string GetOpenAiApiUrl()
         {
+            // Fallback: https://api.openai.com/v1
             return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com/v1");
         }
 
         /// <inheritdoc/>
         public string GetOpenAiApiKey()
         {
+            // No default—must be provided via config or secrets
             return GetSetting(OPENAI_API_KEY_KEY, string.Empty);
         }
 
         /// <inheritdoc/>
         public string GetClaudeApiUrl()
         {
+            // Fallback: https://api.anthropic.com/v1
             return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
         }
 
@@ -175,4 +177,36 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
-        public string
+        public string GetNeo4jUri()
+        {
+            // Fallback: bolt://localhost
+            return GetSetting(NEO4J_URI_KEY, "bolt://localhost");
+        }
+
+        /// <inheritdoc/>
+        public int GetNeo4jBoltPort()
+        {
+            var portStr = GetSetting(NEO4J_BOLT_PORT_KEY, "7687");
+            return int.TryParse(portStr, out int port) ? port : 7687;
+        }
+
+        /// <inheritdoc/>
+        public int GetNeo4jHttpPort()
+        {
+            var portStr = GetSetting(NEO4J_HTTP_PORT_KEY, "7474");
+            return int.TryParse(portStr, out int port) ? port : 7474;
+        }
+
+        /// <inheritdoc/>
+        public string GetElevenLabsApiKey()
+        {
+            return GetSetting(ELEVENLABS_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public string GetElevenLabsVoiceId()
+        {
+            return GetSetting(ELEVENLABS_VOICE_ID_KEY, string.Empty);
+        }
+    }
+}
