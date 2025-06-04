@@ -1,12 +1,31 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, Volume2, MessageSquare, Camera, Paperclip } from 'lucide-react';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
+import ttsService from '../services/ttsService';
+
+interface VoiceConfig {
+  apiKey: string;
+  voice: string;
+}
 
 const VoiceRoomPage = () => {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({ apiKey: '', voice: 'Rachel' });
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const cfg = await ttsService.getSettings();
+        setVoiceConfig(cfg);
+      } catch (err) {
+        console.error('Failed to load TTS settings', err);
+      }
+    };
+    load();
+  }, []);
   
   const toggleListening = () => {
     setIsListening(!isListening);
@@ -14,6 +33,22 @@ const VoiceRoomPage = () => {
   
   const toggleMiniChat = () => {
     setIsMiniChatOpen(!isMiniChatOpen);
+  };
+
+  const playSample = async () => {
+    try {
+      const response = await fetch('/api/tts/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Hello there', voice: voiceConfig.voice, apiKey: voiceConfig.apiKey })
+      });
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    } catch (err) {
+      console.error('Failed to play sample audio', err);
+    }
   };
 
   return (
@@ -50,6 +85,7 @@ const VoiceRoomPage = () => {
               
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
+                onClick={() => playSample()}
               >
                 <Volume2 size={24} />
               </button>

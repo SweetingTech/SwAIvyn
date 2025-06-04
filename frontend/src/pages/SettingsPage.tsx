@@ -23,14 +23,89 @@ const tabs = [
   { id: 'network', label: 'Network', icon: <Network size={16} /> }
 ];
 
+import ttsService from '../services/ttsService';
+
 const VoiceSettings = () => {
+  const { user } = useInitialization();
+  const [apiKey, setApiKey] = useState('');
+  const [voice, setVoice] = useState('Rachel');
+  const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const voices = ['Rachel', 'Domi', 'Bella', 'Antoni'];
+
+  useEffect(() => {
+    const load = async () => {
+      if (!user?.id) return;
+      setLoading(true);
+      try {
+        const result = await ttsService.getSettings(user.id);
+        setApiKey(result.apiKey || '');
+        setVoice(result.voice || 'Rachel');
+      } catch (err) {
+        console.error('Failed to load voice settings', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [user?.id]);
+
+  const save = async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      await ttsService.updateSettings(apiKey, voice, user.id);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      console.error('Failed to save voice settings', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-medium">Voice Settings</h2>
       <p className="text-sm text-gray-600 mb-4">
         Configure voice settings for your AI assistant.
       </p>
-      {/* Add voice settings content here */}
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            ElevenLabs API Key
+          </label>
+          <input
+            type="password"
+            className="w-full border rounded px-3 py-2"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            disabled={loading}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Voice</label>
+          <select
+            className="w-full border rounded px-3 py-2"
+            value={voice}
+            onChange={e => setVoice(e.target.value)}
+            disabled={loading}
+          >
+            {voices.map(v => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="pt-4 flex justify-end">
+        <button className="btn btn-primary" onClick={save} disabled={loading}>
+          {loading ? 'Saving...' : 'Save Changes'}
+        </button>
+        {saveSuccess && (
+          <div className="text-green-600 text-sm ml-4">Saved!</div>
+        )}
+      </div>
     </div>
   );
 };

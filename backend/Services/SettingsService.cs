@@ -109,6 +109,16 @@ namespace SwAIvyn.Services
         /// <param name="userId">User ID (null for global settings)</param>
         /// <returns>Default LLM model</returns>
         Task<string> GetDefaultLlmModelAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the ElevenLabs API key for TTS
+        /// </summary>
+        Task<string> GetTtsApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the selected ElevenLabs voice
+        /// </summary>
+        Task<string> GetTtsVoiceAsync(Guid? userId);
     }
 
     /// <summary>
@@ -126,6 +136,8 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string TTS_API_KEY = "TtsElevenLabsApiKey";
+        private const string TTS_VOICE_KEY = "TtsElevenLabsVoice";
 
         /// <summary>
         /// Initializes a new instance of the SettingsService
@@ -307,6 +319,18 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
+        public async Task<string> GetTtsApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, TTS_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetTtsVoiceAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, TTS_VOICE_KEY, "Rachel");
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> InitializeDefaultSettingsAsync(Guid userId)
         {
             try
@@ -326,7 +350,9 @@ namespace SwAIvyn.Services
                     { "Theme", "dark" },
                     { "Language", "en" },
                     { "AutoSave", "true" },
-                    { "ShowWelcomeMessage", "true" }
+                    { "ShowWelcomeMessage", "true" },
+                    { TTS_API_KEY, "" },
+                    { TTS_VOICE_KEY, "Rachel" }
                 };
 
                 foreach (var setting in defaultSettings)
