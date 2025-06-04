@@ -1,47 +1,55 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { 
-  Bot, 
-  Plus, 
-  Settings, 
-  Play, 
-  Pause, 
-  Trash2, 
+import { useInitialization } from '../contexts/InitializationContext';
+import {
+  Bot,
+  Plus,
+  Settings,
+  Play,
+  Pause,
+  Trash2,
   Edit3,
   Activity,
   Clock,
   Zap,
   Brain,
   MessageSquare,
-  Search
+  Search,
 } from 'lucide-react';
 
 interface Agent {
   id: string;
+  userId: string;
   name: string;
   description: string;
-  type: 'task' | 'monitoring' | 'analysis' | 'communication';
-  status: 'active' | 'inactive' | 'error';
-  lastRun: string;
+  type: string;
+  status: string;
+  lastRun: string | null;
   tasksCompleted: number;
   enabled: boolean;
 }
 
 const AgentsPage = () => {
+  const { user } = useInitialization();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Fetch agents whenever the user becomes available
   useEffect(() => {
-    loadAgents();
-  }, []);
+    if (user?.id) {
+      loadAgents();
+    }
+  }, [user?.id]);
 
   const loadAgents = async () => {
+    if (!user?.id) return;
+    setLoading(true);
+
     try {
-      setLoading(true);
-      const response = await fetch('/api/agents');
-      if (response.ok) {
-        const data = await response.json();
-        setAgents(data || []);
+      const resp = await fetch(`/api/agents?userId=${user.id}`);
+      if (resp.ok) {
+        const data: Agent[] = await resp.json();
+        setAgents(data);
       } else {
         setAgents([]);
       }
@@ -53,31 +61,28 @@ const AgentsPage = () => {
     }
   };
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
+  const startAgent = async (id: string) => {
+    await fetch(`/api/agents/${id}/start`, { method: 'POST' });
+    loadAgents();
+  };
 
-  const toggleAgent = async (agent: Agent) => {
-    try {
-      const action = agent.enabled ? 'stop' : 'start';
-      await fetch(`/api/agents/${agent.id}/${action}`, { method: 'POST' });
-      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, enabled: !a.enabled, status: a.enabled ? 'inactive' : 'active' } : a));
-    } catch (err) {
-      console.error('Failed to toggle agent', err);
-    }
+  const stopAgent = async (id: string) => {
+    await fetch(`/api/agents/${id}/stop`, { method: 'POST' });
+    loadAgents();
   };
 
   const deleteAgent = async (id: string) => {
-    try {
-      await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-      setAgents(prev => prev.filter(a => a.id !== id));
-    } catch (err) {
-      console.error('Failed to delete agent', err);
-    }
+    await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+    setAgents((prev) => prev.filter((a) => a.id !== id));
   };
 
-  const filteredAgents = agents.filter(agent => {
-    const matchesSearch = agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         agent.description.toLowerCase().includes(searchTerm.toLowerCase());
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState<string>('all');
+
+  const filteredAgents = agents.filter((agent) => {
+    const matchesSearch =
+      agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      agent.description.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = filterType === 'all' || agent.type === filterType;
     return matchesSearch && matchesType;
   });
@@ -147,7 +152,7 @@ const AgentsPage = () => {
           </div>
         </div>
 
-        {/* Filters and Search */}
+        {/* Filters & Search */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <div className="flex-1">
@@ -185,83 +190,81 @@ const AgentsPage = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
             </div>
           )}
-          {!loading && filteredAgents.map((agent) => (
-            <div key={agent.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              {/* Agent Header */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className={`p-2 rounded-lg ${getTypeColor(agent.type)}`}>
-                    {getTypeIcon(agent.type)}
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">{agent.name}</h3>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(agent.status)}`}>
-                        {agent.status}
-                      </span>
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(agent.type)}`}>
-                        {agent.type}
-                      </span>
+
+          {!loading &&
+            filteredAgents.map((agent) => (
+              <div key={agent.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className={`p-2 rounded-lg ${getTypeColor(agent.type)}`}>{getTypeIcon(agent.type)}</div>
+                    <div>
+                      <h3 className="font-medium text-gray-900">{agent.name}</h3>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(agent.status)}`}>
+                          {agent.status}
+                        </span>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(agent.type)}`}>
+                          {agent.type}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center space-x-1">
+                    <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
+                      <Edit3 size={14} />
+                    </button>
+                    <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
+                      <Settings size={14} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center space-x-1">
-                  <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
-                    <Edit3 size={14} />
-                  </button>
-                  <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
-                    <Settings size={14} />
-                  </button>
+
+                {/* Description */}
+                <p className="text-sm text-gray-600 mb-4">{agent.description}</p>
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <p className="text-xs text-gray-500">Last Run</p>
+                    <p className="text-sm font-medium text-gray-900">{agent.lastRun || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Tasks Completed</p>
+                    <p className="text-sm font-medium text-gray-900">{agent.tasksCompleted}</p>
+                  </div>
+                </div>
+
+                {/* Controls */}
+                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => (agent.enabled ? stopAgent(agent.id) : startAgent(agent.id))}
+                      className={`p-2 rounded-md ${
+                        agent.enabled
+                          ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                          : 'text-gray-600 bg-gray-50 hover:bg-gray-100'
+                      }`}
+                      title={agent.enabled ? 'Pause Agent' : 'Start Agent'}
+                    >
+                      {agent.enabled ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <button
+                      onClick={() => deleteAgent(agent.id)}
+                      className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
+                      title="Delete Agent"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">View Details</button>
                 </div>
               </div>
-
-              {/* Agent Description */}
-              <p className="text-sm text-gray-600 mb-4">{agent.description}</p>
-
-              {/* Agent Stats */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <p className="text-xs text-gray-500">Last Run</p>
-                  <p className="text-sm font-medium text-gray-900">{agent.lastRun}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Tasks Completed</p>
-                  <p className="text-sm font-medium text-gray-900">{agent.tasksCompleted}</p>
-                </div>
-              </div>
-
-              {/* Agent Controls */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => toggleAgent(agent)}
-                    className={`p-2 rounded-md ${
-                      agent.enabled
-                        ? 'text-green-600 bg-green-50 hover:bg-green-100'
-                        : 'text-gray-600 bg-gray-50 hover:bg-gray-100'
-                    }`}
-                    title={agent.enabled ? 'Pause Agent' : 'Start Agent'}
-                  >
-                    {agent.enabled ? <Pause size={16} /> : <Play size={16} />}
-                  </button>
-                  <button
-                    onClick={() => deleteAgent(agent.id)}
-                    className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
-                    title="Delete Agent"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-                <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">
-                  View Details
-                </button>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
 
         {/* Empty State */}
-        {filteredAgents.length === 0 && (
+        {!loading && filteredAgents.length === 0 && (
           <div className="text-center py-12">
             <Bot size={48} className="mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No agents found</h3>
@@ -284,8 +287,8 @@ const AgentsPage = () => {
             <div>
               <h3 className="text-lg font-medium text-blue-900">Coming Soon</h3>
               <p className="text-blue-700">
-                Native agent functionality is currently in development. This page shows a preview of the planned features.
-                Agents will be able to perform automated tasks, monitor system status, and enhance your AI experience.
+                Native agent functionality is currently in development. This page shows a preview of the planned features. Agents will
+                be able to perform automated tasks, monitor system status, and enhance your AI experience.
               </p>
             </div>
           </div>

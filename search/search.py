@@ -463,16 +463,18 @@ class HybridSearchEngine:
                 is_shared = record.get("isShared", "False") or "False"
 
                 # Calculate score based on entity matches
-                entity_matches = sum(1 for entity in entities if entity.lower() in content.lower())
+                entity_matches = sum(
+                    1 for entity in entities if entity.lower() in content.lower()
+                )
                 base_score = 0.8 + (entity_matches * 0.1)  # Higher base score for entity matches
-                base_score = min(1.0, base_score)
+                score = min(1.0, base_score)
 
                 results.append(
                     SearchResult(
                         id=memory_id,
                         title=f"Memory: {category} (Entity Match)",
                         content=content[:500] + "..." if len(content) > 500 else content,
-                        score=base_score,
+                        score=score,
                         source="neo4j",
                         metadata={
                             "entity_type": "memory",
@@ -595,7 +597,7 @@ class HybridSearchEngine:
                         id=memory_id,
                         title=f"Memory: {category}",
                         content=content[:500] + "..." if len(content) > 500 else content,
-                        score=base_score,
+                        score=score,
                         source="neo4j",
                         metadata={
                             "entity_type": "memory",

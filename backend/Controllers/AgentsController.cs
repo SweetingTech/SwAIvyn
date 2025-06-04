@@ -1,8 +1,9 @@
+using System;
+using System.ComponentModel.DataAnnotations;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using SwAIvyn.Data.Entities;
 using SwAIvyn.Services;
-using System;
-using System.Threading.Tasks;
 
 namespace SwAIvyn.Controllers
 {
@@ -18,19 +19,19 @@ namespace SwAIvyn.Controllers
 
         public AgentsController(IAgentService agentService, ISimpleLoggerService logger)
         {
-            _agentService = agentService;
-            _logger = logger;
+            _agentService = agentService 
+                ?? throw new ArgumentNullException(nameof(agentService));
+            _logger = logger 
+                ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        private static Guid DefaultUserId => Guid.Parse("00000000-0000-0000-0000-000000000001");
-
         /// <summary>
-        /// Gets all agents for the default user.
+        /// Gets all agents for a user.
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAgents()
+        public async Task<IActionResult> GetAgents([FromQuery][Required] Guid userId)
         {
-            var agents = await _agentService.GetAgentsAsync(DefaultUserId);
+            var agents = await _agentService.GetAgentsAsync(userId);
             return Ok(agents);
         }
 
@@ -38,60 +39,128 @@ namespace SwAIvyn.Controllers
         /// Creates a new agent.
         /// </summary>
         [HttpPost]
-        public async Task<IActionResult> CreateAgent([FromBody] Agent agent)
+        public async Task<IActionResult> CreateAgent([FromBody] CreateAgentRequest request)
         {
-            agent.UserId = DefaultUserId;
-            var created = await _agentService.CreateAgentAsync(agent);
-            return Ok(created);
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                var agent = await _agentService.CreateAgentAsync(
+                    request.UserId,
+                    request.Name,
+                    request.Description,
+                    request.Type
+                );
+                return Ok(agent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating agent");
+                return StatusCode(500, "Failed to create agent");
+            }
         }
 
         /// <summary>
         /// Updates an existing agent.
         /// </summary>
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateAgent(Guid id, [FromBody] Agent agent)
+        [HttpPut("{id:guid}")]
+        public async Task<IActionResult> UpdateAgent(Guid id, [FromBody] UpdateAgentRequest request)
         {
-            agent.Id = id;
-            var updated = await _agentService.UpdateAgentAsync(agent);
-            if (updated == null)
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var agent = new Agent
             {
+                Id = id,
+                UserId = request.UserId,
+                Name = request.Name,
+                Description = request.Description,
+                Type = request.Type,
+                Status = request.Status,
+                LastRun = request.LastRun,
+                TasksCompleted = request.TasksCompleted,
+                Enabled = request.Enabled
+            };
+
+            var success = await _agentService.UpdateAgentAsync(agent);
+            if (!success)
                 return NotFound();
-            }
-            return Ok(updated);
+
+            return Ok(agent);
         }
 
         /// <summary>
         /// Deletes an agent.
         /// </summary>
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:guid}")]
         public async Task<IActionResult> DeleteAgent(Guid id)
         {
             var success = await _agentService.DeleteAgentAsync(id);
             if (!success)
-            {
                 return NotFound();
-            }
+
             return NoContent();
         }
 
         /// <summary>
-        /// Starts the specified agent.
+        /// Starts an agent.
         /// </summary>
-        [HttpPost("{id}/start")]
+        [HttpPost("{id:guid}/start")]
         public async Task<IActionResult> StartAgent(Guid id)
         {
             var success = await _agentService.StartAgentAsync(id);
-            return success ? Ok() : StatusCode(500);
+            if (!success)
+                return NotFound();
+
+            return Ok();
         }
 
         /// <summary>
-        /// Stops the specified agent.
+        /// Stops an agent.
         /// </summary>
-        [HttpPost("{id}/stop")]
+        [HttpPost("{id:guid}/stop")]
         public async Task<IActionResult> StopAgent(Guid id)
         {
             var success = await _agentService.StopAgentAsync(id);
-            return success ? Ok() : StatusCode(500);
+            if (!success)
+                return NotFound();
+
+            return Ok();
         }
+    }
+
+    /// <summary>
+    /// Request body for creating an agent.
+    /// </summary>
+    public class CreateAgentRequest
+    {
+        [Required]
+        public Guid UserId { get; set; }
+
+        [Required]
+        public string Name { get; set; }
+
+        public string Description { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Request body for updating an agent.
+    /// </summary>
+    public class UpdateAgentRequest
+    {
+        [Required]
+        public Guid UserId { get; set; }
+
+        [Required]
+        public string Name { get; set; }
+
+        public string Description { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Status { get; set; } = "stopped";
+        public DateTime? LastRun { get; set; }
+        public int TasksCompleted { get; set; }
+        public bool Enabled { get; set; } = true;
     }
 }

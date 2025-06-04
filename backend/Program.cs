@@ -279,6 +279,7 @@ builder.Services.AddHostedService<SearchServiceHostedService>();
 // Add conversation and folder services
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IFolderService, FolderService>();
+builder.Services.AddScoped<IAgentService, AgentService>();
 
 // Register the simple logger service first (no dependencies)
 builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
@@ -299,6 +300,7 @@ builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
 builder.Services.AddScoped<Neo4jVectorStore>();        // brain memories (scoped because it depends on INeo4jService)
 builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
+builder.Services.AddHttpClient();
 
 // Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
 builder.Services.AddScoped<IVectorRouter, VectorRouter>();
@@ -308,6 +310,7 @@ builder.Services.AddScoped<IBrainService, BrainService>();
 
 // Register HybridSearchService for calling search.py API
 builder.Services.AddHttpClient<IHybridSearchService, HybridSearchService>();
+builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
 
 // Add Neo4j and BrainGraph services
 builder.Services.AddScoped<INeo4jService, Neo4jService>();

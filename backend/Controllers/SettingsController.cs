@@ -141,6 +141,10 @@ namespace SwAIvyn.Controllers
                 {
                     OllamaApiUrl = await _settingsService.GetOllamaApiUrlAsync(userId),
                     LmStudioApiUrl = await _settingsService.GetLmStudioApiUrlAsync(userId),
+                    OpenAiApiUrl = await _settingsService.GetOpenAiApiUrlAsync(userId),
+                    OpenAiApiKey = await _settingsService.GetOpenAiApiKeyAsync(userId),
+                    ClaudeApiUrl = await _settingsService.GetClaudeApiUrlAsync(userId),
+                    ClaudeApiKey = await _settingsService.GetClaudeApiKeyAsync(userId),
                     Neo4jUri = await _settingsService.GetNeo4jUriAsync(userId),
                     Neo4jBoltPort = await _settingsService.GetNeo4jBoltPortAsync(userId),
                     Neo4jHttpPort = await _settingsService.GetNeo4jHttpPortAsync(userId),
@@ -175,6 +179,26 @@ namespace SwAIvyn.Controllers
                 if (!string.IsNullOrEmpty(request.LmStudioApiUrl))
                 {
                     settings["LmStudioApiUrl"] = request.LmStudioApiUrl;
+                }
+
+                if (!string.IsNullOrEmpty(request.OpenAiApiUrl))
+                {
+                    settings["OpenAiApiUrl"] = request.OpenAiApiUrl;
+                }
+
+                if (!string.IsNullOrEmpty(request.OpenAiApiKey))
+                {
+                    settings["OpenAiApiKey"] = request.OpenAiApiKey;
+                }
+
+                if (!string.IsNullOrEmpty(request.ClaudeApiUrl))
+                {
+                    settings["ClaudeApiUrl"] = request.ClaudeApiUrl;
+                }
+
+                if (!string.IsNullOrEmpty(request.ClaudeApiKey))
+                {
+                    settings["ClaudeApiKey"] = request.ClaudeApiKey;
                 }
 
                 if (!string.IsNullOrEmpty(request.Neo4jUri))
@@ -309,6 +333,30 @@ namespace SwAIvyn.Controllers
         /// </summary>
         public string LmStudioApiUrl { get; set; }
 
+        public string OpenAiApiUrl { get; set; }
+
+        public string OpenAiApiKey { get; set; }
+
+        public string ClaudeApiUrl { get; set; }
+
+        public string ClaudeApiKey { get; set; }
+
+        public string OpenAiApiUrl { get; set; }
+
+        public string OpenAiApiKey { get; set; }
+
+        public string ClaudeApiUrl { get; set; }
+
+        public string ClaudeApiKey { get; set; }
+
+        public string OpenAiApiUrl { get; set; }
+
+        public string OpenAiApiKey { get; set; }
+
+        public string ClaudeApiUrl { get; set; }
+
+        public string ClaudeApiKey { get; set; }
+
         /// <summary>
         /// Neo4j URI
         /// </summary>
@@ -349,6 +397,13 @@ namespace SwAIvyn.Controllers
         /// LM Studio API URL
         /// </summary>
         public string LmStudioApiUrl { get; set; }
+        public string OpenAiApiUrl { get; set; }
+
+        public string OpenAiApiKey { get; set; }
+
+        public string ClaudeApiUrl { get; set; }
+
+        public string ClaudeApiKey { get; set; }
 
         /// <summary>
         /// Neo4j URI

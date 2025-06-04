@@ -309,7 +309,7 @@ These files override the settings in the base `appsettings.json` file.
 
 1. **Missing .NET SDK**:
    - Error: "The term 'dotnet' is not recognized..."
-   - Solution: Install .NET 7 SDK
+   - Solution: Install .NET 8 SDK
 
 2. **Missing Node.js**:
    - Error: "The term 'npm' is not recognized..."

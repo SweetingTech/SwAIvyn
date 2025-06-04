@@ -8,7 +8,7 @@
 
 ### Backend Setup
 
-* ✅ Create .NET 9 project structure
+* ✅ Create .NET 8 project structure
 * ✅ Setup ASP.NET Core hosting
 * ✅ Configure SQLite with EF Core (WAL mode)
 * ✅ Implement basic user authentication

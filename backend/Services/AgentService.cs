@@ -1,55 +1,55 @@
-using Microsoft.EntityFrameworkCore;
-using SwAIvyn.Data;
-using SwAIvyn.Data.Entities;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using SwAIvyn.Data;
+using SwAIvyn.Data.Entities;
 
 namespace SwAIvyn.Services
 {
     /// <summary>
-    /// Interface for managing agents.
+    /// Interface for managing background agents.
     /// </summary>
     public interface IAgentService
     {
         /// <summary>
-        /// Gets all agents for a user.
+        /// Retrieves all agents for the given user.
         /// </summary>
-        Task<List<Agent>> GetAgentsAsync(Guid? userId = null);
+        Task<List<Agent>> GetAgentsAsync(Guid userId);
 
         /// <summary>
-        /// Gets an agent by ID.
+        /// Retrieves a single agent by its ID.
         /// </summary>
-        Task<Agent?> GetAgentAsync(Guid id);
+        Task<Agent?> GetAgentAsync(Guid agentId);
 
         /// <summary>
-        /// Creates a new agent.
+        /// Creates a new agent for the specified user.
         /// </summary>
-        Task<Agent> CreateAgentAsync(Agent agent);
+        Task<Agent> CreateAgentAsync(Guid userId, string name, string description, string type);
 
         /// <summary>
-        /// Updates an existing agent.
+        /// Updates an existing agent. Returns false if not found.
         /// </summary>
-        Task<Agent?> UpdateAgentAsync(Agent agent);
+        Task<bool> UpdateAgentAsync(Agent agent);
 
         /// <summary>
-        /// Deletes an agent by ID.
+        /// Deletes an agent by its ID. Returns false if not found.
         /// </summary>
-        Task<bool> DeleteAgentAsync(Guid id);
+        Task<bool> DeleteAgentAsync(Guid agentId);
 
         /// <summary>
-        /// Starts an agent (stub).
+        /// Starts an agent (marks it enabled and sets status to "running").
         /// </summary>
-        Task<bool> StartAgentAsync(Guid id);
+        Task<bool> StartAgentAsync(Guid agentId);
 
         /// <summary>
-        /// Stops an agent (stub).
+        /// Stops an agent (marks it disabled and sets status to "stopped").
         /// </summary>
-        Task<bool> StopAgentAsync(Guid id);
+        Task<bool> StopAgentAsync(Guid agentId);
     }
 
     /// <summary>
-    /// Implementation of agent management service.
+    /// Service implementation for agent management.
     /// </summary>
     public class AgentService : IAgentService
     {
@@ -63,80 +63,100 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
-        public async Task<List<Agent>> GetAgentsAsync(Guid? userId = null)
+        public async Task<List<Agent>> GetAgentsAsync(Guid userId)
         {
-            var query = _dbContext.Agents.AsQueryable();
-            if (userId.HasValue)
+            return await _dbContext.Agents
+                .AsNoTracking()
+                .Where(a => a.UserId == userId)
+                .OrderBy(a => a.Name)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc/>
+        public async Task<Agent?> GetAgentAsync(Guid agentId)
+        {
+            return await _dbContext.Agents.FindAsync(agentId);
+        }
+
+        /// <inheritdoc/>
+        public async Task<Agent> CreateAgentAsync(Guid userId, string name, string description, string type)
+        {
+            var agent = new Agent
             {
-                query = query.Where(a => a.UserId == userId.Value);
-            }
-            return await query.ToListAsync();
-        }
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Name = name,
+                Description = description,
+                Type = type,
+                Status = "stopped",
+                Enabled = false,
+                TasksCompleted = 0,
+                LastRun = null
+            };
 
-        /// <inheritdoc/>
-        public async Task<Agent?> GetAgentAsync(Guid id)
-        {
-            return await _dbContext.Agents.FirstOrDefaultAsync(a => a.Id == id);
-        }
-
-        /// <inheritdoc/>
-        public async Task<Agent> CreateAgentAsync(Agent agent)
-        {
-            agent.Id = Guid.NewGuid();
             _dbContext.Agents.Add(agent);
             await _dbContext.SaveChangesAsync();
-            _logger.LogInfo($"Created agent {agent.Name} ({agent.Id})");
+
+            _logger.LogInfo($"Created agent {agent.Id} for user {userId}");
             return agent;
         }
 
         /// <inheritdoc/>
-        public async Task<Agent?> UpdateAgentAsync(Agent agent)
+        public async Task<bool> UpdateAgentAsync(Agent agent)
         {
             var existing = await _dbContext.Agents.FindAsync(agent.Id);
             if (existing == null)
-            {
-                return null;
-            }
+                return false;
 
             existing.Name = agent.Name;
             existing.Description = agent.Description;
             existing.Type = agent.Type;
-            existing.Status = agent.Status;
-            existing.LastRun = agent.LastRun;
-            existing.TasksCompleted = agent.TasksCompleted;
             existing.Enabled = agent.Enabled;
-            await _dbContext.SaveChangesAsync();
-            return existing;
-        }
+            existing.Status = agent.Status;
+            existing.TasksCompleted = agent.TasksCompleted;
+            existing.LastRun = agent.LastRun;
 
-        /// <inheritdoc/>
-        public async Task<bool> DeleteAgentAsync(Guid id)
-        {
-            var existing = await _dbContext.Agents.FindAsync(id);
-            if (existing == null)
-            {
-                return false;
-            }
-
-            _dbContext.Agents.Remove(existing);
             await _dbContext.SaveChangesAsync();
             return true;
         }
 
         /// <inheritdoc/>
-        public Task<bool> StartAgentAsync(Guid id)
+        public async Task<bool> DeleteAgentAsync(Guid agentId)
         {
-            // Placeholder for execution logic
-            _logger.LogInfo($"Starting agent {id}");
-            return Task.FromResult(true);
+            var agent = await _dbContext.Agents.FindAsync(agentId);
+            if (agent == null)
+                return false;
+
+            _dbContext.Agents.Remove(agent);
+            await _dbContext.SaveChangesAsync();
+            return true;
         }
 
         /// <inheritdoc/>
-        public Task<bool> StopAgentAsync(Guid id)
+        public async Task<bool> StartAgentAsync(Guid agentId)
         {
-            // Placeholder for stop logic
-            _logger.LogInfo($"Stopping agent {id}");
-            return Task.FromResult(true);
+            var agent = await _dbContext.Agents.FindAsync(agentId);
+            if (agent == null)
+                return false;
+
+            agent.Enabled = true;
+            agent.Status = "running";
+            agent.LastRun = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+            return true;
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> StopAgentAsync(Guid agentId)
+        {
+            var agent = await _dbContext.Agents.FindAsync(agentId);
+            if (agent == null)
+                return false;
+
+            agent.Enabled = false;
+            agent.Status = "stopped";
+            await _dbContext.SaveChangesAsync();
+            return true;
         }
     }
 }

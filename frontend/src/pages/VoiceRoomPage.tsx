@@ -1,19 +1,70 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, Volume2, MessageSquare, Camera, Paperclip } from 'lucide-react';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
+import ttsService from '../services/ttsService';
+
+interface VoiceConfig {
+  apiKey: string;
+  voice: string;
+}
 
 const VoiceRoomPage = () => {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({ apiKey: '', voice: 'Rachel' });
+
+  // Load saved ElevenLabs TTS settings on mount
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const cfg = await ttsService.getSettings();
+        setVoiceConfig(cfg);
+      } catch (err) {
+        console.error('Failed to load TTS settings', err);
+      }
+    };
+    load();
+  }, []);
+
   const toggleListening = () => {
     setIsListening(!isListening);
   };
-  
+
   const toggleMiniChat = () => {
     setIsMiniChatOpen(!isMiniChatOpen);
+  };
+
+  // Play any arbitrary text via the TTS endpoint
+  const playTts = async (text: string) => {
+    try {
+      const payload = {
+        text,
+        voiceId: voiceConfig.voice,
+        apiKey: voiceConfig.apiKey,
+      };
+      const resp = await fetch('/api/tts/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        console.error('TTS synthesis failed with status:', resp.status);
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    } catch (err) {
+      console.error('TTS failed', err);
+    }
+  };
+
+  // Play a short sample phrase
+  const playSample = () => {
+    playTts('Hello there! This is a sample from your configured voice.');
   };
 
   return (
@@ -29,31 +80,32 @@ const VoiceRoomPage = () => {
           <h1 className="text-2xl font-medium text-gray-800">Voice Room</h1>
           <p className="text-gray-600">Speak with your AI assistant</p>
         </div>
-        
+
         <div className="flex-grow bg-white rounded-lg shadow-medium overflow-hidden relative">
           {/* Room Canvas */}
           <div className="w-full h-full min-h-[500px] p-6 relative">
             <VoiceRoomAvatar isListening={isListening} />
-            
+
             {/* Control Buttons */}
             <div className="absolute bottom-8 left-0 right-0 flex justify-center space-x-6">
               <button
                 className={`p-4 rounded-full shadow-md flex items-center justify-center transition-all ${
-                  isListening 
-                    ? 'bg-error-500 text-white animate-pulse' 
+                  isListening
+                    ? 'bg-error-500 text-white animate-pulse'
                     : 'bg-white text-gray-700 hover:bg-gray-50'
                 }`}
                 onClick={toggleListening}
               >
                 <Mic size={24} />
               </button>
-              
+
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
+                onClick={playSample}
               >
                 <Volume2 size={24} />
               </button>
-              
+
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
                 onClick={toggleMiniChat}
@@ -62,11 +114,11 @@ const VoiceRoomPage = () => {
               </button>
             </div>
           </div>
-          
+
           {/* Mini Chat */}
           <MiniChat isOpen={isMiniChatOpen} onClose={() => setIsMiniChatOpen(false)} />
         </div>
-        
+
         {/* Quick Action Buttons */}
         <div className="mt-4 flex justify-center space-x-4">
           <button className="btn btn-ghost text-sm">
