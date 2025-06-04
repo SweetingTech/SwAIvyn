@@ -1,31 +1,32 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using SwAIvyn.Services;
 
 namespace SwAIvyn.Controllers
 {
-    /// <summary>
-    /// Controller for text-to-speech (TTS) settings and synthesis.
-    /// </summary>
     [ApiController]
     [Route("api/tts")]
     public class TtsController : ControllerBase
     {
         private readonly ISettingsService _settingsService;
-        private readonly ITtsService _ttsService;
-        private readonly ISimpleLoggerService _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ILogger<TtsController> _logger;
 
         public TtsController(
             ISettingsService settingsService,
-            ITtsService ttsService,
-            ISimpleLoggerService logger)
+            IHttpClientFactory httpClientFactory,
+            ILogger<TtsController> logger)
         {
             _settingsService = settingsService 
                 ?? throw new ArgumentNullException(nameof(settingsService));
-            _ttsService = ttsService 
-                ?? throw new ArgumentNullException(nameof(ttsService));
+            _httpClientFactory = httpClientFactory 
+                ?? throw new ArgumentNullException(nameof(httpClientFactory));
             _logger = logger 
                 ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -33,7 +34,6 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets the user’s ElevenLabs TTS settings (API key and default voice).
         /// </summary>
-        /// <param name="userId">Optional user ID (omit for global settings).</param>
         [HttpGet("settings")]
         public async Task<IActionResult> GetSettings([FromQuery] Guid? userId = null)
         {
@@ -45,15 +45,15 @@ namespace SwAIvyn.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError("Error getting TTS settings", ex);
-                return StatusCode(500, "Failed to get TTS settings");
+                _logger.LogError(ex, "Error getting TTS settings for user {UserId}", userId);
+                return StatusCode(500, "Failed to retrieve TTS settings");
             }
         }
 
         /// <summary>
         /// Updates the user’s ElevenLabs TTS settings (API key and/or default voice).
         /// </summary>
-        [HttpPut("settings")]
+        [HttpPost("settings")]
         public async Task<IActionResult> UpdateSettings([FromBody] UpdateTtsSettingsRequest request)
         {
             if (request == null || request.UserId == null)
@@ -65,10 +65,10 @@ namespace SwAIvyn.Controllers
             {
                 var settings = new Dictionary<string, string>();
 
-                if (request.ApiKey != null)
+                if (!string.IsNullOrEmpty(request.ApiKey))
                     settings["ElevenLabsApiKey"] = request.ApiKey;
 
-                if (request.VoiceId != null)
+                if (!string.IsNullOrEmpty(request.VoiceId))
                     settings["ElevenLabsVoiceId"] = request.VoiceId;
 
                 var success = await _settingsService.SetSettingsAsync(request.UserId, settings);
@@ -79,61 +79,55 @@ namespace SwAIvyn.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError("Error updating TTS settings", ex);
+                _logger.LogError(ex, "Error updating TTS settings for user {UserId}", request.UserId);
                 return StatusCode(500, "Failed to update TTS settings");
             }
         }
 
         /// <summary>
-        /// Synthesizes speech from text. If VoiceId is omitted in the request,
-        /// the user’s default ElevenLabs voice (from settings) will be used.
+        /// Synthesizes speech from text. Uses the user’s configured ElevenLabs API key and voice.
         /// </summary>
         [HttpPost("synthesize")]
-        public async Task<IActionResult> Synthesize([FromBody] TtsRequest request)
+        public async Task<IActionResult> Synthesize([FromBody] SynthesizeRequest request)
         {
-            if (string.IsNullOrEmpty(request.Text))
+            if (request == null || string.IsNullOrWhiteSpace(request.Text))
             {
                 return BadRequest("Text is required for TTS synthesis.");
             }
 
             try
             {
-                // Determine which voice ID to use:
-                var voiceId = request.VoiceId;
-                if (string.IsNullOrEmpty(voiceId) && request.UserId.HasValue)
+                var apiKey = await _settingsService.GetElevenLabsApiKeyAsync(request.UserId);
+                var voiceId = await _settingsService.GetElevenLabsVoiceIdAsync(request.UserId);
+
+                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(voiceId))
                 {
-                    voiceId = await _settingsService.GetElevenLabsVoiceIdAsync(request.UserId);
-                }
-                
-                // Fetch API key: prefer request.ApiKey, otherwise settings
-                var apiKey = request.ApiKey;
-                if (string.IsNullOrEmpty(apiKey) && request.UserId.HasValue)
-                {
-                    apiKey = await _settingsService.GetElevenLabsApiKeyAsync(request.UserId);
+                    return BadRequest("Missing ElevenLabs API key or voice configuration.");
                 }
 
-                if (string.IsNullOrEmpty(apiKey))
+                var url = $"https://api.elevenlabs.io/v1/text-to-speech/{voiceId}";
+                var payload = JsonSerializer.Serialize(new { text = request.Text });
+                var httpClient = _httpClientFactory.CreateClient();
+                var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
                 {
-                    return BadRequest("No ElevenLabs API key provided or found in settings.");
+                    Content = new StringContent(payload, Encoding.UTF8, "application/json")
+                };
+                httpRequest.Headers.Add("xi-api-key", apiKey);
+
+                var response = await httpClient.SendAsync(httpRequest);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("ElevenLabs API returned {StatusCode} for user {UserId}", response.StatusCode, request.UserId);
+                    return StatusCode((int)response.StatusCode, "ElevenLabs API error");
                 }
 
-                // Delegate to ITtsService to return an MP3 (byte[])
-                var audioBytes = await _ttsService.SynthesizeAsync(
-                    text: request.Text,
-                    apiKey: apiKey,
-                    voiceId: voiceId);
-
-                if (audioBytes == null || audioBytes.Length == 0)
-                {
-                    return StatusCode(500, "TTS synthesis returned no audio.");
-                }
-
-                return File(audioBytes, "audio/mpeg");
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                return File(bytes, "audio/mpeg");
             }
             catch (Exception ex)
             {
-                _logger.LogError("Error during TTS synthesis", ex);
-                return StatusCode(500, $"Failed to synthesize speech: {ex.Message}");
+                _logger.LogError(ex, "Error synthesizing audio for user {UserId}", request.UserId);
+                return StatusCode(500, "Error synthesizing audio");
             }
         }
     }
@@ -144,25 +138,25 @@ namespace SwAIvyn.Controllers
     public class UpdateTtsSettingsRequest
     {
         /// <summary>
-        /// Required: the user whose settings are being updated.
+        /// The user whose settings are being updated (required).
         /// </summary>
         public Guid? UserId { get; set; }
 
         /// <summary>
-        /// New ElevenLabs API key (optional if not changing).
+        /// New ElevenLabs API key (leave null to keep existing).
         /// </summary>
-        public string? ApiKey { get; set; }
+        public string ApiKey { get; set; }
 
         /// <summary>
-        /// New default ElevenLabs voice ID (optional if not changing).
+        /// New ElevenLabs voice ID (leave null to keep existing).
         /// </summary>
-        public string? VoiceId { get; set; }
+        public string VoiceId { get; set; }
     }
 
     /// <summary>
     /// Request model for performing TTS synthesis.
     /// </summary>
-    public class TtsRequest
+    public class SynthesizeRequest
     {
         /// <summary>
         /// The user for whom to look up default settings (optional).
@@ -170,18 +164,8 @@ namespace SwAIvyn.Controllers
         public Guid? UserId { get; set; }
 
         /// <summary>
-        /// Optional override for ElevenLabs API key. If omitted, the controller will pull from user settings.
+        /// The text to convert into speech (required).
         /// </summary>
-        public string? ApiKey { get; set; }
-
-        /// <summary>
-        /// Optional override for ElevenLabs voice ID. If omitted, the controller will pull from user settings.
-        /// </summary>
-        public string? VoiceId { get; set; }
-
-        /// <summary>
-        /// The text to convert into speech. (Required)
-        /// </summary>
-        public string Text { get; set; } = string.Empty;
+        public string Text { get; set; }
     }
 }

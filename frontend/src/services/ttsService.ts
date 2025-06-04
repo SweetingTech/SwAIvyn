@@ -1,17 +1,36 @@
 import apiService from './apiService';
 
+interface VoiceSettings {
+  apiKey: string;
+  voice: string;
+}
+
 const ttsService = {
-  async getSettings(userId?: string): Promise<{ apiKey: string; voice: string }> {
-    const url = userId ? `/api/tts/settings?userId=${userId}` : '/api/tts/settings';
-    return apiService.get(url);
+  /**
+   * Fetch the ElevenLabs TTS settings (API key and default voice).
+   * If userId is provided, appends it as a query parameter.
+   */
+  async getSettings(userId?: string): Promise<VoiceSettings> {
+    const url = userId
+      ? `/api/tts/settings?userId=${userId}`
+      : '/api/tts/settings';
+    return apiService.get<VoiceSettings>(url);
   },
 
-  async updateSettings(apiKey: string, voice: string, userId?: string): Promise<boolean> {
-    const response = await apiService.put('/api/tts/settings', {
-      apiKey,
-      voice,
-      userId
-    });
+  /**
+   * Update the ElevenLabs TTS settings.
+   * Sends apiKey and voice (and optional userId) to the backend.
+   */
+  async updateSettings(
+    apiKey: string,
+    voice: string,
+    userId?: string
+  ): Promise<boolean> {
+    const payload: Record<string, unknown> = { apiKey, voice };
+    if (userId) {
+      payload.userId = userId;
+    }
+    const response = await apiService.put('/api/tts/settings', payload);
     return !!response;
   }
 };
