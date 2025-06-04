@@ -31,6 +31,26 @@ namespace SwAIvyn.Services
         string GetLmStudioApiUrl();
 
         /// <summary>
+        /// Gets the OpenAI API URL from configuration
+        /// </summary>
+        string GetOpenAiApiUrl();
+
+        /// <summary>
+        /// Gets the OpenAI API key from configuration
+        /// </summary>
+        string GetOpenAiApiKey();
+
+        /// <summary>
+        /// Gets the Claude API URL from configuration
+        /// </summary>
+        string GetClaudeApiUrl();
+
+        /// <summary>
+        /// Gets the Claude API key from configuration
+        /// </summary>
+        string GetClaudeApiKey();
+
+        /// <summary>
         /// Gets the Neo4j URI from configuration
         /// </summary>
         /// <returns>Neo4j URI</returns>
@@ -63,6 +83,10 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string OPENAI_API_URL_KEY = "OpenAiApiUrl";
+        private const string OPENAI_API_KEY_KEY = "OpenAiApiKey";
+        private const string CLAUDE_API_URL_KEY = "ClaudeApiUrl";
+        private const string CLAUDE_API_KEY_KEY = "ClaudeApiKey";
 
         /// <summary>
         /// Initializes a new instance of the SettingsProvider
@@ -103,6 +127,30 @@ namespace SwAIvyn.Services
         public string GetLmStudioApiUrl()
         {
             return GetSetting(LM_STUDIO_API_URL_KEY, "http://localhost:1234");
+        }
+
+        /// <inheritdoc/>
+        public string GetOpenAiApiUrl()
+        {
+            return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public string GetOpenAiApiKey()
+        {
+            return GetSetting(OPENAI_API_KEY_KEY, "");
+        }
+
+        /// <inheritdoc/>
+        public string GetClaudeApiUrl()
+        {
+            return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public string GetClaudeApiKey()
+        {
+            return GetSetting(CLAUDE_API_KEY_KEY, "");
         }
 
         /// <inheritdoc/>
