@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace SwAIvyn.Services
 {
@@ -10,8 +9,13 @@ namespace SwAIvyn.Services
         string GetApiBaseUrl();
         string GetSignalRHubUrl(string hubName);
         Dictionary<string, string> GetAllEndpoints();
+
         string GetOllamaApiUrl();
         string GetLmStudioApiUrl();
+        string GetOpenAiApiUrl();
+        string GetOpenAiApiKey();
+        string GetClaudeApiUrl();
+        string GetClaudeApiKey();
         string GetNeo4jUri();
         int GetNeo4jBoltPort();
         int GetNeo4jHttpPort();
@@ -56,14 +60,16 @@ namespace SwAIvyn.Services
                     { "api", GetApiBaseUrl() },
                     { "chatHub", GetSignalRHubUrl("chat") },
                     { "voiceHub", GetSignalRHubUrl("voice") },
-                    { "notificationHub", GetSignalRHubUrl("notification") }
-                };
+                    { "notificationHub", GetSignalRHubUrl("notification") },
 
-                // Add user-configurable endpoints
-                endpoints["ollamaApi"] = GetOllamaApiUrl();
-                endpoints["lmStudioApi"] = GetLmStudioApiUrl();
-                endpoints["neo4jHttp"] = GetNeo4jUri();
-                endpoints["neo4jBolt"] = $"bolt://localhost:{GetNeo4jBoltPort()}";
+                    // User-configurable endpoints
+                    { "ollamaApi", GetOllamaApiUrl() },
+                    { "lmStudioApi", GetLmStudioApiUrl() },
+                    { "openAiApi", GetOpenAiApiUrl() },
+                    { "claudeApi", GetClaudeApiUrl() },
+                    { "neo4jHttp", GetNeo4jUri() },
+                    { "neo4jBolt", $"bolt://localhost:{GetNeo4jBoltPort()}" }
+                };
 
                 return endpoints;
             }
@@ -80,6 +86,8 @@ namespace SwAIvyn.Services
                     { "notificationHub", GetSignalRHubUrl("notification") },
                     { "ollamaApi", _configuration["AppSettings:OllamaApiUrl"] ?? "http://localhost:11434" },
                     { "lmStudioApi", _configuration["AppSettings:LmStudioApiUrl"] ?? "http://localhost:1234" },
+                    { "openAiApi", _configuration["AppSettings:OpenAiApiUrl"] ?? "https://api.openai.com/v1" },
+                    { "claudeApi", _configuration["AppSettings:ClaudeApiUrl"] ?? "https://api.anthropic.com/v1" },
                     { "neo4jHttp", _configuration["AppSettings:Neo4jUri"] ?? "http://localhost:7474" },
                     { "neo4jBolt", $"bolt://localhost:{_configuration.GetValue<int>("AppSettings:Neo4jBoltPort", 7687)}" }
                 };
@@ -94,6 +102,26 @@ namespace SwAIvyn.Services
         public string GetLmStudioApiUrl()
         {
             return _settingsProvider.GetLmStudioApiUrl();
+        }
+
+        public string GetOpenAiApiUrl()
+        {
+            return _settingsProvider.GetOpenAiApiUrl();
+        }
+
+        public string GetOpenAiApiKey()
+        {
+            return _settingsProvider.GetOpenAiApiKey();
+        }
+
+        public string GetClaudeApiUrl()
+        {
+            return _settingsProvider.GetClaudeApiUrl();
+        }
+
+        public string GetClaudeApiKey()
+        {
+            return _settingsProvider.GetClaudeApiKey();
         }
 
         public string GetNeo4jUri()

@@ -61,6 +61,15 @@ class ConfigService {
     return endpoints.notificationHub;
   }
 
+  public async getModels(engine: string) {
+    const api = await this.getApiBaseUrl();
+    const response = await fetch(`${api}/llm/models?engine=${engine}`);
+    if (response.ok) {
+      return response.json();
+    }
+    throw new Error('Failed to fetch models');
+  }
+
   private async fetchEndpoints(): Promise<Endpoints> {
     try {
       // First try to fetch from the backend
