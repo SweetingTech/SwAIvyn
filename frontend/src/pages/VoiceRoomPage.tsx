@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, Volume2, MessageSquare, Camera, Paperclip } from 'lucide-react';
+import ttsService from '../services/ttsService';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
 
@@ -14,6 +15,16 @@ const VoiceRoomPage = () => {
   
   const toggleMiniChat = () => {
     setIsMiniChatOpen(!isMiniChatOpen);
+  };
+
+  const playGreeting = async () => {
+    try {
+      const audioBlob = await ttsService.synthesize('Hello! How can I help you today?');
+      const url = URL.createObjectURL(audioBlob);
+      new Audio(url).play();
+    } catch (err) {
+      console.error('TTS failed', err);
+    }
   };
 
   return (
@@ -50,6 +61,7 @@ const VoiceRoomPage = () => {
               
               <button
                 className="p-4 rounded-full shadow-md bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-center transition-all"
+                onClick={playGreeting}
               >
                 <Volume2 size={24} />
               </button>

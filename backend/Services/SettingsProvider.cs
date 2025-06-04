@@ -47,6 +47,16 @@ namespace SwAIvyn.Services
         /// </summary>
         /// <returns>Neo4j HTTP port</returns>
         int GetNeo4jHttpPort();
+
+        /// <summary>
+        /// Gets the ElevenLabs API key
+        /// </summary>
+        string GetElevenLabsApiKey();
+
+        /// <summary>
+        /// Gets the default ElevenLabs voice ID
+        /// </summary>
+        string GetElevenLabsVoiceId();
     }
 
     /// <summary>
@@ -63,6 +73,8 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string ELEVEN_API_KEY = "ElevenLabsApiKey";
+        private const string ELEVEN_VOICE_KEY = "ElevenLabsVoiceId";
 
         /// <summary>
         /// Initializes a new instance of the SettingsProvider
@@ -123,6 +135,18 @@ namespace SwAIvyn.Services
         {
             var portStr = GetSetting(NEO4J_HTTP_PORT_KEY, "7474");
             return int.TryParse(portStr, out int port) ? port : 7474;
+        }
+
+        /// <inheritdoc/>
+        public string GetElevenLabsApiKey()
+        {
+            return GetSetting(ELEVEN_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public string GetElevenLabsVoiceId()
+        {
+            return GetSetting(ELEVEN_VOICE_KEY, string.Empty);
         }
     }
 }

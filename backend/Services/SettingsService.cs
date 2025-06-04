@@ -90,6 +90,16 @@ namespace SwAIvyn.Services
         Task<int> GetNeo4jHttpPortAsync(Guid? userId);
 
         /// <summary>
+        /// Gets the ElevenLabs API key
+        /// </summary>
+        Task<string> GetElevenLabsApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the default ElevenLabs voice ID
+        /// </summary>
+        Task<string> GetElevenLabsVoiceIdAsync(Guid? userId);
+
+        /// <summary>
         /// Initializes default settings for a user
         /// </summary>
         /// <param name="userId">User ID</param>
@@ -126,6 +136,8 @@ namespace SwAIvyn.Services
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        private const string ELEVEN_API_KEY = "ElevenLabsApiKey";
+        private const string ELEVEN_VOICE_KEY = "ElevenLabsVoiceId";
 
         /// <summary>
         /// Initializes a new instance of the SettingsService
@@ -307,6 +319,18 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
+        public async Task<string> GetElevenLabsApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, ELEVEN_API_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetElevenLabsVoiceIdAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, ELEVEN_VOICE_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> InitializeDefaultSettingsAsync(Guid userId)
         {
             try
@@ -322,6 +346,8 @@ namespace SwAIvyn.Services
                     { NEO4J_URI_KEY, "http://localhost:7474" },
                     { NEO4J_BOLT_PORT_KEY, "7687" },
                     { NEO4J_HTTP_PORT_KEY, "7474" },
+                    { ELEVEN_API_KEY, "" },
+                    { ELEVEN_VOICE_KEY, "" },
                     { "EnableStreaming", "true" },
                     { "Theme", "dark" },
                     { "Language", "en" },

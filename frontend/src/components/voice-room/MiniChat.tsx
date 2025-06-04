@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Paperclip, Camera } from 'lucide-react';
 import { Message } from '../../types/chat';
+import ttsService from '../../services/ttsService';
 
 interface MiniChatProps {
   isOpen: boolean;
@@ -36,7 +37,7 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
     setInputText('');
 
     // Simulate AI response
-    setTimeout(() => {
+    setTimeout(async () => {
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
@@ -44,6 +45,13 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, aiMessage]);
+      try {
+        const blob = await ttsService.synthesize(aiMessage.text);
+        const url = URL.createObjectURL(blob);
+        new Audio(url).play();
+      } catch (err) {
+        console.error('TTS failed', err);
+      }
     }, 1000);
   };
   
