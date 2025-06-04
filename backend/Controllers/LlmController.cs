@@ -48,6 +48,36 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        [HttpGet("openai/models")]
+        public async Task<IActionResult> GetOpenAiModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting OpenAI models", ex);
+                return StatusCode(500, "An error occurred while getting OpenAI models");
+            }
+        }
+
+        [HttpGet("claude/models")]
+        public async Task<IActionResult> GetClaudeModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting Claude models", ex);
+                return StatusCode(500, "An error occurred while getting Claude models");
+            }
+        }
+
         /// <summary>
         /// Gets the current LM Studio model
         /// </summary>
@@ -173,6 +203,42 @@ namespace SwAIvyn.Controllers
                     };
                 }
 
+                // Get OpenAI models
+                try
+                {
+                    var openAiModels = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                    result["openai"] = new {
+                        available = true,
+                        models = openAiModels?.ToList() ?? new List<string>()
+                    };
+                }
+                catch (Exception ex)
+                {
+                    result["openai"] = new {
+                        available = false,
+                        error = ex.Message,
+                        models = new List<string>()
+                    };
+                }
+
+                // Get Claude models
+                try
+                {
+                    var claudeModels = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                    result["claude"] = new {
+                        available = true,
+                        models = claudeModels?.ToList() ?? new List<string>()
+                    };
+                }
+                catch (Exception ex)
+                {
+                    result["claude"] = new {
+                        available = false,
+                        error = ex.Message,
+                        models = new List<string>()
+                    };
+                }
+
                 return Ok(result);
             }
             catch (Exception ex)
@@ -204,6 +270,18 @@ namespace SwAIvyn.Controllers
                         name = "LM Studio",
                         description = "Local AI models via LM Studio",
                         defaultUrl = "http://localhost:1234"
+                    },
+                    new {
+                        id = "openai",
+                        name = "OpenAI",
+                        description = "OpenAI models",
+                        defaultUrl = "https://api.openai.com/v1"
+                    },
+                    new {
+                        id = "claude",
+                        name = "Claude",
+                        description = "Anthropic Claude models",
+                        defaultUrl = "https://api.anthropic.com/v1"
                     }
                 };
 
@@ -284,6 +362,36 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
             }
         }
+
+        [HttpPost("openai/generate")]
+        public async Task<IActionResult> GenerateOpenAi([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                var response = await _llmConnectorService.GenerateOpenAiResponseAsync(request.Messages, request.Model, request.UserId);
+                return Ok(new { response });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating OpenAI response", ex);
+                return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
+
+        [HttpPost("claude/generate")]
+        public async Task<IActionResult> GenerateClaude([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                var response = await _llmConnectorService.GenerateClaudeResponseAsync(request.Messages, request.Model, request.UserId);
+                return Ok(new { response });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating Claude response", ex);
+                return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -303,6 +411,16 @@ namespace SwAIvyn.Controllers
     {
         public string Prompt { get; set; }
         public string Engine { get; set; }
+        public string Model { get; set; }
+        public Guid? UserId { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for generating responses with message format
+    /// </summary>
+    public class GenerateMessagesRequest
+    {
+        public List<Dictionary<string, string>> Messages { get; set; }
         public string Model { get; set; }
         public Guid? UserId { get; set; }
     }

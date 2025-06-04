@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
@@ -21,6 +22,26 @@ namespace SwAIvyn.Services
         /// Gets the name of the model currently loaded in LM Studio.
         /// </summary>
         Task<string> GetLmStudioModelAsync(Guid? userId = null);
+
+        /// <summary>
+        /// Lists available OpenAI models
+        /// </summary>
+        Task<IEnumerable<string>> GetOpenAiModelsAsync(Guid? userId = null);
+
+        /// <summary>
+        /// Lists available Claude models
+        /// </summary>
+        Task<IEnumerable<string>> GetClaudeModelsAsync(Guid? userId = null);
+
+        /// <summary>
+        /// Generates a response using OpenAI
+        /// </summary>
+        Task<string> GenerateOpenAiResponseAsync(List<Dictionary<string, string>> messages, string model, Guid? userId = null);
+
+        /// <summary>
+        /// Generates a response using Claude
+        /// </summary>
+        Task<string> GenerateClaudeResponseAsync(List<Dictionary<string, string>> messages, string model, Guid? userId = null);
 
         /// <summary>
         /// Sends structured messages to the chosen engine+model and returns the completion.
@@ -109,6 +130,57 @@ namespace SwAIvyn.Services
             {
                 _logger.LogError($"Failed to get LM Studio model: {ex.Message}");
                 return "Unknown Model";
+            }
+        }
+
+        public async Task<IEnumerable<string>> GetOpenAiModelsAsync(Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = _configurationService.GetOpenAiApiUrl();
+                var apiKey = _configurationService.GetOpenAiApiKey();
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/models");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                }
+
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<OpenAiModelsResponse>();
+                return result?.Data?.Select(m => m.Id) ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get OpenAI models: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        public async Task<IEnumerable<string>> GetClaudeModelsAsync(Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = _configurationService.GetClaudeApiUrl();
+                var apiKey = _configurationService.GetClaudeApiKey();
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/models");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    request.Headers.Add("x-api-key", apiKey);
+                }
+                request.Headers.Add("anthropic-version", "2023-06-01");
+
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<ClaudeModelsResponse>();
+                return result?.Data?.Select(m => m.Id) ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get Claude models: {ex.Message}");
+                return new List<string>();
             }
         }
 
@@ -263,6 +335,74 @@ namespace SwAIvyn.Services
             }
         }
 
+        public async Task<string> GenerateOpenAiResponseAsync(List<Dictionary<string, string>> messages, string model, Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = _configurationService.GetOpenAiApiUrl();
+                var apiKey = _configurationService.GetOpenAiApiKey();
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/chat/completions");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                }
+
+                var body = new
+                {
+                    model = model,
+                    messages = messages.Select(m => new { role = m["role"], content = m["content"] }).ToArray(),
+                    temperature = 0.7,
+                    max_tokens = 1000
+                };
+                request.Content = JsonContent.Create(body);
+
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<OpenAiCompletionResponse>();
+                return result?.Choices?.FirstOrDefault()?.Message?.Content ?? string.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to generate OpenAI response: {ex.Message}");
+                return $"Error: {ex.Message}";
+            }
+        }
+
+        public async Task<string> GenerateClaudeResponseAsync(List<Dictionary<string, string>> messages, string model, Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = _configurationService.GetClaudeApiUrl();
+                var apiKey = _configurationService.GetClaudeApiKey();
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/messages");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    request.Headers.Add("x-api-key", apiKey);
+                }
+                request.Headers.Add("anthropic-version", "2023-06-01");
+
+                var body = new
+                {
+                    model = model,
+                    messages = messages.Select(m => new { role = m["role"], content = m["content"] }).ToArray(),
+                    max_tokens = 1000
+                };
+                request.Content = JsonContent.Create(body);
+
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<ClaudeMessageResponse>();
+                return result?.Content?.FirstOrDefault()?.Text ?? string.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to generate Claude response: {ex.Message}");
+                return $"Error: {ex.Message}";
+            }
+        }
+
         // DTOs for the various endpoints:
         private class OllamaTagsResponse
         {
@@ -320,6 +460,36 @@ namespace SwAIvyn.Services
         {
             public string Role { get; set; } = string.Empty;
             public string Content { get; set; } = string.Empty;
+        }
+
+        private class OpenAiModelsResponse
+        {
+            public List<OpenAiModelData> Data { get; set; } = new();
+        }
+
+        private class OpenAiModelData
+        {
+            public string Id { get; set; } = string.Empty;
+        }
+
+        private class ClaudeModelsResponse
+        {
+            public List<ClaudeModelData> Data { get; set; } = new();
+        }
+
+        private class ClaudeModelData
+        {
+            public string Id { get; set; } = string.Empty;
+        }
+
+        private class ClaudeMessageResponse
+        {
+            public List<ClaudeContent> Content { get; set; } = new();
+        }
+
+        private class ClaudeContent
+        {
+            public string Text { get; set; } = string.Empty;
         }
 
         /// <summary>

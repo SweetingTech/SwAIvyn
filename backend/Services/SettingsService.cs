@@ -62,6 +62,26 @@ namespace SwAIvyn.Services
         Task<string> GetLmStudioApiUrlAsync(Guid? userId);
 
         /// <summary>
+        /// Gets the OpenAI API URL from settings or configuration
+        /// </summary>
+        Task<string> GetOpenAiApiUrlAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the OpenAI API key from settings or configuration
+        /// </summary>
+        Task<string> GetOpenAiApiKeyAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the Claude API URL from settings or configuration
+        /// </summary>
+        Task<string> GetClaudeApiUrlAsync(Guid? userId);
+
+        /// <summary>
+        /// Gets the Claude API key from settings or configuration
+        /// </summary>
+        Task<string> GetClaudeApiKeyAsync(Guid? userId);
+
+        /// <summary>
         /// Gets the streaming enabled setting for a user
         /// </summary>
         /// <param name="userId">User ID (null for global settings)</param>
@@ -123,6 +143,10 @@ namespace SwAIvyn.Services
         // Setting keys
         private const string OLLAMA_API_URL_KEY = "OllamaApiUrl";
         private const string LM_STUDIO_API_URL_KEY = "LmStudioApiUrl";
+        private const string OPENAI_API_URL_KEY = "OpenAiApiUrl";
+        private const string OPENAI_API_KEY_KEY = "OpenAiApiKey";
+        private const string CLAUDE_API_URL_KEY = "ClaudeApiUrl";
+        private const string CLAUDE_API_KEY_KEY = "ClaudeApiKey";
         private const string NEO4J_URI_KEY = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
@@ -280,6 +304,30 @@ namespace SwAIvyn.Services
         }
 
         /// <inheritdoc/>
+        public async Task<string> GetOpenAiApiUrlAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetOpenAiApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, OPENAI_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetClaudeApiUrlAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> GetClaudeApiKeyAsync(Guid? userId)
+        {
+            return await GetSettingAsync(userId, CLAUDE_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
         {
             var value = await GetSettingAsync(userId, "EnableStreaming", "true");
@@ -319,6 +367,10 @@ namespace SwAIvyn.Services
                     { "DefaultLlmModel", "" },
                     { OLLAMA_API_URL_KEY, "http://localhost:11434" },
                     { LM_STUDIO_API_URL_KEY, "http://localhost:1234" },
+                    { OPENAI_API_URL_KEY, "https://api.openai.com/v1" },
+                    { OPENAI_API_KEY_KEY, "" },
+                    { CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1" },
+                    { CLAUDE_API_KEY_KEY, "" },
                     { NEO4J_URI_KEY, "http://localhost:7474" },
                     { NEO4J_BOLT_PORT_KEY, "7687" },
                     { NEO4J_HTTP_PORT_KEY, "7474" },
