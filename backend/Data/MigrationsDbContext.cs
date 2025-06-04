@@ -23,6 +23,7 @@ namespace SwAIvyn.Data
         public DbSet<Settings> Settings { get; set; }
         public DbSet<UploadDocument> UploadDocuments { get; set; }
         public DbSet<DocumentChunk> DocumentChunks { get; set; }
+        public DbSet<Agent> Agents { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -135,6 +136,17 @@ namespace SwAIvyn.Data
                 .OnDelete(DeleteBehavior.Cascade);
             modelBuilder.Entity<PromptInfo>()
                 .HasIndex(p => new { p.AvatarId, p.IsActive });
+
+            // Agent
+            modelBuilder.Entity<Agent>()
+                .HasKey(a => a.Id);
+            modelBuilder.Entity<Agent>()
+                .HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<Agent>()
+                .HasIndex(a => new { a.UserId, a.Name });
 
             // Add SQL trigger for folder cascade delete
             modelBuilder.Entity<Folder>()

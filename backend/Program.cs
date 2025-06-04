@@ -279,6 +279,7 @@ builder.Services.AddHostedService<SearchServiceHostedService>();
 // Add conversation and folder services
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IFolderService, FolderService>();
+builder.Services.AddScoped<IAgentService, AgentService>();
 
 // Register the simple logger service first (no dependencies)
 builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
