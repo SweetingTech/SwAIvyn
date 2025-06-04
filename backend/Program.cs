@@ -332,6 +332,7 @@ builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
 // Add document upload and processing services
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
 builder.Services.AddScoped<IDocumentUploadService, DocumentUploadService>();
+builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
 
 // Add agent service
 builder.Services.AddScoped<IAgentService, AgentService>();

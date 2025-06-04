@@ -131,7 +131,9 @@ namespace SwAIvyn.Services
         private readonly IConfiguration _configuration;
         private readonly ISimpleLoggerService _logger;
 
+        // --------------------------
         // Configuration keys (AppSettings)
+        // --------------------------
         private const string OLLAMA_API_URL_KEY        = "OllamaApiUrl";
         private const string LM_STUDIO_API_URL_KEY     = "LmStudioApiUrl";
         private const string OPENAI_API_URL_KEY        = "OpenAiApiUrl";

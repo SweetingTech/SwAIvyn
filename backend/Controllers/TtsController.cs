@@ -10,6 +10,9 @@ using SwAIvyn.Services;
 
 namespace SwAIvyn.Controllers
 {
+    /// <summary>
+    /// Controller exposing ElevenLabs text-to-speech functionality and settings.
+    /// </summary>
     [ApiController]
     [Route("api/tts")]
     public class TtsController : ControllerBase

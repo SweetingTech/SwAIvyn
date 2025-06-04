@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, Volume2, MessageSquare, Camera, Paperclip } from 'lucide-react';
+import ttsService from '../services/ttsService';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
-import ttsService from '../services/ttsService';
 
 interface VoiceConfig {
   apiKey: string;
@@ -17,7 +17,7 @@ const VoiceRoomPage = () => {
 
   // Load saved ElevenLabs TTS settings on mount
   useEffect(() => {
-    const load = async () => {
+    const loadSettings = async () => {
       try {
         const cfg = await ttsService.getSettings();
         setVoiceConfig(cfg);
@@ -25,15 +25,15 @@ const VoiceRoomPage = () => {
         console.error('Failed to load TTS settings', err);
       }
     };
-    load();
+    loadSettings();
   }, []);
 
   const toggleListening = () => {
-    setIsListening(!isListening);
+    setIsListening(prev => !prev);
   };
 
   const toggleMiniChat = () => {
-    setIsMiniChatOpen(!isMiniChatOpen);
+    setIsMiniChatOpen(prev => !prev);
   };
 
   // Play any arbitrary text via the TTS endpoint
