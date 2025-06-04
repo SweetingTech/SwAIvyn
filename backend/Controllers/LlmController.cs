@@ -125,6 +125,36 @@ namespace SwAIvyn.Controllers
             }
         }
 
+        [HttpGet("openai/models")]
+        public async Task<IActionResult> GetOpenAiModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting OpenAI models", ex);
+                return StatusCode(500, "An error occurred while getting OpenAI models");
+            }
+        }
+
+        [HttpGet("claude/models")]
+        public async Task<IActionResult> GetClaudeModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting Claude models", ex);
+                return StatusCode(500, "An error occurred while getting Claude models");
+            }
+        }
+
         /// <summary>
         /// Gets all available models from all engines
         /// </summary>
@@ -284,6 +314,38 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
             }
         }
+
+        [HttpPost("openai/generate")]
+        public async Task<IActionResult> GenerateOpenAi([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                var messages = request.Messages.Select(m => new Dictionary<string, string> { { "role", m.Role }, { "content", m.Content } }).ToList();
+                var result = await _llmConnectorService.GenerateOpenAiResponseAsync(messages, request.Model, request.UserId);
+                return Ok(new { response = result });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating OpenAI response", ex);
+                return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
+
+        [HttpPost("claude/generate")]
+        public async Task<IActionResult> GenerateClaude([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                var messages = request.Messages.Select(m => new Dictionary<string, string> { { "role", m.Role }, { "content", m.Content } }).ToList();
+                var result = await _llmConnectorService.GenerateClaudeResponseAsync(messages, request.Model, request.UserId);
+                return Ok(new { response = result });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating Claude response", ex);
+                return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -305,5 +367,18 @@ namespace SwAIvyn.Controllers
         public string Engine { get; set; }
         public string Model { get; set; }
         public Guid? UserId { get; set; }
+    }
+
+    public class GenerateMessagesRequest
+    {
+        public Guid? UserId { get; set; }
+        public string Model { get; set; }
+        public List<MessageDto> Messages { get; set; } = new();
+    }
+
+    public class MessageDto
+    {
+        public string Role { get; set; }
+        public string Content { get; set; }
     }
 }
