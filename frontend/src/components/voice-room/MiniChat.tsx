@@ -22,6 +22,16 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [inputText, setInputText] = useState('');
 
+  const playTtsFromService = async (text: string) => {
+    try {
+      const blob = await ttsService.synthesize(text);
+      const url = URL.createObjectURL(blob);
+      new Audio(url).play();
+    } catch (err) {
+      console.error('TTS failed', err);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
@@ -45,40 +55,34 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, aiMessage]);
-      try {
-        const blob = await ttsService.synthesize(aiMessage.text);
-        const url = URL.createObjectURL(blob);
-        new Audio(url).play();
-      } catch (err) {
-        console.error('TTS failed', err);
-      }
+      await playTtsFromService(aiMessage.text);
     }, 1000);
   };
-  
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div 
+        <motion.div
           className="absolute bottom-0 right-0 w-full sm:w-96 h-96 bg-white shadow-hard rounded-t-lg sm:rounded-lg sm:bottom-8 sm:right-8 overflow-hidden"
-          initial={{ y: "100%", opacity: 0 }}
+          initial={{ y: '100%', opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          exit={{ y: "100%", opacity: 0 }}
-          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          exit={{ y: '100%', opacity: 0 }}
+          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         >
           <div className="flex items-center justify-between px-4 py-2 border-b bg-gray-50">
             <h3 className="text-sm font-medium text-gray-700">Chat</h3>
-            <button 
+            <button
               onClick={onClose}
               className="p-1 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
             >
               <X size={18} />
             </button>
           </div>
-          
+
           <div className="h-[calc(100%-88px)] overflow-y-auto p-3 space-y-2">
             {messages.map(message => (
-              <div 
-                key={message.id} 
+              <div
+                key={message.id}
                 className={`text-sm p-2 rounded-lg max-w-[85%] ${
                   message.sender === 'ai'
                     ? 'bg-gray-100 text-gray-800 mr-auto'
@@ -89,16 +93,16 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
               </div>
             ))}
           </div>
-          
+
           <form onSubmit={handleSubmit} className="p-2 border-t bg-white">
             <div className="flex items-center space-x-1">
-              <button 
+              <button
                 type="button"
                 className="p-1.5 text-gray-500 hover:text-primary-500 focus:outline-none"
               >
                 <Paperclip size={16} />
               </button>
-              <button 
+              <button
                 type="button"
                 className="p-1.5 text-gray-500 hover:text-primary-500 focus:outline-none"
               >
@@ -108,7 +112,7 @@ const MiniChat = ({ isOpen, onClose }: MiniChatProps) => {
                 type="text"
                 placeholder="Type a message..."
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={e => setInputText(e.target.value)}
                 className="flex-grow px-3 py-1.5 border border-gray-300 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-transparent"
               />
               <button

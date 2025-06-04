@@ -51,9 +51,28 @@ const ChatPage = () => {
 
   // State for selected character
   const [selectedCharacter, setSelectedCharacter] = useState<any>(null);
+  const [showCharacterImages, setShowCharacterImages] = useState<boolean>(() => {
+    const stored = localStorage.getItem('showCharacterImages');
+    return stored ? stored === 'true' : true;
+  });
+
+  // Persist image preference
+  useEffect(() => {
+    localStorage.setItem('showCharacterImages', showCharacterImages ? 'true' : 'false');
+  }, [showCharacterImages]);
+
+  // Reference for auto scrolling
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(urlInfo.isNewConversation);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
 
   // Load character based on URL parameter
   useEffect(() => {
@@ -67,37 +86,45 @@ const ChatPage = () => {
         // Load all available characters
         const characters = await apiService.get(`/api/character/user/${user.id}`);
 
-        if (urlInfo.characterName) {
-          // Find character by name from URL
-          const character = characters.find(c =>
-            c.name.toLowerCase() === urlInfo.characterName.toLowerCase()
-          );
+        let character: any | null = null;
 
-          if (character) {
-            setSelectedCharacter(character);
-            console.log('ChatPage: Loaded character from URL:', character.name, 'ID:', character.id);
-            console.log('ChatPage: Full character object:', character);
-            return;
-          } else {
-            console.warn('Character not found:', urlInfo.characterName);
+        // Try URL parameter first
+        if (urlInfo.characterName) {
+          character = characters.find(c => c.name.toLowerCase() === urlInfo.characterName!.toLowerCase());
+        }
+
+        // If not found, check localStorage
+        if (!character) {
+          const storedId = localStorage.getItem('selectedCharacterId');
+          if (storedId) {
+            character = characters.find(c => c.id === storedId) || null;
           }
         }
 
-        // Fallback: use first available character or redirect to default
+        if (character) {
+          setSelectedCharacter(character);
+          // Update URL if needed
+          if (urlInfo.characterName !== character.name) {
+            const newUrl = generateChatUrl({
+              conversationId: urlInfo.conversationId || 'new',
+              characterName: character.name
+            });
+            navigate(newUrl, { replace: true });
+          }
+          return;
+        }
+
+        // Fallback: first available character
         if (characters.length > 0) {
           const defaultCharacter = characters[0];
           setSelectedCharacter(defaultCharacter);
-
-          // Update URL to include the default character
           const newUrl = generateChatUrl({
             conversationId: urlInfo.conversationId || 'new',
             characterName: defaultCharacter.name
           });
           navigate(newUrl, { replace: true });
-          console.log('ChatPage: Using default character:', defaultCharacter.name);
         } else {
-          // No characters available, redirect to create GLaDOS
-          console.log('No characters found, redirecting to default');
+          // No characters available, redirect to default
           navigate(createDefaultChatUrl(), { replace: true });
         }
       } catch (error) {
@@ -178,15 +205,19 @@ const ChatPage = () => {
   // Handle character selection
   const handleCharacterSelect = async (character: any) => {
     setSelectedCharacter(character);
-
-    // Update URL to reflect character selection
     if (character) {
+      localStorage.setItem('selectedCharacterId', character.id);
       const newUrl = generateChatUrl({
         conversationId: currentConversation.id || 'new',
         characterName: character.name
       });
       navigate(newUrl, { replace: true });
-      console.log('Updated URL for character selection:', character.name);
+    } else {
+      localStorage.removeItem('selectedCharacterId');
+      const newUrl = generateChatUrl({
+        conversationId: currentConversation.id || 'new'
+      });
+      navigate(newUrl, { replace: true });
     }
   };
   /**
@@ -437,12 +468,24 @@ const ChatPage = () => {
                   Active: {selectedCharacter.name}
                 </div>
               )}
+              <label className="ml-4 text-sm flex items-center space-x-1">
+                <input
+                  type="checkbox"
+                  checked={showCharacterImages}
+                  onChange={(e) => setShowCharacterImages(e.target.checked)}
+                />
+                <span>Use Image</span>
+              </label>
             </div>
           </div>
 
-          <div className="flex-grow overflow-y-auto p-4 space-y-4">
+          <div ref={messagesEndRef} className="flex-grow overflow-y-auto p-4 space-y-4">
             {messages.map((message: Message) => (
-              <ChatMessage key={message.id} message={message} />
+              <ChatMessage
+                key={message.id}
+                message={message}
+                characterImage={showCharacterImages && message.sender === 'ai' ? selectedCharacter?.imagePath : undefined}
+              />
             ))}
             {isLoading && (
               <div className="flex items-center justify-center p-2">

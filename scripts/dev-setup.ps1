@@ -5,7 +5,7 @@
 Write-Host "Checking .NET SDK..."
 $dotnetVersion = dotnet --version
 if ($LASTEXITCODE -ne 0) {
-    Write-Error ".NET SDK not found. Please install .NET 7.0 SDK or later from https://dotnet.microsoft.com/download"
+    Write-Error ".NET SDK not found. Please install .NET 8.0 SDK or later from https://dotnet.microsoft.com/download"
     exit 1
 }
 Write-Host "Found .NET SDK version: $dotnetVersion"

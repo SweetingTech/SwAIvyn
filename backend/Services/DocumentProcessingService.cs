@@ -58,6 +58,12 @@ namespace SwAIvyn.Services
             ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp"
         };
 
+        // Image file extensions for OCR extraction
+        private readonly HashSet<string> _imageExtensions = new()
+        {
+            ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp"
+        };
+
         public DocumentProcessingService(
             ApplicationDbContext dbContext,
             ISimpleLoggerService logger)
@@ -96,7 +102,7 @@ namespace SwAIvyn.Services
                 {
                     text = await ExtractTextFromPdfAsync(filePath);
                 }
-                else if (mimeType.StartsWith("image/") || _supportedExtensions.Contains(extension) && extension.StartsWith("."))
+                else if (mimeType.StartsWith("image/") || _imageExtensions.Contains(extension))
                 {
                     text = await ExtractTextFromImageAsync(filePath);
                 }

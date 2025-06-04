@@ -7,7 +7,7 @@
 **A federated AI assistant with dual interfaces and Tamagotchi-like features**
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![.NET 7](https://img.shields.io/badge/.NET-7.0-512BD4)](https://dotnet.microsoft.com/download/dotnet/7.0)
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://reactjs.org/)
 
 </div>
@@ -54,7 +54,7 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Prerequisites
 
-- **.NET 7 SDK** or later
+- **.NET 8 SDK** or later
 - **Node.js** (v16+) and npm
 - **Windows 10/11** or **Linux** with systemd support
 
@@ -76,7 +76,7 @@ cd SwAIvyn
 # Build the backend
 dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
 
-# The executable will be in bin/Release/net7.0/win-x64/publish/
+# The executable will be in bin/Release/net8.0/win-x64/publish/
 ```
 
 ### First-Time Setup
