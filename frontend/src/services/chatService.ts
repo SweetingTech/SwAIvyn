@@ -65,7 +65,7 @@ const chatService = {
 
   /**
    * Updates the LLM settings
-   * @param engine The LLM engine (ollama or lmstudio)
+   * @param engine The LLM engine (ollama, lmstudio, openai or claude)
    * @param model The LLM model (for Ollama)
    * @param userId Optional user ID for user-specific settings
    * @returns Success status

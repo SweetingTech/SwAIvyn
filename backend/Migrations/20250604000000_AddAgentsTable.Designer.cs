@@ -10,7 +10,8 @@ using SwAIvyn.Data;
 namespace SwAIvyn.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250604000000_AddAgentsTable")]
+    partial class AddAgentsTable
     {
         protected override void BuildModel(ModelBuilder modelBuilder)
         {

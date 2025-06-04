@@ -1,89 +1,122 @@
 using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
 namespace SwAIvyn.Services
 {
     /// <summary>
-    /// Interface for the settings provider
+    /// Interface for retrieving application settings from configuration.
     /// </summary>
     public interface ISettingsProvider
     {
         /// <summary>
-        /// Gets a setting value from configuration
+        /// Gets a raw setting value from configuration (falls back to default if missing).
         /// </summary>
-        /// <param name="key">Setting key</param>
-        /// <param name="defaultValue">Default value if setting not found</param>
-        /// <returns>Setting value</returns>
+        /// <param name="key">The configuration key (under "AppSettings").</param>
+        /// <param name="defaultValue">Value to return if the key is not found.</param>
+        /// <returns>The configured value or <paramref name="defaultValue"/>.</returns>
         string GetSetting(string key, string defaultValue = null);
 
         /// <summary>
-        /// Gets the Ollama API URL from configuration
+        /// Gets the Ollama API URL from configuration.
+        /// Default: http://localhost:11434
         /// </summary>
-        /// <returns>Ollama API URL</returns>
         string GetOllamaApiUrl();
 
         /// <summary>
-        /// Gets the LM Studio API URL from configuration
+        /// Gets the LM Studio API URL from configuration.
+        /// Default: http://localhost:1234
         /// </summary>
-        /// <returns>LM Studio API URL</returns>
         string GetLmStudioApiUrl();
 
         /// <summary>
-        /// Gets the Neo4j URI from configuration
+        /// Gets the OpenAI API URL from configuration.
+        /// Default: https://api.openai.com/v1
         /// </summary>
-        /// <returns>Neo4j URI</returns>
+        string GetOpenAiApiUrl();
+
+        /// <summary>
+        /// Gets the OpenAI API key from configuration.
+        /// </summary>
+        string GetOpenAiApiKey();
+
+        /// <summary>
+        /// Gets the Claude API URL from configuration.
+        /// Default: https://api.anthropic.com/v1
+        /// </summary>
+        string GetClaudeApiUrl();
+
+        /// <summary>
+        /// Gets the Claude API key from configuration.
+        /// </summary>
+        string GetClaudeApiKey();
+
+        /// <summary>
+        /// Gets the Neo4j Bolt URI (host + port) or just the URI string if you prefer.
+        /// Default: bolt://localhost
+        /// </summary>
         string GetNeo4jUri();
 
         /// <summary>
-        /// Gets the Neo4j Bolt port from configuration
+        /// Gets the Neo4j Bolt port from configuration.
+        /// Default: 7687
         /// </summary>
-        /// <returns>Neo4j Bolt port</returns>
         int GetNeo4jBoltPort();
 
         /// <summary>
-        /// Gets the Neo4j HTTP port from configuration
+        /// Gets the Neo4j HTTP port from configuration.
+        /// Default: 7474
         /// </summary>
-        /// <returns>Neo4j HTTP port</returns>
         int GetNeo4jHttpPort();
 
-        string GetOpenAiApiUrl();
-        string GetOpenAiApiKey();
-        string GetClaudeApiUrl();
-        string GetClaudeApiKey();
+        /// <summary>
+        /// Gets the ElevenLabs API key from configuration.
+        /// </summary>
+        string GetElevenLabsApiKey();
+
+        /// <summary>
+        /// Gets the default ElevenLabs voice ID from configuration.
+        /// </summary>
+        string GetElevenLabsVoiceId();
     }
 
     /// <summary>
-    /// Provider for application settings from configuration
+    /// Default implementation of ISettingsProvider, pulling from IConfiguration.
     /// </summary>
     public class SettingsProvider : ISettingsProvider
     {
         private readonly IConfiguration _configuration;
         private readonly ISimpleLoggerService _logger;
 
-        // Setting keys
-        private const string OLLAMA_API_URL_KEY = "OllamaApiUrl";
-        private const string LM_STUDIO_API_URL_KEY = "LmStudioApiUrl";
-        private const string OPENAI_API_URL_KEY = "OpenAiApiUrl";
-        private const string OPENAI_API_KEY_KEY = "OpenAiApiKey";
-        private const string CLAUDE_API_URL_KEY = "ClaudeApiUrl";
-        private const string CLAUDE_API_KEY_KEY = "ClaudeApiKey";
-        private const string NEO4J_URI_KEY = "Neo4jUri";
-        private const string NEO4J_BOLT_PORT_KEY = "Neo4jBoltPort";
-        private const string NEO4J_HTTP_PORT_KEY = "Neo4jHttpPort";
+        // --------------------------
+        // Configuration keys (AppSettings)
+        // --------------------------
+        private const string OLLAMA_API_URL_KEY       = "OllamaApiUrl";
+        private const string LM_STUDIO_API_URL_KEY    = "LmStudioApiUrl";
+
+        private const string OPENAI_API_URL_KEY       = "OpenAiApiUrl";
+        private const string OPENAI_API_KEY_KEY       = "OpenAiApiKey";
+
+        private const string CLAUDE_API_URL_KEY       = "ClaudeApiUrl";
+        private const string CLAUDE_API_KEY_KEY       = "ClaudeApiKey";
+
+        private const string NEO4J_URI_KEY            = "Neo4jUri";
+        private const string NEO4J_BOLT_PORT_KEY      = "Neo4jBoltPort";
+        private const string NEO4J_HTTP_PORT_KEY      = "Neo4jHttpPort";
+
+        private const string ELEVENLABS_API_KEY_KEY   = "ElevenLabsApiKey";
+        private const string ELEVENLABS_VOICE_ID_KEY  = "ElevenLabsVoiceId";
 
         /// <summary>
-        /// Initializes a new instance of the SettingsProvider
+        /// Constructs a new SettingsProvider.
         /// </summary>
-        /// <param name="configuration">Application configuration</param>
-        /// <param name="logger">Logger service</param>
+        /// <param name="configuration">An IConfiguration containing an "AppSettings" section.</param>
+        /// <param name="logger">A simple logger to capture any exceptions if a key is missing.</param>
         public SettingsProvider(
             IConfiguration configuration,
             ISimpleLoggerService logger)
         {
-            _configuration = configuration;
-            _logger = logger;
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         /// <inheritdoc/>
@@ -91,13 +124,13 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // Get from configuration
+                // All keys are expected under "AppSettings:<key>"
                 var configValue = _configuration[$"AppSettings:{key}"];
-                return configValue ?? defaultValue;
+                return string.IsNullOrEmpty(configValue) ? defaultValue : configValue;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error getting setting {key}", ex);
+                _logger.LogError($"Error getting setting '{key}' from configuration", ex);
                 return defaultValue;
             }
         }
@@ -105,19 +138,49 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public string GetOllamaApiUrl()
         {
+            // Fallback: http://localhost:11434
             return GetSetting(OLLAMA_API_URL_KEY, "http://localhost:11434");
         }
 
         /// <inheritdoc/>
         public string GetLmStudioApiUrl()
         {
+            // Fallback: http://localhost:1234
             return GetSetting(LM_STUDIO_API_URL_KEY, "http://localhost:1234");
+        }
+
+        /// <inheritdoc/>
+        public string GetOpenAiApiUrl()
+        {
+            // Fallback: https://api.openai.com/v1
+            return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public string GetOpenAiApiKey()
+        {
+            // No default—must be provided via config or secrets
+            return GetSetting(OPENAI_API_KEY_KEY, string.Empty);
+        }
+
+        /// <inheritdoc/>
+        public string GetClaudeApiUrl()
+        {
+            // Fallback: https://api.anthropic.com/v1
+            return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+        }
+
+        /// <inheritdoc/>
+        public string GetClaudeApiKey()
+        {
+            return GetSetting(CLAUDE_API_KEY_KEY, string.Empty);
         }
 
         /// <inheritdoc/>
         public string GetNeo4jUri()
         {
-            return GetSetting(NEO4J_URI_KEY, "http://localhost:7474");
+            // Fallback: bolt://localhost
+            return GetSetting(NEO4J_URI_KEY, "bolt://localhost");
         }
 
         /// <inheritdoc/>
@@ -134,24 +197,16 @@ namespace SwAIvyn.Services
             return int.TryParse(portStr, out int port) ? port : 7474;
         }
 
-        public string GetOpenAiApiUrl()
+        /// <inheritdoc/>
+        public string GetElevenLabsApiKey()
         {
-            return GetSetting(OPENAI_API_URL_KEY, "https://api.openai.com");
+            return GetSetting(ELEVENLABS_API_KEY_KEY, string.Empty);
         }
 
-        public string GetOpenAiApiKey()
+        /// <inheritdoc/>
+        public string GetElevenLabsVoiceId()
         {
-            return GetSetting(OPENAI_API_KEY_KEY, string.Empty);
-        }
-
-        public string GetClaudeApiUrl()
-        {
-            return GetSetting(CLAUDE_API_URL_KEY, "https://api.anthropic.com");
-        }
-
-        public string GetClaudeApiKey()
-        {
-            return GetSetting(CLAUDE_API_KEY_KEY, string.Empty);
+            return GetSetting(ELEVENLABS_VOICE_ID_KEY, string.Empty);
         }
     }
 }

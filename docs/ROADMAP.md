@@ -1,7 +1,7 @@
 # SwAIvyn Project Roadmap
 
 ## Phase 1: Core Infrastructure (Completed)
-- Backend setup with .NET 7, ASP.NET Core hosting, and SQLite database using EF Core.
+- Backend setup with .NET 8, ASP.NET Core hosting, and SQLite database using EF Core.
 - Basic user authentication implemented with username/password, PIN code, and recovery phrases.
 - Database models created for user profiles, AI character profiles, memory items, chat history, and settings.
 - Frontend foundations established with React 18, Vite, TailwindCSS, routing, and basic layout components.
