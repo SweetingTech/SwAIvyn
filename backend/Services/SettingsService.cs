@@ -148,8 +148,6 @@ namespace SwAIvyn.Services
         private const string ENABLE_STREAMING_KEY      = "EnableStreaming";
         private const string DEFAULT_LLM_ENGINE_KEY    = "DefaultLlmEngine";
         private const string DEFAULT_LLM_MODEL_KEY     = "DefaultLlmModel";
-
-        // TTS-specific keys
         private const string TTS_API_KEY               = "TtsElevenLabsApiKey";
         private const string TTS_VOICE_KEY             = "TtsElevenLabsVoice";
 
@@ -177,15 +175,11 @@ namespace SwAIvyn.Services
                     .FirstOrDefaultAsync();
 
                 if (setting != null)
-                {
                     return setting.Value;
-                }
 
                 // 2) Fallback to configuration under "AppSettings:<key>"
                 var configValue = _configuration[$"AppSettings:{key}"];
-                return string.IsNullOrEmpty(configValue)
-                    ? defaultValue
-                    : configValue;
+                return string.IsNullOrEmpty(configValue) ? defaultValue : configValue;
             }
             catch (Exception ex)
             {
@@ -214,9 +208,7 @@ namespace SwAIvyn.Services
                 foreach (var kv in appSettings)
                 {
                     if (!dbSettings.ContainsKey(kv.Key))
-                    {
                         dbSettings[kv.Key] = kv.Value;
-                    }
                 }
 
                 return dbSettings;
@@ -286,90 +278,68 @@ namespace SwAIvyn.Services
 
         /// <inheritdoc/>
         public async Task<string> GetOllamaApiUrlAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, OLLAMA_API_URL_KEY, "http://localhost:11434");
-        }
+            => await GetSettingAsync(userId, OLLAMA_API_URL_KEY, "http://localhost:11434");
 
         /// <inheritdoc/>
         public async Task<string> GetLmStudioApiUrlAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, LM_STUDIO_API_URL_KEY, "http://localhost:1234");
-        }
+            => await GetSettingAsync(userId, LM_STUDIO_API_URL_KEY, "http://localhost:1234");
 
         /// <inheritdoc/>
         public async Task<string> GetOpenAiApiUrlAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, OPENAI_API_URL_KEY, "https://api.openai.com/v1");
-        }
+            => await GetSettingAsync(userId, OPENAI_API_URL_KEY, "https://api.openai.com/v1");
 
         /// <inheritdoc/>
         public async Task<string> GetOpenAiApiKeyAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, OPENAI_API_KEY_KEY, string.Empty);
-        }
+            => await GetSettingAsync(userId, OPENAI_API_KEY_KEY, string.Empty);
 
         /// <inheritdoc/>
         public async Task<string> GetClaudeApiUrlAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
-        }
+            => await GetSettingAsync(userId, CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
 
         /// <inheritdoc/>
         public async Task<string> GetClaudeApiKeyAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, CLAUDE_API_KEY_KEY, string.Empty);
-        }
+            => await GetSettingAsync(userId, CLAUDE_API_KEY_KEY, string.Empty);
 
         /// <inheritdoc/>
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
         {
             var raw = await GetSettingAsync(userId, ENABLE_STREAMING_KEY, "true");
-            return bool.TryParse(raw, out bool result) ? result : true;
+            return bool.TryParse(raw, out var result) ? result : true;
         }
 
         /// <inheritdoc/>
         public async Task<string> GetNeo4jUriAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, NEO4J_URI_KEY, "http://localhost:7474");
-        }
+            => await GetSettingAsync(userId, NEO4J_URI_KEY, "http://localhost:7474");
 
         /// <inheritdoc/>
         public async Task<int> GetNeo4jBoltPortAsync(Guid? userId)
         {
             var raw = await GetSettingAsync(userId, NEO4J_BOLT_PORT_KEY, "7687");
-            return int.TryParse(raw, out int parsed) ? parsed : 7687;
+            return int.TryParse(raw, out var parsed) ? parsed : 7687;
         }
 
         /// <inheritdoc/>
         public async Task<int> GetNeo4jHttpPortAsync(Guid? userId)
         {
             var raw = await GetSettingAsync(userId, NEO4J_HTTP_PORT_KEY, "7474");
-            return int.TryParse(raw, out int parsed) ? parsed : 7474;
+            return int.TryParse(raw, out var parsed) ? parsed : 7474;
         }
 
         /// <inheritdoc/>
         public async Task<string> GetElevenLabsApiKeyAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, ELEVENLABS_API_KEY_KEY, string.Empty);
-        }
+            => await GetSettingAsync(userId, ELEVENLABS_API_KEY_KEY, string.Empty);
 
         /// <inheritdoc/>
         public async Task<string> GetElevenLabsVoiceIdAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, ELEVENLABS_VOICE_ID_KEY, string.Empty);
-        }
+            => await GetSettingAsync(userId, ELEVENLABS_VOICE_ID_KEY, string.Empty);
 
         /// <inheritdoc/>
         public async Task<string> GetTtsApiKeyAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, TTS_API_KEY, string.Empty);
-        }
+            => await GetSettingAsync(userId, TTS_API_KEY, string.Empty);
 
         /// <inheritdoc/>
         public async Task<string> GetTtsVoiceAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, TTS_VOICE_KEY, "Rachel");
-        }
+            => await GetSettingAsync(userId, TTS_VOICE_KEY, "Rachel");
 
         /// <inheritdoc/>
         public async Task<bool> InitializeDefaultSettingsAsync(Guid userId)
@@ -422,14 +392,10 @@ namespace SwAIvyn.Services
 
         /// <inheritdoc/>
         public async Task<string> GetDefaultLlmEngineAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, DEFAULT_LLM_ENGINE_KEY, "ollama");
-        }
+            => await GetSettingAsync(userId, DEFAULT_LLM_ENGINE_KEY, "ollama");
 
         /// <inheritdoc/>
         public async Task<string> GetDefaultLlmModelAsync(Guid? userId)
-        {
-            return await GetSettingAsync(userId, DEFAULT_LLM_MODEL_KEY, string.Empty);
-        }
+            => await GetSettingAsync(userId, DEFAULT_LLM_MODEL_KEY, string.Empty);
     }
 }

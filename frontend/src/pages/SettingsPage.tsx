@@ -112,16 +112,10 @@ const VoiceSettings = () => {
       </div>
 
       <div className="pt-4 flex justify-end">
-        <button
-          className="btn btn-primary"
-          onClick={save}
-          disabled={loading}
-        >
+        <button className="btn btn-primary" onClick={save} disabled={loading}>
           {loading ? 'Saving...' : 'Save Changes'}
         </button>
-        {saveSuccess && (
-          <div className="text-green-600 text-sm ml-4">Saved!</div>
-        )}
+        {saveSuccess && <div className="text-green-600 text-sm ml-4">Saved!</div>}
       </div>
     </div>
   );
@@ -515,10 +509,8 @@ const ModelSettings = () => {
           <select
             className="w-full border rounded px-3 py-2"
             value={selectedEngine}
-            onChange={async e => {
-              const newEngine = e.target.value;
-              setSelectedEngine(newEngine);
-              // Trigger model load on engine change:
+            onChange={e => {
+              setSelectedEngine(e.target.value);
               setSettingsLoaded(true);
             }}
             disabled={loading}
@@ -943,11 +935,7 @@ Respond using the character's voice and personality at all times.`;
             accept=".json"
             onChange={e => setCardFile(e.target.files?.[0] || null)}
           />
-          <button
-            disabled={!cardFile}
-            onClick={() => {}}
-            className="btn btn-ghost border text-sm flex items-center"
-          >
+          <button disabled={!cardFile} onClick={() => {}} className="btn btn-ghost border text-sm flex items-center">
             <Upload size={14} className="mr-1" />
             Import
           </button>
@@ -1050,10 +1038,7 @@ const InvocationSettings = () => {
               <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
             </Tooltip>
           </label>
-          <input
-            type="text"
-            className="w-full border rounded px-3 py-2"
-          />
+          <input type="text" className="w-full border rounded px-3 py-2" />
           <p className="mt-1 text-xs text-gray-500">This is how you'll refer to your AI assistant.</p>
         </div>
 
@@ -1064,10 +1049,7 @@ const InvocationSettings = () => {
               <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
             </Tooltip>
           </label>
-          <input
-            type="text"
-            className="w-full border rounded px-3 py-2"
-          />
+          <input type="text" className="w-full border rounded px-3 py-2" />
           <p className="mt-1 text-xs text-gray-500">Say this phrase to activate voice recognition.</p>
         </div>
 
@@ -1078,12 +1060,7 @@ const InvocationSettings = () => {
               <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
             </Tooltip>
           </label>
-          <input
-            type="range"
-            min="1"
-            max="10"
-            className="w-full"
-          />
+          <input type="range" min="1" max="10" className="w-full" />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>Less Sensitive</span>
             <span>More Sensitive</span>
@@ -1201,11 +1178,7 @@ const AgentStackSettings = () => {
               className="flex-grow border rounded px-3 py-2"
               disabled={loading}
             />
-            <button
-              onClick={testConnection}
-              className="btn btn-primary"
-              disabled={loading}
-            >
+            <button onClick={testConnection} className="btn btn-primary" disabled={loading}>
               Test Connection
             </button>
           </div>

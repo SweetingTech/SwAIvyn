@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace SwAIvyn.Services
 {
@@ -10,6 +9,7 @@ namespace SwAIvyn.Services
         string GetApiBaseUrl();
         string GetSignalRHubUrl(string hubName);
         Dictionary<string, string> GetAllEndpoints();
+
         string GetOllamaApiUrl();
         string GetLmStudioApiUrl();
         string GetOpenAiApiUrl();
@@ -60,16 +60,16 @@ namespace SwAIvyn.Services
                     { "api", GetApiBaseUrl() },
                     { "chatHub", GetSignalRHubUrl("chat") },
                     { "voiceHub", GetSignalRHubUrl("voice") },
-                    { "notificationHub", GetSignalRHubUrl("notification") }
-                };
+                    { "notificationHub", GetSignalRHubUrl("notification") },
 
-                // Add user-configurable endpoints
-                endpoints["ollamaApi"] = GetOllamaApiUrl();
-                endpoints["lmStudioApi"] = GetLmStudioApiUrl();
-                endpoints["openAiApi"] = GetOpenAiApiUrl();
-                endpoints["claudeApi"] = GetClaudeApiUrl();
-                endpoints["neo4jHttp"] = GetNeo4jUri();
-                endpoints["neo4jBolt"] = $"bolt://localhost:{GetNeo4jBoltPort()}";
+                    // User-configurable endpoints
+                    { "ollamaApi", GetOllamaApiUrl() },
+                    { "lmStudioApi", GetLmStudioApiUrl() },
+                    { "openAiApi", GetOpenAiApiUrl() },
+                    { "claudeApi", GetClaudeApiUrl() },
+                    { "neo4jHttp", GetNeo4jUri() },
+                    { "neo4jBolt", $"bolt://localhost:{GetNeo4jBoltPort()}" }
+                };
 
                 return endpoints;
             }

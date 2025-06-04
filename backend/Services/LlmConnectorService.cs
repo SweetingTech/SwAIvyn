@@ -45,8 +45,8 @@ namespace SwAIvyn.Services
             Guid? userId = null);
 
         /// <summary>
-        /// Sends a simple prompt (string) to either Ollama or LM Studio (legacy mode).
-        /// When engine = "ollama" or "lmstudio", posts to the appropriate /generate endpoint.
+        /// Sends a simple prompt (string) to either Ollama or LM Studio (legacy mode),
+        /// or routes through OpenAI/Claude if selected.
         /// </summary>
         Task<string> GenerateResponseAsync(
             string prompt,
@@ -102,9 +102,9 @@ namespace SwAIvyn.Services
                 var ollamaApiUrl = _configurationService.GetOllamaApiUrl().TrimEnd('/');
                 _logger.LogInfo($"Using Ollama API URL: {ollamaApiUrl}");
 
-                // Ollama’s /api/tags endpoint returns a list of models under "Models"
                 var response = await _httpClient.GetFromJsonAsync<OllamaTagsResponse>(
                     $"{ollamaApiUrl}/api/tags");
+
                 return response?.Models?.Select(m => m.Name) ?? new List<string>();
             }
             catch (Exception ex)
@@ -113,6 +113,119 @@ namespace SwAIvyn.Services
                 return new List<string>();
             }
         }
+
+        //
+        // === LM Studio ===
+        //
+
+        public async Task<string> GetLmStudioModelAsync(Guid? userId = null)
+        {
+            try
+            {
+                var lmStudioApiUrl = _configurationService.GetLmStudioApiUrl().TrimEnd('/');
+                _logger.LogInfo($"Using LM Studio API URL: {lmStudioApiUrl}");
+
+                // Attempt OpenAI-compatible endpoint first
+                var openAiCompatibleResponse = await _httpClient.GetAsync($"{lmStudioApiUrl}/v1/models");
+                if (openAiCompatibleResponse.IsSuccessStatusCode)
+                {
+                    var openAiModels = await openAiCompatibleResponse.Content
+                        .ReadFromJsonAsync<OpenAiModelsResponse>();
+
+                    var firstModel = openAiModels?.Data?.FirstOrDefault()?.Id;
+                    if (!string.IsNullOrEmpty(firstModel))
+                    {
+                        return firstModel;
+                    }
+                }
+
+                // Fallback to legacy /models endpoint if available
+                var legacyResponse = await _httpClient.GetAsync($"{lmStudioApiUrl}/models");
+                if (legacyResponse.IsSuccessStatusCode)
+                {
+                    var legacyData = await legacyResponse.Content
+                        .ReadFromJsonAsync<LmStudioModelsResponse>();
+
+                    var firstLegacyModel = legacyData?.Data?.FirstOrDefault()?.Name;
+                    if (!string.IsNullOrEmpty(firstLegacyModel))
+                    {
+                        return firstLegacyModel;
+                    }
+                }
+
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get LM Studio model: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        //
+        // === OpenAI ===
+        //
+
+        public async Task<IEnumerable<string>> GetOpenAiModelsAsync(Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = _configurationService.GetOpenAiApiUrl().TrimEnd('/');
+                var apiKey = _configurationService.GetOpenAiApiKey();
+                _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError($"OpenAI models endpoint returned {response.StatusCode}");
+                    return new List<string>();
+                }
+
+                var modelsResponse = await response.Content.ReadFromJsonAsync<OpenAiModelsResponse>();
+                return modelsResponse?.Data?.Select(m => m.Id) ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get OpenAI models: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        public async Task<IEnumerable<string>> GetClaudeModelsAsync(Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = _configurationService.GetClaudeApiUrl().TrimEnd('/');
+                var apiKey = _configurationService.GetClaudeApiKey();
+                _logger.LogInfo($"Using Claude API URL: {apiUrl}");
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                request.Headers.Add("anthropic-version", "2023-06-01");
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError($"Claude models endpoint returned {response.StatusCode}");
+                    return new List<string>();
+                }
+
+                var claudeModels = await response.Content.ReadFromJsonAsync<ClaudeModelsResponse>();
+                return claudeModels?.Models?.Select(m => m.Name) ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get Claude models: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        //
+        // === Prompt‐based Generation ===
+        //
 
         public async Task<string> GenerateResponseAsync(
             string prompt,
@@ -126,15 +239,13 @@ namespace SwAIvyn.Services
             {
                 if (engine == "ollama")
                 {
-                    // Post to Ollama’s /api/generate endpoint
                     var ollamaApiUrl = _configurationService.GetOllamaApiUrl().TrimEnd('/');
                     _logger.LogInfo($"Using Ollama API URL: {ollamaApiUrl}");
 
-                    // If no model specified, pick the first available
                     if (string.IsNullOrEmpty(model))
                     {
                         var available = await GetOllamaModelsAsync(userId);
-                        model = available?.FirstOrDefault() 
+                        model = available.FirstOrDefault() 
                             ?? throw new Exception("No Ollama models available");
                     }
 
@@ -160,11 +271,10 @@ namespace SwAIvyn.Services
                 }
                 else if (engine == "lmstudio")
                 {
-                    // Legacy LM Studio “/generate” endpoint
                     var lmStudioApiUrl = _configurationService.GetLmStudioApiUrl().TrimEnd('/');
-                    _logger.LogInfo($"Using LM Studio Legacy API URL: {lmStudioApiUrl}");
+                    _logger.LogInfo($"Using LM Studio API URL: {lmStudioApiUrl}");
 
-                    // Attempt OpenAI-compatible endpoint first
+                    // Try OpenAI-compatible route first
                     try
                     {
                         var messages = ConvertLegacyPromptToMessages(prompt);
@@ -175,6 +285,7 @@ namespace SwAIvyn.Services
                             temperature = 0.7,
                             max_tokens = 1000
                         };
+
                         var openAiResponse = await _httpClient.PostAsJsonAsync(
                             $"{lmStudioApiUrl}/v1/chat/completions",
                             openAiRequest);
@@ -196,7 +307,7 @@ namespace SwAIvyn.Services
                             $"Failed to use LM Studio OpenAI-compatible endpoint: {oaEx.Message}");
                     }
 
-                    // Fall back to legacy /generate endpoint
+                    // Fallback to legacy /generate
                     var legacyRequest = new { prompt = prompt };
                     var legacyResponse = await _httpClient.PostAsJsonAsync(
                         $"{lmStudioApiUrl}/generate",
@@ -214,7 +325,7 @@ namespace SwAIvyn.Services
                 }
                 else if (engine == "openai")
                 {
-                    // Convert a single prompt into messages and call OpenAI chat
+                    // Convert prompt → messages and call OpenAI
                     var messages = ConvertLegacyPromptToMessages(prompt);
                     return await GenerateOpenAiResponseAsync(messages, model, userId);
                 }
@@ -247,7 +358,6 @@ namespace SwAIvyn.Services
             {
                 if (engine == "ollama")
                 {
-                    // Convert structured messages → single prompt
                     var prompt = ConvertMessagesToPrompt(messages);
                     return await GenerateResponseAsync(prompt, engine, model, userId);
                 }
@@ -256,7 +366,7 @@ namespace SwAIvyn.Services
                     var lmStudioApiUrl = _configurationService.GetLmStudioApiUrl().TrimEnd('/');
                     _logger.LogInfo($"Using LM Studio API URL (structured messages): {lmStudioApiUrl}");
 
-                    // First attempt OpenAI-compatible route:
+                    // Try OpenAI-compatible endpoint first
                     try
                     {
                         var openAiRequest = new
@@ -290,7 +400,7 @@ namespace SwAIvyn.Services
                             $"Failed to use LM Studio OpenAI-compatible endpoint: {oaEx.Message}");
                     }
 
-                    // Fallback to legacy prompt‐based
+                    // Fallback to prompt-based
                     var fallbackPrompt = ConvertMessagesToPrompt(messages);
                     return await GenerateResponseAsync(fallbackPrompt, engine, model, userId);
                 }
@@ -327,6 +437,7 @@ namespace SwAIvyn.Services
             {
                 var apiUrl = _configurationService.GetOpenAiApiUrl().TrimEnd('/');
                 var apiKey = _configurationService.GetOpenAiApiKey();
+                _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
 
                 var openAiRequest = new
                 {
@@ -373,6 +484,7 @@ namespace SwAIvyn.Services
             {
                 var apiUrl = _configurationService.GetClaudeApiUrl().TrimEnd('/');
                 var apiKey = _configurationService.GetClaudeApiKey();
+                _logger.LogInfo($"Using Claude API URL: {apiUrl}");
 
                 var claudeRequest = new
                 {
@@ -442,12 +554,13 @@ namespace SwAIvyn.Services
 
         /// <summary>
         /// Converts a flat prompt string into structured messages for chat‐style endpoints.
-        /// Tries to detect a “System…User: … Assistant:” pattern. Otherwise treats the entire prompt as a user message.
+        /// If a “System…User: … Assistant:” pattern is detected, splits accordingly.
+        /// Otherwise treats the entire prompt as a user message.
         /// </summary>
         private object[] ConvertLegacyPromptToMessages(string prompt)
         {
-            var userPattern = "\n\nUser: ";
-            var assistantPattern = "\nAssistant:";
+            const string userPattern = "\n\nUser: ";
+            const string assistantPattern = "\nAssistant:";
 
             var userIndex = prompt.IndexOf(userPattern, StringComparison.Ordinal);
             var assistantIndex = prompt.IndexOf(assistantPattern, StringComparison.Ordinal);
@@ -460,8 +573,7 @@ namespace SwAIvyn.Services
                     assistantIndex - userIndex - userPattern.Length
                 ).Trim();
 
-                _logger.LogInfo($"🔍 PARSED SYSTEM PROMPT: Length={systemPrompt.Length}");
-                _logger.LogInfo($"🔍 PARSED USER MESSAGE: '{userMessage}'");
+                _logger.LogInfo($"Parsed system prompt (length {systemPrompt.Length}) and user message.");
 
                 return new object[]
                 {
@@ -471,7 +583,7 @@ namespace SwAIvyn.Services
             }
             else
             {
-                _logger.LogInfo("🔍 NO SYSTEM PROMPT DETECTED: Using entire prompt as user message");
+                _logger.LogInfo("No system prompt detected; using entire prompt as user message.");
                 return new object[]
                 {
                     new { role = "user", content = prompt }
@@ -517,10 +629,6 @@ namespace SwAIvyn.Services
             public string Id { get; set; } = string.Empty;
             public string Object { get; set; } = string.Empty;
             public string OwnedBy { get; set; } = string.Empty;
-        }
-
-        private class LmStudioModelInfo
-        {
             public string Name { get; set; } = string.Empty;
         }
 

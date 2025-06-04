@@ -19,37 +19,21 @@ namespace SwAIvyn.Services
         /// <summary>
         /// Generates an AI response to a user message and stores both in the conversation
         /// </summary>
-        /// <param name="conversationId">Conversation ID</param>
-        /// <param name="userId">User ID</param>
-        /// <param name="userMessage">User message</param>
-        /// <returns>The AI response</returns>
         Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage);
 
         /// <summary>
         /// Generates an AI response to a user message and stores both in the conversation, with optional auto-memory
         /// </summary>
-        /// <param name="conversationId">Conversation ID</param>
-        /// <param name="userId">User ID</param>
-        /// <param name="userMessage">User message</param>
-        /// <param name="saveMemory">Whether to automatically save this conversation as a memory</param>
-        /// <param name="memoryCategory">Category for auto-saved memories</param>
-        /// <returns>The AI response</returns>
         Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage, bool saveMemory, string memoryCategory = "conversation");
 
         /// <summary>
         /// Gets the current LLM engine and model for a user
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <returns>Dictionary with engine and model</returns>
         Task<Dictionary<string, string>> GetCurrentLlmSettingsAsync(Guid? userId = null);
 
         /// <summary>
         /// Sets the default LLM engine and model for a user
         /// </summary>
-        /// <param name="userId">User ID (optional)</param>
-        /// <param name="engine">LLM engine (ollama or lmstudio)</param>
-        /// <param name="model">LLM model name (for Ollama)</param>
-        /// <returns>True if successful</returns>
         Task<bool> SetDefaultLlmSettingsAsync(Guid? userId, string engine, string model = null);
     }
 
@@ -64,7 +48,6 @@ namespace SwAIvyn.Services
         private readonly ISimpleLoggerService _logger;
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _dbContext;
-        // REMOVED: IDefaultCharacterService - database-only approach
         private readonly IBrainGraphService _brainGraphService;
         private readonly IVectorRouter _vectorRouter;
         private readonly IHybridSearchService _hybridSearchService;
@@ -76,14 +59,6 @@ namespace SwAIvyn.Services
         /// <summary>
         /// Initializes a new instance of the AiChatService
         /// </summary>
-        /// <param name="llmConnector">LLM connector service</param>
-        /// <param name="conversationService">Conversation service</param>
-        /// <param name="settingsService">Settings service</param>
-        /// <param name="logger">Logger service</param>
-        /// <param name="configuration">Configuration</param>
-        /// <param name="dbContext">Database context</param>
-        /// <param name="brainGraphService">Brain graph service for memory search</param>
-        /// <param name="vectorRouter">Vector router for upload search</param>
         public AiChatService(
             ILlmConnectorService llmConnector,
             IConversationService conversationService,
@@ -120,32 +95,29 @@ namespace SwAIvyn.Services
 
             try
             {
-                // Store the user message
+                // 1. Store the user message
                 await _conversationService.AppendMessageAsync(conversationId, userId, "user", userMessage);
                 _logger.LogInfo("✅ User message stored successfully");
 
-                // Get the current LLM settings
+                // 2. Retrieve LLM settings
                 var settings = await GetCurrentLlmSettingsAsync(userId);
                 string engine = settings["engine"];
                 string model = settings["model"];
                 _logger.LogInfo($"🚀 LLM settings - Engine: {engine}, Model: {model}");
 
-                // Get conversation to check for character context
+                // 3. Determine system prompt from conversation or fallback character
                 var conversation = await _dbContext.Conversations
                     .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
 
                 string systemPrompt = null;
-
-                // Check if conversation has a specific character assigned
                 if (conversation != null && !string.IsNullOrEmpty(conversation.CharacterSystemPrompt))
                 {
                     _logger.LogInfo("🚀 Using character from conversation context");
                     systemPrompt = conversation.CharacterSystemPrompt;
-                    _logger.LogInfo($"✅ Character system prompt retrieved from conversation - Length: {systemPrompt.Length}");
+                    _logger.LogInfo($"✅ Character system prompt length: {systemPrompt.Length}");
                 }
                 else
                 {
-                    // Fall back to first available character from database
                     _logger.LogInfo("🚀 No character in conversation, falling back to first available character");
                     var firstCharacter = await _dbContext.Avatars
                         .Where(a => a.UserId == userId)
@@ -154,13 +126,12 @@ namespace SwAIvyn.Services
 
                     if (firstCharacter != null)
                     {
-                        systemPrompt = firstCharacter.SystemPrompt ?? "";
+                        systemPrompt = firstCharacter.SystemPrompt;
                         if (string.IsNullOrEmpty(systemPrompt))
                         {
-                            // Generate a basic system prompt from character data
                             systemPrompt = $"You are roleplaying as {firstCharacter.Name}. {firstCharacter.Personality} {firstCharacter.Description}";
                         }
-                        _logger.LogInfo($"✅ Fallback character '{firstCharacter.Name}' system prompt retrieved - Length: {systemPrompt.Length}");
+                        _logger.LogInfo($"✅ Fallback character '{firstCharacter.Name}' system prompt length: {systemPrompt.Length}");
                     }
                     else
                     {
@@ -169,10 +140,8 @@ namespace SwAIvyn.Services
                     }
                 }
 
-                // Prepare structured messages for the LLM
+                // 4. Build structured messages
                 var messages = new List<Dictionary<string, string>>();
-
-                // Add system prompt (character personality)
                 if (!string.IsNullOrEmpty(systemPrompt))
                 {
                     messages.Add(new Dictionary<string, string>
@@ -180,16 +149,15 @@ namespace SwAIvyn.Services
                         { "role", "system" },
                         { "content", systemPrompt }
                     });
-                    _logger.LogInfo("✅ Using character system prompt for response");
+                    _logger.LogInfo("✅ Added system prompt to messages");
                 }
                 else
                 {
-                    _logger.LogWarning("⚠️ No system prompt available - using no character context");
+                    _logger.LogWarning("⚠️ No system prompt provided");
                 }
 
-                // Search for relevant context using hybrid search service (search.py)
+                // 5. Perform hybrid search for context
                 string contextualInformation = "";
-
                 try
                 {
                     _logger.LogInfo("🔍 Searching for relevant context using hybrid search service...");
@@ -208,21 +176,17 @@ namespace SwAIvyn.Services
                             switch (result.Source.ToLower())
                             {
                                 case "neo4j":
-                                    // These are memories from Neo4j
-                                    // Check for Memory nodes (new structure) or legacy entity_type
                                     if (result.Metadata.ContainsKey("entity_type") ||
                                         result.Metadata.ContainsKey("category") ||
-                                        result.Metadata.ContainsKey("source") ||
-                                        result.Source.ToLower() == "neo4j") // All Neo4j results are memories
+                                        result.Metadata.ContainsKey("source"))
                                     {
                                         memoryTexts.Add($"- {result.Content}");
                                     }
                                     break;
 
                                 case "weaviate":
-                                    // These are conversations or documents from Weaviate
-                                    if (result.Metadata.ContainsKey("search_type") &&
-                                        result.Metadata["search_type"].ToString() == "conversation")
+                                    if (result.Metadata.TryGetValue("search_type", out var st) &&
+                                        st.ToString() == "conversation")
                                     {
                                         conversationTexts.Add($"- {result.Content}");
                                     }
@@ -233,31 +197,27 @@ namespace SwAIvyn.Services
                                     break;
 
                                 case "sqlite":
-                                    // Fallback conversation data from SQLite
                                     conversationTexts.Add($"- {result.Content}");
                                     break;
                             }
                         }
 
-                        // Add memories section
                         if (memoryTexts.Any())
                         {
                             contextualInformation += $"\n\nRelevant memories:\n{string.Join("\n", memoryTexts)}";
-                            _logger.LogInfo($"✅ Including {memoryTexts.Count} memories in context");
+                            _logger.LogInfo($"✅ Included {memoryTexts.Count} memories in context");
                         }
 
-                        // Add conversations section
                         if (conversationTexts.Any())
                         {
                             contextualInformation += $"\n\nRelevant past conversations:\n{string.Join("\n", conversationTexts)}";
-                            _logger.LogInfo($"✅ Including {conversationTexts.Count} conversation chunks in context");
+                            _logger.LogInfo($"✅ Included {conversationTexts.Count} conversations in context");
                         }
 
-                        // Add documents section
                         if (documentTexts.Any())
                         {
                             contextualInformation += $"\n\nRelevant information from documents:\n{string.Join("\n", documentTexts)}";
-                            _logger.LogInfo($"✅ Including {documentTexts.Count} document chunks in context");
+                            _logger.LogInfo($"✅ Included {documentTexts.Count} documents in context");
                         }
                     }
                     else
@@ -267,19 +227,15 @@ namespace SwAIvyn.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"⚠️ Failed to search using hybrid search service: {ex.Message}");
-                    // Continue without search results - don't fail the entire request
+                    _logger.LogWarning($"⚠️ Hybrid search service failed: {ex.Message}");
                 }
 
-
-
-                // Add instruction for using contextual information
                 if (!string.IsNullOrEmpty(contextualInformation))
                 {
                     contextualInformation += "\n\nUse this information to provide more informed and personalized responses.";
                 }
 
-                // Add user message with contextual information
+                // 6. Add user message with contextual info
                 var userContent = userMessage + contextualInformation;
                 messages.Add(new Dictionary<string, string>
                 {
@@ -289,20 +245,16 @@ namespace SwAIvyn.Services
 
                 _logger.LogInfo($"📤 Sending {messages.Count} structured messages to LLM");
 
-                // Generate the AI response using structured messages
+                // 7. Generate AI response
                 string aiResponse = await _llmConnector.GenerateResponseAsync(messages, engine, model, userId);
-                _logger.LogInfo($"✅ AI response generated - Length: {aiResponse?.Length ?? 0}");
+                _logger.LogInfo($"✅ AI response generated (length: {aiResponse?.Length ?? 0})");
 
-                // Store the AI response
+                // 8. Store AI response
                 await _conversationService.AppendMessageAsync(conversationId, userId, "assistant", aiResponse);
                 _logger.LogInfo("✅ AI response stored successfully");
 
-                // Auto-memory logic (only for explicit "remember:" commands)
+                // 9. Process auto-memory
                 await ProcessAutoMemoryAsync(userMessage, aiResponse, userId, saveMemory, memoryCategory);
-
-                // NOTE: Conversation chunk storage is now handled by search.py service
-                // The conversation is already stored in SQL database above
-                // The search.py service will handle Weaviate storage for semantic search
 
                 return aiResponse;
             }
@@ -319,13 +271,11 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // Get the default engine from settings or configuration
                 string defaultEngine = await _settingsService.GetSettingAsync(
                     userId,
                     DEFAULT_LLM_ENGINE_KEY,
                     _configuration["AppSettings:DefaultLlmEngine"] ?? "ollama");
 
-                // Get the default model from settings or configuration
                 string defaultModel = await _settingsService.GetSettingAsync(
                     userId,
                     DEFAULT_LLM_MODEL_KEY,
@@ -340,8 +290,6 @@ namespace SwAIvyn.Services
             catch (Exception ex)
             {
                 _logger.LogError("Error getting LLM settings", ex);
-
-                // Fallback to defaults
                 return new Dictionary<string, string>
                 {
                     { "engine", "ollama" },
@@ -355,16 +303,13 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // Validate engine
                 if (engine != "ollama" && engine != "lmstudio" && engine != "openai" && engine != "claude")
                 {
                     throw new ArgumentException("Invalid engine. Must be 'ollama', 'lmstudio', 'openai' or 'claude'.");
                 }
 
-                // Set the default engine
                 await _settingsService.SetSettingAsync(userId, DEFAULT_LLM_ENGINE_KEY, engine);
 
-                // Set the default model (if provided)
                 if (!string.IsNullOrEmpty(model))
                 {
                     await _settingsService.SetSettingAsync(userId, DEFAULT_LLM_MODEL_KEY, model);
@@ -377,15 +322,15 @@ namespace SwAIvyn.Services
                 _logger.LogError("Error setting LLM settings", ex);
                 return false;
             }
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Processes memory storage for chat messages - only stores memories when explicitly requested
-        /// by user with "remember:" prefix or when saveMemory flag is set to true
         /// </summary>
         private async Task ProcessAutoMemoryAsync(string userMessage, string aiResponse, Guid userId, bool saveMemory, string memoryCategory)
         {
             try
             {
-                // Check if auto-memory is enabled for this user
                 var autoMemoryEnabled = await _settingsService.GetSettingAsync(userId, "AutoMemoryEnabled", "false");
                 if (autoMemoryEnabled.ToLowerInvariant() != "true" && !saveMemory)
                 {
@@ -396,27 +341,23 @@ namespace SwAIvyn.Services
                 string memoryContent = null;
                 string actualCategory = memoryCategory ?? "conversation";
 
-                // 1. Check for explicit "remember:" keyword trigger
                 if (userMessage.StartsWith("remember:", StringComparison.OrdinalIgnoreCase))
                 {
-                    memoryContent = userMessage.Substring(9).Trim(); // Remove "remember:" prefix
+                    memoryContent = userMessage.Substring(9).Trim();
                     actualCategory = "explicit";
                     _logger.LogInfo($"🧠 Explicit memory trigger detected: '{memoryContent}'");
                 }
-                // 2. Check for explicit saveMemory flag
                 else if (saveMemory)
                 {
                     memoryContent = $"User: {userMessage}\nAI: {aiResponse}";
                     _logger.LogInfo($"🧠 Flag-based memory save requested for category: {actualCategory}");
                 }
-                // 3. No automatic heuristic-based memory storage - only explicit requests
                 else
                 {
-                    _logger.LogInfo($"🧠 No explicit memory request detected - skipping memory storage");
-                    return; // Exit early if no explicit memory request
+                    _logger.LogInfo("🧠 No explicit memory request detected - skipping memory storage");
+                    return;
                 }
 
-                // Save memory if we have content to save
                 if (!string.IsNullOrEmpty(memoryContent))
                 {
                     var memoryId = Guid.NewGuid();
@@ -428,7 +369,6 @@ namespace SwAIvyn.Services
                         { "source", "auto-chat" }
                     };
 
-                    // Save to both SQL database and vector store
                     var memoryItem = new Data.Entities.MemoryItem
                     {
                         Id = memoryId,
@@ -443,7 +383,6 @@ namespace SwAIvyn.Services
                     _dbContext.Memories.Add(memoryItem);
                     await _dbContext.SaveChangesAsync();
 
-                    // Add to vector store for semantic search
                     var success = await _brainGraphService.AddMemoryAsync(memoryId, memoryContent, metadata);
 
                     if (success)
@@ -459,7 +398,6 @@ namespace SwAIvyn.Services
             catch (Exception ex)
             {
                 _logger.LogError($"🚨 Error processing auto-memory: {ex.Message}", ex);
-                // Don't throw - auto-memory failure shouldn't break chat
             }
         }
 
@@ -518,9 +456,5 @@ Example conversation:
                 return "You are a helpful AI assistant.";
             }
         }
-
-        // NOTE: ProcessConversationChunkAsync method removed
-        // Conversation storage is now handled by the search.py service
-        // Conversations are stored in SQL (above) and search.py handles Weaviate storage
     }
 }
