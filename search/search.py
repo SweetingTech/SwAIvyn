@@ -472,7 +472,7 @@ class HybridSearchEngine:
                         id=memory_id,
                         title=f"Memory: {category} (Entity Match)",
                         content=content[:500] + "..." if len(content) > 500 else content,
-                        score=base_score,
+                        score=score,
                         source="neo4j",
                         metadata={
                             "entity_type": "memory",
@@ -595,7 +595,7 @@ class HybridSearchEngine:
                         id=memory_id,
                         title=f"Memory: {category}",
                         content=content[:500] + "..." if len(content) > 500 else content,
-                        score=base_score,
+                        score=score,
                         source="neo4j",
                         metadata={
                             "entity_type": "memory",
