@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import useEngineModels from '../hooks/useEngineModels';
 import { motion } from 'framer-motion';
 import {
   User,
@@ -22,6 +24,7 @@ import ttsService from '../services/ttsService';
 import yaml from 'js-yaml';
 import { Tooltip } from '../components/Tooltip';
 import { useInitialization } from '../contexts/InitializationContext';
+import fetchWithTimeout from '../utils/fetchWithTimeout';
 
 const tabs = [
   { id: 'account', label: 'Account', icon: <User size={16} /> },
@@ -323,9 +326,9 @@ const AccountSettings = () => {
 
 const ModelSettings = () => {
   const { user } = useInitialization();
+  const qc = useQueryClient();
   const [selectedEngine, setSelectedEngine] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
   const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
   const [openAiApiUrl, setOpenAiApiUrl] = useState('https://api.openai.com');
@@ -338,6 +341,11 @@ const ModelSettings = () => {
   const [saveError, setSaveError] = useState('');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
+  const { data: ollamaModels = [] } = useEngineModels('ollama');
+  const { data: lmstudioModels } = useEngineModels('lmstudio');
+  const { data: openAiModels = [] } = useEngineModels('openai');
+  const { data: claudeModels = [] } = useEngineModels('claude');
+
   useEffect(() => {
     if (user?.id) {
       loadSettings(user.id);
@@ -345,49 +353,30 @@ const ModelSettings = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !settingsLoaded || loading || !selectedEngine) return;
+    if (!user?.id) return;
+    ['ollama', 'lmstudio', 'openai', 'claude'].forEach(engine =>
+      qc.prefetchQuery({
+        queryKey: ['models', engine],
+        queryFn: () => fetchWithTimeout(`/api/llm/${engine}/models`).then(r => r.json()),
+      }),
+    );
+  }, [user?.id, qc]);
 
-    const loadModelsForEngine = async () => {
-      try {
-        if (selectedEngine === 'ollama') {
-          const res = await fetch('/api/llm/ollama/models');
-          if (res.ok) {
-            const list = await res.json();
-            setOllamaModels(list);
-            if (!list.includes(selectedModel)) {
-              setSelectedModel(list[0] || '');
-            }
-          }
-        } else if (selectedEngine === 'lmstudio') {
-          const res = await fetch('/api/llm/lmstudio/models');
-          if (res.ok) {
-            const list = await res.json();
-            if (list.length > 0) {
-              setSelectedModel(list[0]);
-            }
-          }
-        } else if (selectedEngine === 'openai') {
-          const res = await fetch('/api/llm/openai/models');
-          if (res.ok) {
-            const list = await res.json();
-            if (list.length > 0) setSelectedModel(list[0]);
-          }
-        } else if (selectedEngine === 'claude') {
-          const res = await fetch('/api/llm/claude/models');
-          if (res.ok) {
-            const list = await res.json();
-            if (list.length > 0) setSelectedModel(list[0]);
-          }
-        }
-      } catch {
-        if (selectedEngine === 'ollama') {
-          setOllamaModels(['llama2', 'mistral', 'mixtral', 'phi4:latest']);
-        }
-      }
+  useEffect(() => {
+    if (!settingsLoaded) return;
+
+    const map: Record<string, string[]> = {
+      ollama: ollamaModels,
+      lmstudio: lmstudioModels?.data?.map((m: any) => m.id) ?? [],
+      openai: openAiModels,
+      claude: claudeModels,
     };
 
-    loadModelsForEngine();
-  }, [selectedEngine, user?.id, settingsLoaded]);
+    const list = map[selectedEngine] || [];
+    if (list.length > 0 && !list.includes(selectedModel)) {
+      setSelectedModel(list[0]);
+    }
+  }, [selectedEngine, settingsLoaded, ollamaModels, lmstudioModels, openAiModels, claudeModels, selectedModel]);
 
   const loadSettings = async (userIdToUse: string) => {
     setLoading(true);
@@ -395,36 +384,7 @@ const ModelSettings = () => {
       if (!userIdToUse) return;
       const settings = await chatService.getLlmSettings(userIdToUse);
       const engineToSet = settings.engine || 'ollama';
-      let modelToSet = settings.model || '';
-
-      if (engineToSet === 'lmstudio') {
-        const res = await fetch('/api/llm/lmstudio/models');
-        if (res.ok) {
-          const list = await res.json();
-          if (list.length > 0) modelToSet = list[0];
-        }
-      } else if (engineToSet === 'ollama') {
-        const res = await fetch('/api/llm/ollama/models');
-        if (res.ok) {
-          const list = await res.json();
-          setOllamaModels(list);
-          if (!list.includes(modelToSet)) {
-            modelToSet = list[0] || '';
-          }
-        }
-      } else if (engineToSet === 'openai') {
-        const res = await fetch('/api/llm/openai/models');
-        if (res.ok) {
-          const list = await res.json();
-          if (list.length > 0) modelToSet = list[0];
-        }
-      } else if (engineToSet === 'claude') {
-        const res = await fetch('/api/llm/claude/models');
-        if (res.ok) {
-          const list = await res.json();
-          if (list.length > 0) modelToSet = list[0];
-        }
-      }
+      const modelToSet = settings.model || '';
 
       setSelectedEngine(engineToSet);
       setSelectedModel(modelToSet);
@@ -545,7 +505,7 @@ const ModelSettings = () => {
                   onClick={async () => {
                     try {
                       setLoading(true);
-                      const res = await fetch(`${ollamaApiUrl}/v1/models`);
+                      const res = await fetch(`${ollamaApiUrl}/api/tags`);
                       if (res.ok) {
                         const data = await res.json();
                         alert(
