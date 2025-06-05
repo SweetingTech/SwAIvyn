@@ -314,7 +314,7 @@ builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
 
 // Add Neo4j and BrainGraph services
 builder.Services.AddScoped<INeo4jService, Neo4jService>();
-// builder.Services.AddSingleton<Neo4jRuntimeService>(); // Temporarily commented out
+builder.Services.AddSingleton<Neo4jRuntimeService>();
 builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 
 // Add LLM and AI chat services
@@ -641,11 +641,11 @@ logger.LogInfo($"Neo4j required: {requireNeo4j}");
 try
 {
     // Get Neo4j services
-    // var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>(); // Temporarily commented out
+    var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
 
     // Initialize Neo4j runtime (extract and start Neo4j)
-    logger.LogInfo("Skipping Neo4j runtime initialization for now due to build issues.");
-    // await neo4jRuntime.InitializeAsync(); // Temporarily commented out
+    logger.LogInfo("Initializing Neo4j runtime...");
+    await neo4jRuntime.InitializeAsync();
 
     // Give Neo4j time to fully start up before connecting
     if (neo4jEmbedded)
