@@ -120,10 +120,10 @@ $exePath     = Join-Path $dllDir "SwAIvyn.exe"
 $rootExePath = Join-Path $distDir "SwAIvyn.exe"
 if (Test-Path $exePath) {
     Copy-Item $exePath -Destination $rootExePath -Force
-    Write-Host "✓ Copied main executable to root directory" -ForegroundColor Green
+    Write-Host '✓ Copied main executable to root directory' -ForegroundColor Green
 }
 
-Write-Host "Build completed successfully!" -ForegroundColor Green
+Write-Host 'Build completed successfully!' -ForegroundColor Green
 Write-Host "Executable is located at: $rootExePath" -ForegroundColor Green
 Write-Host "DLL files are organized in: $dllDir" -ForegroundColor Green
-Write-Host "You can double-click SwAIvyn.exe in the root directory to run the application." -ForegroundColor Green
+Write-Host 'You can double-click SwAIvyn.exe in the root directory to run the application.' -ForegroundColor Green
