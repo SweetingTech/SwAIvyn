@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint-and-test:
+    runs-on: windows-latest
+    name: Lint and Test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache .NET packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: npm ci
+
+    - name: Run frontend linting
+      working-directory: frontend
+      run: npm run lint
+
+    - name: Build frontend
+      working-directory: frontend
+      run: npm run build
+
+    - name: Restore .NET dependencies
+      working-directory: backend
+      run: dotnet restore
+
+    - name: Build backend
+      working-directory: backend
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Run .NET tests (if any)
+      working-directory: backend
+      run: dotnet test --configuration Release --no-build --verbosity normal
+      continue-on-error: true
+
+  build:
+    runs-on: windows-latest
+    needs: lint-and-test
+    name: Build Application
+    if: github.event_name == 'push'
+
+    strategy:
+      matrix:
+        runtime: [win-x64, win-arm64]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache .NET packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Run complete build
+      run: |
+        .\scripts\build-app.ps1 -Configuration Release -Runtime ${{ matrix.runtime }}
+      shell: powershell
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: SwAIvyn-${{ matrix.runtime }}-${{ github.sha }}
+        path: |
+          SwAIvyn.exe
+          dll/
+          appsettings.json
+          !dll/*.pdb
+        retention-days: 30
+
+    - name: Upload build logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs-${{ matrix.runtime }}-${{ github.sha }}
+        path: |
+          *.log
+          backend/*.log
+          frontend/*.log
+        retention-days: 7

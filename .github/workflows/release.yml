@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      create_release:
+        description: 'Create GitHub release'
+        type: boolean
+        default: true
+
+jobs:
+  release-build:
+    runs-on: windows-latest
+    name: Release Build
+
+    strategy:
+      matrix:
+        runtime: [win-x64, win-arm64]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache .NET packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Get version
+      id: version
+      run: |
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          $version = "${{ github.event.inputs.version }}"
+        } else {
+          $version = "${{ github.ref_name }}"
+        }
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "version_clean=$($version -replace '^v', '')" >> $env:GITHUB_OUTPUT
+      shell: powershell
+
+    - name: Run full setup and build
+      run: |
+        .\scripts\full-setup.ps1 -Configuration Release -Runtime ${{ matrix.runtime }}
+      shell: powershell
+
+    - name: Create release package
+      run: |
+        $version = "${{ steps.version.outputs.version_clean }}"
+        $runtime = "${{ matrix.runtime }}"
+        $packageName = "SwAIvyn-${version}-${runtime}"
+        $packagePath = "${packageName}.zip"
+        
+        # Create a temporary directory for packaging
+        $tempDir = "temp_package"
+        New-Item -ItemType Directory -Path $tempDir -Force
+        
+        # Copy main executable
+        Copy-Item "SwAIvyn.exe" -Destination $tempDir
+        
+        # Copy DLL directory
+        Copy-Item "dll" -Destination $tempDir -Recurse
+        
+        # Copy configuration files
+        $configFiles = @("appsettings.json", "web.config", "LICENSE")
+        foreach ($file in $configFiles) {
+          if (Test-Path $file) {
+            Copy-Item $file -Destination $tempDir
+          }
+        }
+        
+        # Create README for the package
+        @"
+# SwAIvyn $version
+        
+## Installation
+1. Extract all files to a folder
+2. Run SwAIvyn.exe
+        
+## Requirements
+- Windows 10/11 (x64 or ARM64)
+- No additional runtime required (self-contained)
+        
+## Support
+Visit: https://github.com/${{ github.repository }}
+"@ | Out-File -FilePath "$tempDir\README.txt" -Encoding utf8
+        
+        # Create zip package
+        Compress-Archive -Path "$tempDir\*" -DestinationPath $packagePath -Force
+        
+        # Cleanup
+        Remove-Item $tempDir -Recurse -Force
+        
+        echo "package_name=$packageName" >> $env:GITHUB_OUTPUT
+        echo "package_path=$packagePath" >> $env:GITHUB_OUTPUT
+      shell: powershell
+      id: package
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.package.outputs.package_name }}
+        path: ${{ steps.package.outputs.package_path }}
+        retention-days: 90
+
+    - name: Upload to release
+      if: github.event.inputs.create_release != 'false'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: SwAIvyn ${{ steps.version.outputs.version }}
+        files: ${{ steps.package.outputs.package_path }}
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+        generate_release_notes: true
+        body: |
+          ## SwAIvyn ${{ steps.version.outputs.version }}
+          
+          ### Downloads
+          - **Windows x64**: SwAIvyn-${{ steps.version.outputs.version_clean }}-win-x64.zip
+          - **Windows ARM64**: SwAIvyn-${{ steps.version.outputs.version_clean }}-win-arm64.zip
+          
+          ### Installation
+          1. Download the appropriate package for your system
+          2. Extract to a folder
+          3. Run `SwAIvyn.exe`
+          
+          ### Changes
+          See the commits since the last release for detailed changes.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
