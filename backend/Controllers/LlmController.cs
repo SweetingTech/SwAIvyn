@@ -99,6 +99,24 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
+        /// Gets the list of models available in LM Studio.
+        /// </summary>
+        [HttpGet("lmstudio/models")]
+        public async Task<IActionResult> GetLmStudioModels([FromQuery] Guid? userId = null)
+        {
+            try
+            {
+                var models = await _llmConnectorService.GetLmStudioModelsAsync(userId);
+                return Ok(models);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error getting LM Studio models", ex);
+                return StatusCode(500, "An error occurred while getting LM Studio models");
+            }
+        }
+
+        /// <summary>
         /// Tests connection to LM Studio by fetching the current model.
         /// </summary>
         [HttpGet("lmstudio/test")]
