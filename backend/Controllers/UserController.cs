@@ -16,9 +16,7 @@ namespace SwAIvyn.Controllers
         public UserController(ApplicationDbContext dbContext)
         {
             _dbContext = dbContext;
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Gets the single default user, creating one if it doesn't exist.
         /// This is a single-user application.
         /// </summary>
@@ -29,10 +27,10 @@ namespace SwAIvyn.Controllers
 
             if (user == null)
             {
-                // Create the default user if none exists
+                // Create the default user if none exists - use the same fixed GUID as Program.cs
                 user = new AppUser
                 {
-                    Id = Guid.NewGuid(),
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
                     Username = "Default User",
                     PasswordHash = "", // No password needed for single-user app
                     PINCode = "",

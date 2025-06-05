@@ -76,8 +76,8 @@ dotnet publish "SwAIvyn.csproj" `
     -p:PublishTrimmed=false `
     -p:EnableCompressionInSingleFile=true
 
-# Copy SQLite-VSS and dependencies from root into the published dll folder
-$buildFilesDir = $rootDir
+# Copy SQLite-VSS and dependencies from dll folder into the published dll folder
+$buildFilesDir = Join-Path $rootDir "dll"
 $dllFiles     = @(
     "sqlite-vss.dll",
     "faiss.dll",

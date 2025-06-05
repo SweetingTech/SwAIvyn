@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using SwAIvyn.Services.Logging;
 
 namespace SwAIvyn.Services.Graph
 {
@@ -61,7 +60,9 @@ namespace SwAIvyn.Services.Graph
             _neo4jConfPath = Path.Combine(_neo4jHomePath, "conf", "neo4j.conf");
 
             _logger.LogInfo($"Neo4j home path: {_neo4jHomePath}");
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Initializes the Neo4j runtime
         /// </summary>
         public async Task InitializeAsync()
@@ -93,7 +94,9 @@ namespace SwAIvyn.Services.Graph
                 _logger.LogError("Failed to initialize Neo4j runtime", ex);
                 throw;
             }
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Extracts Neo4j from the bundled ZIP file
         /// </summary>
         private async Task ExtractNeo4jAsync()
@@ -243,24 +246,42 @@ namespace SwAIvyn.Services.Graph
             try
             {
                 _logger.LogInfo("Starting Neo4j...");
-                _isStarting = true;
-
-                // Get the path to the Neo4j executable
-                string neo4jExePath = Path.Combine(_neo4jBinPath, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "neo4j.bat" : "neo4j");
-
-                // Check if the executable exists
-                if (!File.Exists(neo4jExePath))
+                _isStarting = true;                // Get Java executable path from configuration
+                string javaHome = _configuration.GetValue<string>("AppSettings:Neo4jJavaHome");
+                if (string.IsNullOrEmpty(javaHome))
                 {
-                    throw new FileNotFoundException($"Neo4j executable not found at {neo4jExePath}");
+                    javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
+                }
+                
+                if (string.IsNullOrEmpty(javaHome))
+                {
+                    throw new InvalidOperationException("JAVA_HOME is not configured. Please set Neo4jJavaHome in appsettings.json or JAVA_HOME environment variable.");
                 }
 
-                // Start the Neo4j process
+                string javaExePath = Path.Combine(javaHome, "bin", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "java.exe" : "java");
+                
+                // Check if Java executable exists
+                if (!File.Exists(javaExePath))
+                {
+                    throw new FileNotFoundException($"Java executable not found at {javaExePath}");
+                }
+
+                // Build Neo4j lib classpath
+                string neo4jLibPath = Path.Combine(_neo4jHomePath, "lib", "*");
+                string neo4jBasedir = _neo4jHomePath.Replace("\\", "/");
+
+                // Build Java arguments to start Neo4j console directly
+                string javaArguments = $"-cp \"{neo4jLibPath}\" -Dbasedir=\"{neo4jBasedir}\" org.neo4j.server.startup.Neo4jCommand console";
+
+                _logger.LogInfo($"Starting Neo4j with Java command: {javaExePath} {javaArguments}");
+
+                // Start the Neo4j process using Java directly
                 _neo4jProcess = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
-                        FileName = neo4jExePath,
-                        Arguments = "console",
+                        FileName = javaExePath,
+                        Arguments = javaArguments,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,

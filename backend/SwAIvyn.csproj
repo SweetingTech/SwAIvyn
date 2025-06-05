@@ -38,15 +38,15 @@
   <ItemGroup>
     <Compile Remove="old_program.cs" />
   </ItemGroup>  <ItemGroup>
-    <None Include="..\sqlite-vss.dll">
+    <None Include="..\dll\sqlite-vss.dll">
       <Link>sqlite-vss.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\faiss.dll">
+    <None Include="..\dll\faiss.dll">
       <Link>faiss.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\libopenblas.dll">
+    <None Include="..\dll\libopenblas.dll">
       <Link>libopenblas.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

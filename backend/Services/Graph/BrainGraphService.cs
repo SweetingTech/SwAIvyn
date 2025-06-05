@@ -184,9 +184,7 @@ namespace SwAIvyn.Services.Graph
                 // Don't throw the exception, just log it
                 _isInitialized = true; // Set to true anyway so we can continue
             }
-        }
-
-        /// <inheritdoc/>
+        }        /// <inheritdoc/>
         public async Task<bool> AddMemoryAsync(Guid id, string text, Dictionary<string, string> metadata = null)
         {
             if (!_isInitialized)
@@ -197,8 +195,12 @@ namespace SwAIvyn.Services.Graph
                 // Generate embedding for the text
                 var embedding = await _embeddingService.EmbedTextAsync(text);
 
+                // Ensure metadata contains the content for vector store search
+                var vectorMetadata = metadata != null ? new Dictionary<string, string>(metadata) : new Dictionary<string, string>();
+                vectorMetadata["content"] = text; // Add content to metadata for search functionality
+
                 // Store the embedding in Neo4j vector store
-                var vectorStoreSuccess = await _neo4jVectorStore.StoreVectorAsync(id, embedding, metadata);
+                var vectorStoreSuccess = await _neo4jVectorStore.StoreVectorAsync(id, embedding, vectorMetadata);
 
                 try
                 {
@@ -569,12 +571,11 @@ namespace SwAIvyn.Services.Graph
             try
             {
                 // Generate embedding for the text
-                var embedding = await _embeddingService.EmbedTextAsync(text);
-
-                // Add type metadata to identify as conversation chunk
+                var embedding = await _embeddingService.EmbedTextAsync(text);                // Add type metadata to identify as conversation chunk and include content for search
                 var conversationMetadata = new Dictionary<string, string>(metadata ?? new Dictionary<string, string>())
                 {
-                    ["type"] = "conversation"
+                    ["type"] = "conversation",
+                    ["content"] = text  // Add content to metadata for search functionality
                 };
 
                 // Store the embedding in Neo4j vector store

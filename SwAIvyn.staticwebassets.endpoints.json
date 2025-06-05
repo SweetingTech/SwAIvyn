@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "ManifestType": "Publish",
+  "ManifestType": "Build",
   "Endpoints": [
     {
       "Route": "assets/index-3EC480sP.3tdcy987ki.js",
