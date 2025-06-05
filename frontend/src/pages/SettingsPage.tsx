@@ -361,9 +361,9 @@ const ModelSettings = () => {
         } else if (selectedEngine === 'lmstudio') {
           const res = await fetch('/api/llm/lmstudio/models');
           if (res.ok) {
-            const data = await res.json();
-            if (data.data?.length > 0) {
-              setSelectedModel(data.data[0].id);
+            const list = await res.json();
+            if (list.length > 0) {
+              setSelectedModel(list[0]);
             }
           }
         } else if (selectedEngine === 'openai') {
@@ -400,8 +400,8 @@ const ModelSettings = () => {
       if (engineToSet === 'lmstudio') {
         const res = await fetch('/api/llm/lmstudio/models');
         if (res.ok) {
-          const data = await res.json();
-          if (data.data?.length > 0) modelToSet = data.data[0].id;
+          const list = await res.json();
+          if (list.length > 0) modelToSet = list[0];
         }
       } else if (engineToSet === 'ollama') {
         const res = await fetch('/api/llm/ollama/models');
