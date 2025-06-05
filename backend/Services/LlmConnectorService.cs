@@ -25,6 +25,11 @@ namespace SwAIvyn.Services
         Task<string> GetLmStudioModelAsync(Guid? userId = null);
 
         /// <summary>
+        /// Lists the models available from LM Studio.
+        /// </summary>
+        Task<IEnumerable<string>> GetLmStudioModelsAsync(Guid? userId = null);
+
+        /// <summary>
         /// Lists available OpenAI models.
         /// </summary>
         Task<IEnumerable<string>> GetOpenAiModelsAsync(Guid? userId = null);
@@ -159,6 +164,49 @@ namespace SwAIvyn.Services
             {
                 _logger.LogError($"Failed to get LM Studio model: {ex.Message}");
                 return string.Empty;
+            }
+        }
+
+        public async Task<IEnumerable<string>> GetLmStudioModelsAsync(Guid? userId = null)
+        {
+            try
+            {
+                var lmStudioApiUrl = (await _configurationService.GetLmStudioApiUrl()).TrimEnd('/');
+                _logger.LogInfo($"Using LM Studio API URL: {lmStudioApiUrl}");
+
+                var results = new List<string>();
+
+                // Try OpenAI-compatible endpoint first
+                var openAiResponse = await _httpClient.GetAsync($"{lmStudioApiUrl}/v1/models");
+                if (openAiResponse.IsSuccessStatusCode)
+                {
+                    var openAiModels = await openAiResponse.Content.ReadFromJsonAsync<OpenAiModelsResponse>();
+                    if (openAiModels?.Data != null && openAiModels.Data.Count > 0)
+                    {
+                        results.AddRange(openAiModels.Data.Select(m => m.Id));
+                    }
+                }
+
+                // If no models found, fallback to legacy /models endpoint
+                if (results.Count == 0)
+                {
+                    var legacyResponse = await _httpClient.GetAsync($"{lmStudioApiUrl}/models");
+                    if (legacyResponse.IsSuccessStatusCode)
+                    {
+                        var legacyData = await legacyResponse.Content.ReadFromJsonAsync<LmStudioModelsResponse>();
+                        if (legacyData?.Data != null && legacyData.Data.Count > 0)
+                        {
+                            results.AddRange(legacyData.Data.Select(m => m.Name));
+                        }
+                    }
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to get LM Studio models: {ex.Message}");
+                return new List<string>();
             }
         }
 

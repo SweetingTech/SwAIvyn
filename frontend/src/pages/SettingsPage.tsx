@@ -355,11 +355,12 @@ const ModelSettings = () => {
   useEffect(() => {
     if (!user?.id) return;
     ['ollama', 'lmstudio', 'openai', 'claude'].forEach(engine =>
-      qc.prefetchQuery(['models', engine], () =>
-        fetchWithTimeout(`/api/llm/${engine}/models`).then(r => r.json()),
-      ),
+      qc.prefetchQuery({
+        queryKey: ['models', engine],
+        queryFn: () => fetchWithTimeout(`/api/llm/${engine}/models`).then(r => r.json()),
+      }),
     );
-  }, [user?.id]);
+  }, [user?.id, qc]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -375,7 +376,7 @@ const ModelSettings = () => {
     if (list.length > 0 && !list.includes(selectedModel)) {
       setSelectedModel(list[0]);
     }
-  }, [selectedEngine, settingsLoaded, ollamaModels, lmstudioModels, openAiModels, claudeModels]);
+  }, [selectedEngine, settingsLoaded, ollamaModels, lmstudioModels, openAiModels, claudeModels, selectedModel]);
 
   const loadSettings = async (userIdToUse: string) => {
     setLoading(true);
@@ -504,7 +505,7 @@ const ModelSettings = () => {
                   onClick={async () => {
                     try {
                       setLoading(true);
-                      const res = await fetch(`${ollamaApiUrl}/v1/models`);
+                      const res = await fetch(`${ollamaApiUrl}/api/tags`);
                       if (res.ok) {
                         const data = await res.json();
                         alert(
