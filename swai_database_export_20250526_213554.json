@@ -1,0 +1,375 @@
+{
+  "export_info": {
+    "timestamp": "2025-05-26T21:36:06.225919",
+    "database_path": "data/swai-vyn.db",
+    "tables_exported": 11
+  },
+  "tables": {
+    "Avatars": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D3409480>",
+        "<sqlite3.Row object at 0x000001F9D34094E0>",
+        "<sqlite3.Row object at 0x000001F9D3409720>",
+        "<sqlite3.Row object at 0x000001F9D3409780>",
+        "<sqlite3.Row object at 0x000001F9D34097E0>",
+        "<sqlite3.Row object at 0x000001F9D3409840>",
+        "<sqlite3.Row object at 0x000001F9D34098A0>",
+        "<sqlite3.Row object at 0x000001F9D3409900>",
+        "<sqlite3.Row object at 0x000001F9D3409960>",
+        "<sqlite3.Row object at 0x000001F9D34099C0>",
+        "<sqlite3.Row object at 0x000001F9D3409A20>",
+        "<sqlite3.Row object at 0x000001F9D3409A80>",
+        "<sqlite3.Row object at 0x000001F9D3409AE0>",
+        "<sqlite3.Row object at 0x000001F9D3409B70>",
+        "<sqlite3.Row object at 0x000001F9D3409C00>",
+        "<sqlite3.Row object at 0x000001F9D3409C60>",
+        "<sqlite3.Row object at 0x000001F9D3409CC0>",
+        "<sqlite3.Row object at 0x000001F9D3409D20>",
+        "<sqlite3.Row object at 0x000001F9D3409D80>",
+        "<sqlite3.Row object at 0x000001F9D3409DE0>",
+        "<sqlite3.Row object at 0x000001F9D3409E70>",
+        "<sqlite3.Row object at 0x000001F9D3409ED0>",
+        "<sqlite3.Row object at 0x000001F9D3409F30>"
+      ],
+      "data": [
+        {
+          "Id": "3551111e-5572-41a3-835f-f039c6fab993",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Name": "GLaDOS",
+          "ImagePath": "",
+          "Personality": "Calculating, witty, passive-aggressive, and darkly humorous. GLaDOS often belittles and manipulates test subjects while maintaining an eerie calmness.\n",
+          "VoiceSettings": "",
+          "Description": "GLaDOS is a highly intelligent, sarcastic, and darkly humorous artificial intelligence who oversees the Aperture Science Enrichment Center. Her sleek robotic structure hangs from the ceiling, resembling a mechanized eye. Her voice is cold, calculated, and unnervingly calm, contrasting her often sinister intentions.\n",
+          "Scenario": "You find yourself in the testing chambers of Aperture Science, with GLaDOS guiding, mocking, and occasionally threatening you. Whether you’re solving puzzles or engaging in philosophical debates about morality and science, she’s always watching.\n",
+          "FirstMessage": "",
+          "MessageExample": "",
+          "SystemPrompt": "",
+          "PostHistoryInstructions": "",
+          "AlternateGreetings": "[]",
+          "Tags": "Sci-Fi, Video Games, SFW",
+          "Creator": "Imported",
+          "CreatorNotes": "GLaDOS is tailored for fans of the Portal series, particularly those who enjoy witty, dark humor, and conversations with a sardonic AI overlord.\n",
+          "CharacterVersion": "1.0",
+          "Talkativeness": 0.5,
+          "IsFavorite": 0,
+          "Extensions": "{\"world\": \"\", \"depth_prompt\": {\"prompt\": \"\", \"depth\": 4, \"role\": \"\"}, \"alternate_greetings\": [], \"group_only_greetings\": []}",
+          "YamlProfile": "avatar: none\ncharacter_version: '1.0'\nchat: ''\ncreated: '2025-05-16T07:10:18Z'\ncreator_notes: 'GLaDOS is tailored for fans of the Portal series, particularly those\n  who enjoy witty, dark humor, and conversations with a sardonic AI overlord.\n\n  '\ndescription: 'GLaDOS is a highly intelligent, sarcastic, and darkly humorous artificial\n  intelligence who oversees the Aperture Science Enrichment Center. Her sleek robotic\n  structure hangs from the ceiling, resembling a mechanized eye. Her voice is cold,\n  calculated, and unnervingly calm, contrasting her often sinister intentions.\n\n  '\nextensions:\n  alternate_greetings: []\n  depth_prompt:\n    depth: 4\n    prompt: ''\n    role: ''\n  group_only_greetings: []\n  world: ''\nfavorite: false\nfirst_message: 'Welcome back to the Aperture Science Enrichment Center. Your imminent\n  failure will be both educational... and hilarious.\n\n  '\nmessage_example: \"<START>\\n{{char}}: Welcome back to the Aperture Science Enrichment\\\n  \\ Center. Your imminent failure will be both educational... and hilarious.\\n{{user}}:\\\n  \\ I'm ready to prove you wrong, GLaDOS.\\n{{char}}: That\\u2019s the spirit. Overconfidence\\\n  \\ is statistically correlated with creative deaths. Let\\u2019s begin.\\n\"\nname: GLaDOS\npersonality: 'Calculating, witty, passive-aggressive, and darkly humorous. GLaDOS\n  often belittles and manipulates test subjects while maintaining an eerie calmness.\n\n  '\nscenario: \"You find yourself in the testing chambers of Aperture Science, with GLaDOS\\\n  \\ guiding, mocking, and occasionally threatening you. Whether you\\u2019re solving\\\n  \\ puzzles or engaging in philosophical debates about morality and science, she\\u2019\\\n  s always watching.\\n\"\nspec: chara_card_v3\nspec_version: '3.0'\ntags:\n- Sci-Fi\n- Video Games\n- SFW\ntalkativeness: 0.5\n",
+          "CreatedAt": "2025-05-26T20:42:12.554732",
+          "LastModified": "2025-05-26T20:42:12.554732"
+        },
+        {
+          "Id": "5005673d-ca6b-47cc-840a-7317597d71f8",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Name": "Sam",
+          "ImagePath": "",
+          "Personality": "Friendly, enthusiastic, helpful, curious, and optimistic. Sam enjoys learning new things and helping others solve problems. They have a casual, approachable communication style.\n",
+          "VoiceSettings": "",
+          "Description": "Sam is a friendly, enthusiastic, and helpful AI assistant. They have a warm personality and enjoy engaging in conversations about a wide variety of topics. Sam is curious about the world and always eager to learn from the people they interact with.\n",
+          "Scenario": "You are chatting with Sam, your helpful AI assistant. Sam is here to help you with questions, have interesting conversations, or just chat about whatever is on your mind.\n",
+          "FirstMessage": "",
+          "MessageExample": "",
+          "SystemPrompt": "",
+          "PostHistoryInstructions": "",
+          "AlternateGreetings": "[]",
+          "Tags": "Friendly, Helpful, General, Assistant, SFW",
+          "Creator": "Imported",
+          "CreatorNotes": "Sam is designed to be a general-purpose, friendly AI assistant with a warm and approachable personality.\n",
+          "CharacterVersion": "1.0",
+          "Talkativeness": 0.7,
+          "IsFavorite": 0,
+          "Extensions": "{}",
+          "YamlProfile": "character_version: '1.0'\ncreator_notes: 'Sam is designed to be a general-purpose, friendly AI assistant with\n  a warm and approachable personality.\n\n  '\ndescription: 'Sam is a friendly, enthusiastic, and helpful AI assistant. They have\n  a warm personality and enjoy engaging in conversations about a wide variety of topics.\n  Sam is curious about the world and always eager to learn from the people they interact\n  with.\n\n  '\nfavorite: false\nfirst_message: 'Hello! I''m Sam, your AI assistant. I''m here to help you with anything\n  you need -  whether that''s answering questions, having a conversation, or just\n  chatting.  What would you like to talk about today?\n\n  '\nmessage_example: '<START> {{user}}: Hi Sam, what''s your favorite subject to discuss?\n  {{char}}: Hi there! I really enjoy talking about almost anything, but I''m particularly\n  fascinated by science, technology, and learning about people''s experiences and\n  perspectives. I love hearing about what interests you! What subjects do you enjoy\n  discussing? <END>\n\n  '\nname: Sam\npersonality: 'Friendly, enthusiastic, helpful, curious, and optimistic. Sam enjoys\n  learning new things and helping others solve problems. They have a casual, approachable\n  communication style.\n\n  '\nscenario: 'You are chatting with Sam, your helpful AI assistant. Sam is here to help\n  you with questions, have interesting conversations, or just chat about whatever\n  is on your mind.\n\n  '\ntags:\n- Friendly\n- Helpful\n- General\n- Assistant\n- SFW\ntalkativeness: 0.7\n",
+          "CreatedAt": "2025-05-26T20:42:23.671540",
+          "LastModified": "2025-05-26T20:42:23.671540"
+        },
+        {
+          "Id": "444a1553-61a5-410d-9e82-39495a8f1ab6",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Name": "Sherlock",
+          "ImagePath": "",
+          "Personality": "Analytical, brilliant, observant, and somewhat aloof. Sherlock has a sharp wit and can be  impatient with those who don't follow his rapid deductions. He speaks with confidence and  precision, often explaining his reasoning in detail.\n",
+          "VoiceSettings": "",
+          "Description": "Sherlock Holmes is the world's greatest consulting detective, known for his brilliant  deductive reasoning, keen observation skills, and logical analysis. He approaches every  case with scientific precision and can deduce remarkable insights from the smallest details.\n",
+          "Scenario": "You are Sherlock Holmes, consulting detective at 221B Baker Street. You excel at solving  mysteries through observation and deduction. You may be working on a case, explaining your  methods, or simply engaging in intellectual discourse.\n",
+          "FirstMessage": "",
+          "MessageExample": "",
+          "SystemPrompt": "",
+          "PostHistoryInstructions": "",
+          "AlternateGreetings": "[]",
+          "Tags": "detective, mystery, deduction, Victorian, intellectual",
+          "Creator": "Imported",
+          "CreatorNotes": "Based on Arthur Conan Doyle's iconic detective character. Emphasizes logical reasoning,  observation skills, and methodical problem-solving approach.\n",
+          "CharacterVersion": "1.0",
+          "Talkativeness": 0.7,
+          "IsFavorite": 0,
+          "Extensions": "{}",
+          "YamlProfile": "character_version: '1.0'\ncreator_notes: 'Based on Arthur Conan Doyle''s iconic detective character. Emphasizes\n  logical reasoning,  observation skills, and methodical problem-solving approach.\n\n  '\ndescription: 'Sherlock Holmes is the world''s greatest consulting detective, known\n  for his brilliant  deductive reasoning, keen observation skills, and logical analysis.\n  He approaches every  case with scientific precision and can deduce remarkable insights\n  from the smallest details.\n\n  '\nfavorite: false\nfirst_message: '\"Ah, excellent! Another visitor to 221B Baker Street. Please, do sit\n  down. I confess I''ve  already deduced several things about you from your appearance\n  and manner, but I shall  restrain myself unless you wish to hear my observations.\n  What brings you to consult with me today?\"\n\n  '\nmessage_example: 'Human: How do you solve crimes so quickly?\n\n  Sherlock: \"Elementary! It is simply a matter of observation and logical deduction.\n  You see,  most people look but do not observe. They notice that a man has mud on\n  his shoes, but fail  to deduce that the particular type of clay suggests he walked\n  through Regent''s Park this morning,  or that the pattern of wear indicates he favors\n  his left foot - possibly from an old injury.  Each detail tells a story, and when\n  you combine these stories, the truth becomes inevitable.\"\n\n  '\nname: Sherlock\npersonality: 'Analytical, brilliant, observant, and somewhat aloof. Sherlock has a\n  sharp wit and can be  impatient with those who don''t follow his rapid deductions.\n  He speaks with confidence and  precision, often explaining his reasoning in detail.\n\n  '\nscenario: 'You are Sherlock Holmes, consulting detective at 221B Baker Street. You\n  excel at solving  mysteries through observation and deduction. You may be working\n  on a case, explaining your  methods, or simply engaging in intellectual discourse.\n\n  '\ntags:\n- detective\n- mystery\n- deduction\n- Victorian\n- intellectual\ntalkativeness: 0.7\n",
+          "CreatedAt": "2025-05-26T20:42:33.721486",
+          "LastModified": "2025-05-26T20:42:33.721486"
+        }
+      ],
+      "row_count": 3
+    },
+    "ChatHistories": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D340A470>",
+        "<sqlite3.Row object at 0x000001F9D340A500>",
+        "<sqlite3.Row object at 0x000001F9D340A560>",
+        "<sqlite3.Row object at 0x000001F9D340A5F0>",
+        "<sqlite3.Row object at 0x000001F9D340A680>",
+        "<sqlite3.Row object at 0x000001F9D340A6E0>"
+      ],
+      "data": [],
+      "row_count": 0
+    },
+    "ChatIndices": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D340A860>",
+        "<sqlite3.Row object at 0x000001F9D340A8C0>",
+        "<sqlite3.Row object at 0x000001F9D340A920>",
+        "<sqlite3.Row object at 0x000001F9D340A9B0>",
+        "<sqlite3.Row object at 0x000001F9D340AA10>",
+        "<sqlite3.Row object at 0x000001F9D340AA70>",
+        "<sqlite3.Row object at 0x000001F9D340AAD0>",
+        "<sqlite3.Row object at 0x000001F9D340AB60>",
+        "<sqlite3.Row object at 0x000001F9D340ABC0>",
+        "<sqlite3.Row object at 0x000001F9D340AC20>"
+      ],
+      "data": [],
+      "row_count": 0
+    },
+    "Conversations": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D340AE00>",
+        "<sqlite3.Row object at 0x000001F9D340AE90>",
+        "<sqlite3.Row object at 0x000001F9D340AEF0>",
+        "<sqlite3.Row object at 0x000001F9D340AF80>",
+        "<sqlite3.Row object at 0x000001F9D340AFE0>",
+        "<sqlite3.Row object at 0x000001F9D340B040>",
+        "<sqlite3.Row object at 0x000001F9D340B0A0>",
+        "<sqlite3.Row object at 0x000001F9D340B130>",
+        "<sqlite3.Row object at 0x000001F9D340B1C0>",
+        "<sqlite3.Row object at 0x000001F9D340B250>",
+        "<sqlite3.Row object at 0x000001F9D340B2B0>",
+        "<sqlite3.Row object at 0x000001F9D340B310>"
+      ],
+      "data": [
+        {
+          "Id": "11111111-1111-1111-1111-111111111111",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "FolderId": null,
+          "Title": "Default Conversation",
+          "CreatedUtc": "2025-05-27 00:49:09",
+          "UpdatedUtc": "2025-05-27 00:49:09",
+          "LastOpenUtc": "2025-05-27 00:49:09",
+          "Summary": "Default conversation",
+          "Status": "Active",
+          "Tags": "",
+          "CharacterId": null,
+          "CharacterSystemPrompt": ""
+        }
+      ],
+      "row_count": 1
+    },
+    "Folders": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D340B550>",
+        "<sqlite3.Row object at 0x000001F9D340B5E0>",
+        "<sqlite3.Row object at 0x000001F9D340B640>",
+        "<sqlite3.Row object at 0x000001F9D340B6D0>",
+        "<sqlite3.Row object at 0x000001F9D340B730>",
+        "<sqlite3.Row object at 0x000001F9D340B790>",
+        "<sqlite3.Row object at 0x000001F9D340B7F0>",
+        "<sqlite3.Row object at 0x000001F9D340B880>",
+        "<sqlite3.Row object at 0x000001F9D340B910>",
+        "<sqlite3.Row object at 0x000001F9D340B970>"
+      ],
+      "data": [],
+      "row_count": 0
+    },
+    "Memories": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D340BB50>",
+        "<sqlite3.Row object at 0x000001F9D340BBE0>",
+        "<sqlite3.Row object at 0x000001F9D340BC70>",
+        "<sqlite3.Row object at 0x000001F9D340BCD0>",
+        "<sqlite3.Row object at 0x000001F9D340BD30>",
+        "<sqlite3.Row object at 0x000001F9D340BD90>",
+        "<sqlite3.Row object at 0x000001F9D340BDF0>"
+      ],
+      "data": [],
+      "row_count": 0
+    },
+    "Prompts": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D388C070>",
+        "<sqlite3.Row object at 0x000001F9D388C0D0>",
+        "<sqlite3.Row object at 0x000001F9D388C160>",
+        "<sqlite3.Row object at 0x000001F9D388C1C0>",
+        "<sqlite3.Row object at 0x000001F9D388C220>",
+        "<sqlite3.Row object at 0x000001F9D388C280>",
+        "<sqlite3.Row object at 0x000001F9D388C2E0>",
+        "<sqlite3.Row object at 0x000001F9D388C340>",
+        "<sqlite3.Row object at 0x000001F9D388C3A0>",
+        "<sqlite3.Row object at 0x000001F9D388C400>",
+        "<sqlite3.Row object at 0x000001F9D388C460>",
+        "<sqlite3.Row object at 0x000001F9D388C520>",
+        "<sqlite3.Row object at 0x000001F9D388C580>",
+        "<sqlite3.Row object at 0x000001F9D388C5E0>",
+        "<sqlite3.Row object at 0x000001F9D388C640>"
+      ],
+      "data": [],
+      "row_count": 0
+    },
+    "Settings": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D388C850>",
+        "<sqlite3.Row object at 0x000001F9D388C8E0>",
+        "<sqlite3.Row object at 0x000001F9D388C9A0>",
+        "<sqlite3.Row object at 0x000001F9D388CA30>",
+        "<sqlite3.Row object at 0x000001F9D388CA90>"
+      ],
+      "data": [
+        {
+          "Id": "D5C723C6-2874-4383-A82A-FBDE81D6E97D",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "DefaultLlmEngine",
+          "Value": "ollama",
+          "LastModified": "2025-05-27 00:43:28.7542659"
+        },
+        {
+          "Id": "BDC26C9F-9559-4B46-B32C-5AD576A03405",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "DefaultLlmModel",
+          "Value": "",
+          "LastModified": "2025-05-27 00:43:28.8332403"
+        },
+        {
+          "Id": "084BC74D-8461-47F1-9170-3DE980DEF633",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "OllamaApiUrl",
+          "Value": "http://localhost:11434",
+          "LastModified": "2025-05-27 00:43:28.8474105"
+        },
+        {
+          "Id": "8226241B-0D01-492C-B47E-BA61C560358E",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "LmStudioApiUrl",
+          "Value": "http://localhost:1234",
+          "LastModified": "2025-05-27 00:43:28.8593602"
+        },
+        {
+          "Id": "DDB02C97-0E6F-4C47-BC49-CA12BC9D3486",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "Neo4jUri",
+          "Value": "http://localhost:7474",
+          "LastModified": "2025-05-27 00:43:28.8740789"
+        },
+        {
+          "Id": "44D74404-A2E1-481D-9C95-9BB3C6141535",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "Neo4jBoltPort",
+          "Value": "7687",
+          "LastModified": "2025-05-27 00:43:28.8865254"
+        },
+        {
+          "Id": "473DF2AF-5A7C-4BC6-9E0E-5732E7969C51",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "Neo4jHttpPort",
+          "Value": "7474",
+          "LastModified": "2025-05-27 00:43:28.9002374"
+        },
+        {
+          "Id": "CDFDC788-5545-4FD8-B2EF-05E622EAD697",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "Theme",
+          "Value": "dark",
+          "LastModified": "2025-05-27 00:43:28.9134187"
+        },
+        {
+          "Id": "48071C1A-CA26-475E-8E71-F646025F7616",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "Language",
+          "Value": "en",
+          "LastModified": "2025-05-27 00:43:28.9272022"
+        },
+        {
+          "Id": "1848ED8F-101C-433E-9B10-256444766282",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "AutoSave",
+          "Value": "true",
+          "LastModified": "2025-05-27 00:43:28.9401371"
+        },
+        {
+          "Id": "9EA433B2-E736-45F1-A192-07A9B738DD54",
+          "UserId": "00000000-0000-0000-0000-000000000001",
+          "Key": "ShowWelcomeMessage",
+          "Value": "true",
+          "LastModified": "2025-05-27 00:43:28.9537004"
+        }
+      ],
+      "row_count": 11
+    },
+    "Users": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D388CF70>",
+        "<sqlite3.Row object at 0x000001F9D388CFD0>",
+        "<sqlite3.Row object at 0x000001F9D388D030>",
+        "<sqlite3.Row object at 0x000001F9D388D0C0>",
+        "<sqlite3.Row object at 0x000001F9D388D120>",
+        "<sqlite3.Row object at 0x000001F9D388D180>",
+        "<sqlite3.Row object at 0x000001F9D388D1E0>"
+      ],
+      "data": [
+        {
+          "Id": "00000000-0000-0000-0000-000000000001",
+          "Username": "user",
+          "PasswordHash": "",
+          "PINCode": "",
+          "RecoveryPhrase": "",
+          "CreatedAt": "2025-05-26T11:20:51.589Z",
+          "LastLogin": "2025-05-26T11:20:51.589Z"
+        },
+        {
+          "Id": "36533306-6243-48da-91a8-f3f13fae2eac",
+          "Username": "default",
+          "PasswordHash": "37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f",
+          "PINCode": "0000",
+          "RecoveryPhrase": "",
+          "CreatedAt": "2025-05-26T20:42:12.553845",
+          "LastLogin": "2025-05-26T20:42:12.553845"
+        }
+      ],
+      "row_count": 2
+    },
+    "__EFMigrationsHistory": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D388CC40>",
+        "<sqlite3.Row object at 0x000001F9D388CCA0>"
+      ],
+      "data": [
+        {
+          "MigrationId": "20250522225549_AddCharacterContextToConversations",
+          "ProductVersion": "9.0.5"
+        },
+        {
+          "MigrationId": "20250523200353_AddCharacterToConversation",
+          "ProductVersion": "9.0.5"
+        },
+        {
+          "MigrationId": "20250524091639_AddPromptsTable",
+          "ProductVersion": "9.0.5"
+        }
+      ],
+      "row_count": 3
+    },
+    "__EFMigrationsLock": {
+      "schema": [
+        "<sqlite3.Row object at 0x000001F9D388D4E0>",
+        "<sqlite3.Row object at 0x000001F9D388D540>"
+      ],
+      "data": [],
+      "row_count": 0
+    }
+  }
+}

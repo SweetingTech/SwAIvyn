@@ -1,0 +1,161 @@
+# SwAIvyn .gitignore file
+
+# Build results
+[Bb]in/
+[Oo]bj/
+!backend/obj/
+[Dd]ist/
+[Bb]uild/
+[Rr]elease/
+[Dd]ebug/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+**/Properties/launchSettings.json
+
+# Visual Studio files
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.dbmdl
+*.jfm
+*.pfx
+*.publishsettings
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.pnp/
+.pnp.js
+.npm
+.yarn/
+.yarn-integrity
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+frontend/.cache/
+frontend/coverage/
+frontend/public/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Backend build output
+backend/wwwroot/
+!backend/wwwroot/
+backend/app-icon.ico
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# User-specific files
+*.rsuser
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Application data
+data/
+!data/.gitkeep
+data/avatars/*
+!data/avatars/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+data/backups/*
+!data/backups/.gitkeep
+data/modules/*
+!data/modules/.gitkeep
+
+# Backend Data directory - ensure it's tracked
+!backend/Data/
+
+# Temporary files
+[Tt]emp/
+[Tt]mp/
+*.tmp
+*.temp
+
+# IDE-specific files
+.idea/
+*.sublime-workspace
+*.sublime-project
+.project
+.classpath
+.settings/
+*.launch
+*.tmproj
+*.esproj
+nbproject/
+*.code-workspace
+
+# Compiled output
+*.com
+*.class
+*.dll
+*.exe
+*.pdb
+*.so
+*.dylib
+*.o
+*.obj
+
+# Package files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+logs/
+crash_*.txt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Application specific
+SwAIvyn.lnk
+*.lnk
+
+# Ignore sqlite-vss folder
+sqlite-vss/
+# Ensure sqlite-source and all its contents are completely ignored
+sqlite-vss/sqlite-source/
+sqlite-vss/sqlite-source/**/*
+node_modules/
