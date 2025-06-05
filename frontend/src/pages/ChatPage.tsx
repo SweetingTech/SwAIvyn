@@ -61,17 +61,15 @@ const ChatPage = () => {
     localStorage.setItem('showCharacterImages', showCharacterImages ? 'true' : 'false');
   }, [showCharacterImages]);
 
-  // Reference for auto scrolling
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // References for auto scrolling
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(urlInfo.isNewConversation);
 
   // Auto-scroll to latest message
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
-    }
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   // Load character based on URL parameter
@@ -479,7 +477,7 @@ const ChatPage = () => {
             </div>
           </div>
 
-          <div ref={messagesEndRef} className="flex-grow overflow-y-auto p-4 space-y-4">
+          <div className="flex-grow overflow-y-auto p-4 space-y-4">
             {messages.map((message: Message) => (
               <ChatMessage
                 key={message.id}
@@ -492,6 +490,7 @@ const ChatPage = () => {
                 <div className="animate-pulse text-gray-500">AI is thinking...</div>
               </div>
             )}
+            <div ref={bottomRef} />
           </div>
 
           <form onSubmit={handleSubmit} className="p-4 border-t bg-white">

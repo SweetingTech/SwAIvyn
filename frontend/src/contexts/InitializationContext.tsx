@@ -67,17 +67,18 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       };
       updateState({ user });
 
-      // Step 2: Load user settings
-      updateState({ currentStep: 'Loading settings...' });
-      const settingsResponse = await fetch(`/api/settings/llm?userId=${user.id}`);
+      // Step 2 & 3: Load settings and characters concurrently
+      updateState({ currentStep: 'Loading settings and characters...' });
+      const [settingsResponse, charactersResponse] = await Promise.all([
+        fetch(`/api/settings/llm?userId=${user.id}`),
+        fetch(`/api/character/user/${user.id}`)
+      ]);
+
       if (settingsResponse.ok) {
         const settings = await settingsResponse.json();
         console.log('✅ Settings loaded:', settings);
       }
 
-      // Step 3: Load characters
-      updateState({ currentStep: 'Loading characters...' });
-      const charactersResponse = await fetch(`/api/character/user/${user.id}`);
       if (charactersResponse.ok) {
         const characters = await charactersResponse.json();
         console.log('✅ Characters loaded:', characters.length, 'characters');
