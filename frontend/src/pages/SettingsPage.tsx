@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import useEngineModels from '../hooks/useEngineModels';
 import { motion } from 'framer-motion';
+import InlineSpinner from '../components/ui/InlineSpinner';
 import {
   User,
   Network,
@@ -141,7 +142,7 @@ const AccountSettings = () => {
 
   useEffect(() => {
     loadUserInfo();
-  }, []);
+  }, [user?.id]);
 
   const loadUserInfo = async () => {
     setLoading(true);
@@ -200,7 +201,7 @@ const AccountSettings = () => {
 
   return loading ? (
     <div className="flex items-center justify-center h-32">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      <InlineSpinner />
     </div>
   ) : (
     <div className="space-y-6">
@@ -376,7 +377,7 @@ const ModelSettings = () => {
     if (list.length > 0 && !list.includes(selectedModel)) {
       setSelectedModel(list[0]);
     }
-  }, [selectedEngine, settingsLoaded, ollamaModels, lmstudioModels, openAiModels, claudeModels, selectedModel]);
+  }, [selectedEngine, settingsLoaded, ollamaModels, lmstudioModels, openAiModels, claudeModels]);
 
   const loadSettings = async (userIdToUse: string) => {
     setLoading(true);

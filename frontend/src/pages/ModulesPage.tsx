@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Download, Settings, RefreshCw, X, Search, Plus, Package } from 'lucide-react';
+import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface Module {
   id: string;
@@ -95,7 +96,7 @@ const ModulesPage = () => {
         <div className="space-y-8">
           {loading ? (
             <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+              <InlineSpinner />
               <p className="mt-2 text-gray-500">Loading modules...</p>
             </div>
           ) : Object.keys(groupedModules).length === 0 ? (
