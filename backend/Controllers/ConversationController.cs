@@ -344,8 +344,7 @@ namespace SwAIvyn.Controllers
                 }
 
                 // Generate and store the AI response (with auto-memory support)
-                var aiResponse = await _aiChatService.GenerateAndStoreResponseAsync(
-                    request.ConversationId, userId.Value, request.Message, request.SaveMemory, request.MemoryCategory);
+                var aiResponse = await _aiChatService.GenerateAndStoreResponseAsync(request.ConversationId, userId.Value, request.Message, request.SaveMemory, request.MemoryCategory, request.Engine, request.Model);
 
                 _logger.LogInfo($"[CHAT] Successfully generated AI response for conversation {request.ConversationId}");
                 return Ok(new { response = aiResponse });
@@ -645,6 +644,16 @@ You must respond as this character at all times. Stay in character and respond a
         /// Gets or sets the memory category for auto-saved memories (optional)
         /// </summary>
         public string? MemoryCategory { get; set; } = "conversation";
+
+        /// <summary>
+        /// Gets or sets the LLM engine override for this specific chat message (optional).
+        /// </summary>
+        public string? Engine { get; set; }
+
+        /// <summary>
+        /// Gets or sets the LLM model override for this specific chat message (optional).
+        /// </summary>
+        public string? Model { get; set; }
     }
 
     /// <summary>

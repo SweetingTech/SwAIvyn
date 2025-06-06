@@ -97,6 +97,8 @@ namespace SwAIvyn.Services
                 var yamlContent = await File.ReadAllTextAsync(yamlFile);
                 var characterData = _yamlDeserializer.Deserialize<CharacterCardData>(yamlContent);
 
+                if (characterData?.Name != null) characterData.Name = characterData.Name.Trim();
+
                 if (characterData == null)
                 {
                     _logger.LogWarning("Failed to parse YAML file: {YamlFile}", yamlFile);
@@ -113,8 +115,11 @@ namespace SwAIvyn.Services
                 string imagePath = null;
                 if (imageFiles.Length > 0)
                 {
-                    imagePath = Path.GetRelativePath(Directory.GetCurrentDirectory(), imageFiles.First());
-                    _logger.LogInformation("Found image file: {ImageFile}", imagePath);
+                    // Get path relative to the _characterCardsPath (e.g., GLaDOS/char_img.jpg)
+                    string relativeToAiDir = Path.GetRelativePath(_characterCardsPath, imageFiles.First());
+                    // Prepend 'character-images/' and normalize slashes for web path
+                    imagePath = $"character-images/{relativeToAiDir.Replace('\\', '/')}";
+                    _logger.LogInformation("Found image file, processed ImagePath to: {ProcessedImagePath}", imagePath);
                 }
 
                 // Get default user ID
