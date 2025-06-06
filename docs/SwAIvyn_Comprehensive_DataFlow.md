@@ -6,16 +6,16 @@ This document provides a comprehensive overview of the SwAIvyn application's dat
 
 SwAIvyn uses a DNS-like naming system for service discovery, eliminating the need for hardcoded ports. The following table shows the logical names, actual services, default ports, and their purposes:
 
-| Logical Name | Service | Default URL | Port | Purpose | User Configurable |
-|--------------|---------|-------------|------|---------|-------------------|
-| api | Backend API | http://localhost:5000 | 5000 | Main SwAIvyn backend API | No |
-| ollamaApi | Ollama API | http://localhost:11434 | 11434 | Local LLM service (Ollama) | **Yes** |
-| lmStudioApi | LM Studio API | http://localhost:1234 | 1234 | Local LLM service (LM Studio) | **Yes** |
-| chatHub | SignalR Chat Hub | /hubs/chat | 5000 | Real-time chat communication | No |
-| voiceHub | SignalR Voice Hub | /hubs/voice | 5000 | Real-time voice communication | No |
-| notificationHub | SignalR Notification Hub | /hubs/notification | 5000 | Real-time notifications | No |
-| neo4jHttp | Neo4j HTTP API | http://localhost:7474 | 7474 | Neo4j graph database HTTP interface | **Yes** |
-| neo4jBolt | Neo4j Bolt Protocol | bolt://localhost:7687 | 7687 | Neo4j graph database Bolt protocol | **Yes** |
+| Port  | Purpose / Service                     | Notes                                     |
+| :---- | :------------------------------------ | :---------------------------------------- |
+| 5000  | SwAIvyn backend API and SignalR hubs  | Default base URL (BaseUrl)                |
+| 5001  | Optional HTTPS during development     | Allowed in CORS policy                    |
+| 11434 | Ollama API                            | Configurable                              |
+| 1234  | LM Studio API (default)               | Formerly used port 5000; customizable     |
+| 8080  | Weaviate vector database              | Also shown as example LM Studio port; configurable |
+| 7474  | Neo4j HTTP API                        | Configurable                              |
+| 7687  | Neo4j Bolt protocol                   | Configurable                              |
+| 3000, 5173, 5174 | Frontend dev servers (React/Vite) | Used only during development              |
 
 > **Note**: The LM Studio API was originally configured to use port 5000, but has been updated to use port 1234 to avoid conflicts with the SwAIvyn backend API.
 
