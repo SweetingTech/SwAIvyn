@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Search,
 } from 'lucide-react';
+import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface Agent {
   id: string;
@@ -187,7 +188,7 @@ const AgentsPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {loading && (
             <div className="col-span-full text-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+              <InlineSpinner />
             </div>
           )}
 

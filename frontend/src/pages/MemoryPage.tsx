@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Search, Plus, BookOpen, User, Calendar, Globe, Filter } from 'lucide-react';
+import InlineSpinner from '../components/ui/InlineSpinner';
 import MemorySyncStatus from '../components/MemorySyncStatus';
 
 interface Memory {
@@ -217,7 +218,7 @@ const MemoryPage = () => {
           <div className="divide-y">
             {loading ? (
               <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+                <InlineSpinner />
                 <p className="mt-2 text-gray-500">Loading memories...</p>
               </div>
             ) : filteredMemories.length === 0 ? (
