@@ -109,6 +109,13 @@ namespace SwAIvyn.Services
         /// <param name="systemPrompt">Character system prompt</param>
         /// <returns>True if successful</returns>
         Task<bool> SetCharacterContextAsync(Guid conversationId, Guid userId, Guid? characterId, string systemPrompt);
+
+        /// <summary>
+        /// Gets the total number of conversations for a user.
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>The total number of conversations.</returns>
+        Task<int> GetTotalConversationCountAsync(Guid userId);
     }
 
     /// <summary>
@@ -345,6 +352,22 @@ namespace SwAIvyn.Services
             {
                 _logger.LogError($"Failed to set character context for conversation {conversationId}", ex);
                 throw;
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<int> GetTotalConversationCountAsync(Guid userId)
+        {
+            try
+            {
+                return await _dbContext.Conversations
+                    .Where(c => c.UserId == userId)
+                    .CountAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error getting total conversation count for user {userId}", ex);
+                return 0; // Return 0 on error
             }
         }
     }

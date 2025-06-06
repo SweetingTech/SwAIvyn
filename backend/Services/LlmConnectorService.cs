@@ -218,8 +218,8 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetOpenAiApiUrl()).TrimEnd('/');
-                var apiKey = await _configurationService.GetOpenAiApiKey();
+                var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+                var apiKey = await _configurationService.GetOpenAiApiKey(userId);
                 _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
 
                 var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
@@ -250,8 +250,8 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetClaudeApiUrl()).TrimEnd('/');
-                var apiKey = await _configurationService.GetClaudeApiKey();
+                var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+                var apiKey = await _configurationService.GetClaudeApiKey(userId);
                 _logger.LogInfo($"Using Claude API URL: {apiUrl}");
 
                 var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
@@ -487,8 +487,8 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetOpenAiApiUrl()).TrimEnd('/');
-                var apiKey = await _configurationService.GetOpenAiApiKey();
+                var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+                var apiKey = await _configurationService.GetOpenAiApiKey(userId);
                 _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
 
                 var openAiRequest = new
@@ -534,8 +534,8 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetClaudeApiUrl()).TrimEnd('/');
-                var apiKey = await _configurationService.GetClaudeApiKey();
+                var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+                var apiKey = await _configurationService.GetClaudeApiKey(userId);
                 _logger.LogInfo($"Using Claude API URL: {apiUrl}");
 
                 var claudeRequest = new

@@ -13,10 +13,10 @@ namespace SwAIvyn.Services
 
         Task<string> GetOllamaApiUrl();
         Task<string> GetLmStudioApiUrl();
-        Task<string> GetOpenAiApiUrl();
-        Task<string> GetOpenAiApiKey();
-        Task<string> GetClaudeApiUrl();
-        Task<string> GetClaudeApiKey();
+        Task<string> GetOpenAiApiUrl(Guid? userId = null);
+        Task<string> GetOpenAiApiKey(Guid? userId = null);
+        Task<string> GetClaudeApiUrl(Guid? userId = null);
+        Task<string> GetClaudeApiKey(Guid? userId = null);
         Task<string> GetNeo4jUri();
         Task<int> GetNeo4jBoltPort();
         Task<int> GetNeo4jHttpPort();
@@ -105,24 +105,24 @@ namespace SwAIvyn.Services
             return await _settingsService.GetLmStudioApiUrlAsync(null);
         }
 
-        public async Task<string> GetOpenAiApiUrl()
+        public async Task<string> GetOpenAiApiUrl(Guid? userId = null)
         {
-            return await _settingsService.GetOpenAiApiUrlAsync(null);
+            return await _settingsService.GetOpenAiApiUrlAsync(userId);
         }
 
-        public async Task<string> GetOpenAiApiKey()
+        public async Task<string> GetOpenAiApiKey(Guid? userId = null)
         {
-            return await _settingsService.GetOpenAiApiKeyAsync(null);
+            return await _settingsService.GetOpenAiApiKeyAsync(userId);
         }
 
-        public async Task<string> GetClaudeApiUrl()
+        public async Task<string> GetClaudeApiUrl(Guid? userId = null)
         {
-            return await _settingsService.GetClaudeApiUrlAsync(null);
+            return await _settingsService.GetClaudeApiUrlAsync(userId);
         }
 
-        public async Task<string> GetClaudeApiKey()
+        public async Task<string> GetClaudeApiKey(Guid? userId = null)
         {
-            return await _settingsService.GetClaudeApiKeyAsync(null);
+            return await _settingsService.GetClaudeApiKeyAsync(userId);
         }
 
         public async Task<string> GetNeo4jUri()

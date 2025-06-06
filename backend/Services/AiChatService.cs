@@ -24,7 +24,7 @@ namespace SwAIvyn.Services
         /// <summary>
         /// Generates an AI response to a user message and stores both in the conversation, with optional auto-memory
         /// </summary>
-        Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage, bool saveMemory, string memoryCategory = "conversation");
+        Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage, bool saveMemory, string memoryCategory = "conversation", string engineOverride = null, string modelOverride = null);
 
         /// <summary>
         /// Gets the current LLM engine and model for a user
@@ -84,14 +84,14 @@ namespace SwAIvyn.Services
         /// <inheritdoc/>
         public async Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage)
         {
-            return await GenerateAndStoreResponseAsync(conversationId, userId, userMessage, false, "conversation");
+            return await GenerateAndStoreResponseAsync(conversationId, userId, userMessage, false, "conversation", null, null);
         }
 
         /// <inheritdoc/>
-        public async Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage, bool saveMemory, string memoryCategory = "conversation")
+        public async Task<string> GenerateAndStoreResponseAsync(Guid conversationId, Guid userId, string userMessage, bool saveMemory, string memoryCategory = "conversation", string engineOverride = null, string modelOverride = null)
         {
             _logger.LogInfo("🚀 AiChatService: GenerateAndStoreResponseAsync called");
-            _logger.LogInfo($"🚀 ConversationId={conversationId}, UserId={userId}, Message='{userMessage}', SaveMemory={saveMemory}");
+            _logger.LogInfo($"🚀 ConversationId={conversationId}, UserId={userId}, Message='{userMessage}', SaveMemory={saveMemory}, EngineOverride='{engineOverride}', ModelOverride='{modelOverride}'");
 
             try
             {
@@ -99,11 +99,23 @@ namespace SwAIvyn.Services
                 await _conversationService.AppendMessageAsync(conversationId, userId, "user", userMessage);
                 _logger.LogInfo("✅ User message stored successfully");
 
-                // 2. Retrieve LLM settings
-                var settings = await GetCurrentLlmSettingsAsync(userId);
-                string engine = settings["engine"];
-                string model = settings["model"];
-                _logger.LogInfo($"🚀 LLM settings - Engine: {engine}, Model: {model}");
+                // 2. Determine LLM engine and model
+                string engine;
+                string model;
+
+                if (!string.IsNullOrEmpty(engineOverride))
+                {
+                    _logger.LogInfo($"🚀 Using LLM override - Engine: {engineOverride}, Model: {modelOverride ?? "default"}");
+                    engine = engineOverride;
+                    model = modelOverride; // Can be null if engine doesn't require specific model (e.g. LMStudio) or to use engine's default
+                }
+                else
+                {
+                    var defaultSettings = await GetCurrentLlmSettingsAsync(userId);
+                    engine = defaultSettings["engine"];
+                    model = defaultSettings["model"];
+                    _logger.LogInfo($"🚀 Using default LLM settings - Engine: {engine}, Model: {model}");
+                }
 
                 // 3. Determine system prompt from conversation or fallback character
                 var conversation = await _dbContext.Conversations
