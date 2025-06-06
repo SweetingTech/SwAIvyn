@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Release
 
 on:
@@ -66,6 +67,8 @@ jobs:
       shell: powershell
 
     - name: Create release package
+      id: package
+      shell: powershell
       run: |
         $version = "${{ steps.version.outputs.version_clean }}"
         $runtime = "${{ matrix.runtime }}"
@@ -91,20 +94,21 @@ jobs:
         }
         
         # Create README for the package
-        @"
-# SwAIvyn $version
+        $readmeContent = @"
+        # SwAIvyn $version
         
-## Installation
-1. Extract all files to a folder
-2. Run SwAIvyn.exe
+        ## Installation
+        1. Extract all files to a folder
+        2. Run SwAIvyn.exe
         
-## Requirements
-- Windows 10/11 (x64 or ARM64)
-- No additional runtime required (self-contained)
+        ## Requirements
+        - Windows 10/11 (x64 or ARM64)
+        - No additional runtime required (self-contained)
         
-## Support
-Visit: https://github.com/${{ github.repository }}
-"@ | Out-File -FilePath "$tempDir\README.txt" -Encoding utf8
+        ## Support
+        Visit: https://github.com/${{ github.repository }}
+        "@
+        $readmeContent | Out-File -FilePath "$tempDir\README.txt" -Encoding utf8
         
         # Create zip package
         Compress-Archive -Path "$tempDir\*" -DestinationPath $packagePath -Force
@@ -114,8 +118,6 @@ Visit: https://github.com/${{ github.repository }}
         
         echo "package_name=$packageName" >> $env:GITHUB_OUTPUT
         echo "package_path=$packagePath" >> $env:GITHUB_OUTPUT
-      shell: powershell
-      id: package
 
     - name: Upload release artifacts
       uses: actions/upload-artifact@v4
@@ -125,7 +127,7 @@ Visit: https://github.com/${{ github.repository }}
         retention-days: 90
 
     - name: Upload to release
-      if: github.event.inputs.create_release != 'false'
+      if: github.event.inputs.create_release != 'false' # Corrected indentation
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.version }}
