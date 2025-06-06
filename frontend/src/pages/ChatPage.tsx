@@ -99,6 +99,22 @@ const ChatPage = () => {
           }
         }
 
+        // If still not found, check persisted default on server
+        if (!character) {
+          try {
+            const res = await fetch(`/api/settings/DefaultCharacterId?userId=${user.id}`);
+            if (res.ok) {
+              const data = await res.json();
+              const savedId = data.value;
+              if (savedId) {
+                character = characters.find(c => c.id === savedId) || null;
+              }
+            }
+          } catch {
+            // ignore errors
+          }
+        }
+
         if (character) {
           setSelectedCharacter(character);
           // Update URL if needed
@@ -170,7 +186,17 @@ const ChatPage = () => {
             timestamp: msg.timestamp
           }));
 
-          setMessages(formattedMessages);
+          // Remove duplicates
+          const unique: Message[] = [];
+          const seen = new Set<string>();
+          for (const m of formattedMessages) {
+            if (!seen.has(m.id)) {
+              seen.add(m.id);
+              unique.push(m);
+            }
+          }
+
+          setMessages(unique);
           isFirstMessage.current = false;
         } else {
           // Start with a new conversation
@@ -205,6 +231,13 @@ const ChatPage = () => {
     setSelectedCharacter(character);
     if (character) {
       localStorage.setItem('selectedCharacterId', character.id);
+      if (user?.id) {
+        fetch('/api/settings/DefaultCharacterId', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, value: character.id })
+        }).catch(() => {});
+      }
       const newUrl = generateChatUrl({
         conversationId: currentConversation.id || 'new',
         characterName: character.name
@@ -212,6 +245,13 @@ const ChatPage = () => {
       navigate(newUrl, { replace: true });
     } else {
       localStorage.removeItem('selectedCharacterId');
+      if (user?.id) {
+        fetch('/api/settings/DefaultCharacterId', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, value: '' })
+        }).catch(() => {});
+      }
       const newUrl = generateChatUrl({
         conversationId: currentConversation.id || 'new'
       });
@@ -275,7 +315,16 @@ const ChatPage = () => {
         timestamp: msg.timestamp
       }));
 
-      setMessages(formattedMessages);
+      const unique: Message[] = [];
+      const seen = new Set<string>();
+      for (const m of formattedMessages) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          unique.push(m);
+        }
+      }
+
+      setMessages(unique);
       isFirstMessage.current = false;
 
       // Update URL to reflect conversation selection
