@@ -15,6 +15,7 @@ import {
   Zap
 } from 'lucide-react';
 import { useInitialization } from '../contexts/InitializationContext';
+import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface SystemStatus {
   llmEngine: string;
@@ -174,7 +175,7 @@ const DashboardPage = () => {
 
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <InlineSpinner />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

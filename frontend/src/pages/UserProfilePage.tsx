@@ -12,6 +12,7 @@ import {
   Key,
   Clock
 } from 'lucide-react';
+import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface UserProfile {
   id: string;
@@ -151,7 +152,7 @@ const UserProfilePage = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <InlineSpinner />
       </motion.div>
     );
   }

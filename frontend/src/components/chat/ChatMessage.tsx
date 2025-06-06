@@ -11,6 +11,12 @@ interface ChatMessageProps {
 
 const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
   const isAI = message.sender === 'ai';
+
+  const formatTime = (ts: string) => {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return 'Unknown';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
   
   return (
     <motion.div
@@ -57,12 +63,7 @@ const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
           <div className={`mt-1 flex items-center text-xs text-gray-500 ${
             isAI ? 'justify-start' : 'justify-end'
           }`}>
-            <span>
-              {new Date(message.timestamp).toLocaleTimeString([], { 
-                hour: '2-digit', 
-                minute: '2-digit' 
-              })}
-            </span>
+            <span>{formatTime(message.timestamp)}</span>
             
             {isAI && (
               <button className="ml-2 flex items-center text-xs text-primary-600 hover:text-primary-700">
