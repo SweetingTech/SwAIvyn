@@ -142,7 +142,7 @@ const AccountSettings = () => {
 
   useEffect(() => {
     loadUserInfo();
-  }, []);
+  }, [user?.id]);
 
   const loadUserInfo = async () => {
     setLoading(true);
@@ -356,11 +356,12 @@ const ModelSettings = () => {
   useEffect(() => {
     if (!user?.id) return;
     ['ollama', 'lmstudio', 'openai', 'claude'].forEach(engine =>
-      qc.prefetchQuery(['models', engine], () =>
-        fetchWithTimeout(`/api/llm/${engine}/models`).then(r => r.json()),
-      ),
+      qc.prefetchQuery({
+        queryKey: ['models', engine],
+        queryFn: () => fetchWithTimeout(`/api/llm/${engine}/models`).then(r => r.json()),
+      }),
     );
-  }, [user?.id]);
+  }, [user?.id, qc]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -505,7 +506,7 @@ const ModelSettings = () => {
                   onClick={async () => {
                     try {
                       setLoading(true);
-                      const res = await fetch(`${ollamaApiUrl}/v1/models`);
+                      const res = await fetch(`${ollamaApiUrl}/api/tags`);
                       if (res.ok) {
                         const data = await res.json();
                         alert(
