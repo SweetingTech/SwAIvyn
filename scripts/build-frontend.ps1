@@ -25,4 +25,15 @@ if (-not (Test-Path $OutputPath)) {
 Write-Host "Copying built files to $OutputPath..."
 Copy-Item -Path "dist/*" -Destination $OutputPath -Recurse -Force
 
+# Copy character assets
+$CharacterSourcePath = "AI"
+$CharacterDestPath = Join-Path $OutputPath "character-images"
+
+if (Test-Path $CharacterSourcePath) {
+    Write-Host "Copying character assets from $CharacterSourcePath to $CharacterDestPath..."
+    Copy-Item -Path "$CharacterSourcePath/*" -Destination $CharacterDestPath -Recurse -Force
+} else {
+    Write-Host "Character source path $CharacterSourcePath not found. Skipping character assets copy."
+}
+
 Write-Host "Frontend build complete!" -ForegroundColor Green
