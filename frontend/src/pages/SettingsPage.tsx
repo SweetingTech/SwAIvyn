@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import useEngineModels from '../hooks/useEngineModels';
 import { motion } from 'framer-motion';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import {
@@ -26,6 +24,27 @@ import yaml from 'js-yaml';
 import { Tooltip } from '../components/Tooltip';
 import { useInitialization } from '../contexts/InitializationContext';
 import fetchWithTimeout from '../utils/fetchWithTimeout';
+
+// Hardcoded model arrays (defined outside component to prevent recreation on every render)
+const OPENAI_MODELS = [
+  'o4-mini-high',          // o4-mini (default - advanced reasoning)
+  'gpt-4o',                // GPT-4o (multimodal, real-time)
+  'gpt-4.1',               // GPT-4.1 (extensive context)
+  'gpt-4.1-nano',          // GPT-4.1-nano (cost-effective)
+  'gpt-4-turbo',           // GPT-4 Turbo
+  'gpt-3.5-turbo'          // GPT-3.5 Turbo (legacy)
+];
+
+const CLAUDE_MODELS = [
+  'claude-sonnet-4-20250514',      // Claude Sonnet 4 (default - recommended balance)
+  'claude-opus-4-20250514',        // Claude Opus 4 (most powerful)
+  'claude-3-5-haiku-20241022',     // Claude 3.5 Haiku (fastest/cheapest)
+  'claude-3-7-sonnet-20241022',    // Claude 3.7 Sonnet (hybrid reasoning)
+  'claude-3-5-sonnet-20241022',    // Claude 3.5 Sonnet (legacy)
+  'claude-3-opus-20240229',        // Claude 3 Opus (legacy)
+  'claude-3-sonnet-20240229',      // Claude 3 Sonnet (legacy)
+  'claude-3-haiku-20240307'        // Claude 3 Haiku (legacy)
+];
 
 const tabs = [
   { id: 'account', label: 'Account', icon: <User size={16} /> },
@@ -327,7 +346,6 @@ const AccountSettings = () => {
 
 const ModelSettings = () => {
   const { user } = useInitialization();
-  const qc = useQueryClient();
   const [selectedEngine, setSelectedEngine] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
@@ -342,42 +360,110 @@ const ModelSettings = () => {
   const [saveError, setSaveError] = useState('');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  const { data: ollamaModels = [] } = useEngineModels('ollama');
-  const { data: lmstudioModels } = useEngineModels('lmstudio');
-  const { data: openAiModels = [] } = useEngineModels('openai');
-  const { data: claudeModels = [] } = useEngineModels('claude');
+  // Cached models (static until manually refreshed)
+  const [cachedOllamaModels, setCachedOllamaModels] = useState<string[]>([]);
+  const [cachedLmStudioModels, setCachedLmStudioModels] = useState<string[]>([]);
+  const [refreshingOllama, setRefreshingOllama] = useState(false);
+  const [refreshingLmStudio, setRefreshingLmStudio] = useState(false);
+
+  // Debug logging
+  console.log('ModelSettings render:', {
+    selectedEngine,
+    settingsLoaded,
+    openAiModelsLength: OPENAI_MODELS.length,
+    claudeModelsLength: CLAUDE_MODELS.length,
+    cachedOllamaModelsLength: cachedOllamaModels.length,
+    cachedLmStudioModelsLength: cachedLmStudioModels.length
+  });
 
   useEffect(() => {
     if (user?.id) {
       loadSettings(user.id);
+      loadCachedModels();
     }
   }, [user?.id]);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    ['ollama', 'lmstudio', 'openai', 'claude'].forEach(engine =>
-      qc.prefetchQuery({
-        queryKey: ['models', engine],
-        queryFn: () => fetchWithTimeout(`/api/llm/${engine}/models`).then(r => r.json()),
-      }),
-    );
-  }, [user?.id, qc]);
+  // Load cached models from localStorage
+  const loadCachedModels = () => {
+    try {
+      const cachedOllama = localStorage.getItem('cachedOllamaModels');
+      const cachedLmStudio = localStorage.getItem('cachedLmStudioModels');
+
+      if (cachedOllama) {
+        setCachedOllamaModels(JSON.parse(cachedOllama));
+      }
+      if (cachedLmStudio) {
+        setCachedLmStudioModels(JSON.parse(cachedLmStudio));
+      }
+    } catch (error) {
+      console.error('Failed to load cached models:', error);
+    }
+  };
+
+  // Refresh Ollama models
+  const refreshOllamaModels = async () => {
+    setRefreshingOllama(true);
+    try {
+      const response = await fetchWithTimeout(`${ollamaApiUrl}/api/tags`);
+      if (response.ok) {
+        const data = await response.json();
+        const models = data.models?.map((m: any) => m.name) || [];
+        setCachedOllamaModels(models);
+        localStorage.setItem('cachedOllamaModels', JSON.stringify(models));
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Failed to refresh Ollama models:', error);
+      setSaveError(`Failed to refresh Ollama models: ${(error as Error).message}`);
+    } finally {
+      setRefreshingOllama(false);
+    }
+  };
+
+  // Refresh LM Studio models
+  const refreshLmStudioModels = async () => {
+    setRefreshingLmStudio(true);
+    try {
+      const response = await fetchWithTimeout(`${lmStudioApiUrl}/v1/models`);
+      if (response.ok) {
+        const data = await response.json();
+        const models = data.data?.map((m: any) => m.id) || [];
+        setCachedLmStudioModels(models);
+        localStorage.setItem('cachedLmStudioModels', JSON.stringify(models));
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Failed to refresh LM Studio models:', error);
+      setSaveError(`Failed to refresh LM Studio models: ${(error as Error).message}`);
+    } finally {
+      setRefreshingLmStudio(false);
+    }
+  };
 
   useEffect(() => {
     if (!settingsLoaded) return;
 
     const map: Record<string, string[]> = {
-      ollama: ollamaModels,
-      lmstudio: lmstudioModels?.data?.map((m: any) => m.id) ?? [],
-      openai: openAiModels,
-      claude: claudeModels,
+      ollama: cachedOllamaModels,
+      lmstudio: cachedLmStudioModels,
+      openai: OPENAI_MODELS,
+      claude: CLAUDE_MODELS,
     };
 
     const list = map[selectedEngine] || [];
     if (list.length > 0 && !list.includes(selectedModel)) {
-      setSelectedModel(list[0]);
+      // Set default models for each engine
+      if (selectedEngine === 'openai') {
+        setSelectedModel('o4-mini-high');
+      } else if (selectedEngine === 'claude') {
+        setSelectedModel('claude-sonnet-4-20250514');
+      } else {
+        setSelectedModel(list[0]);
+      }
     }
-  }, [selectedEngine, settingsLoaded, ollamaModels, lmstudioModels, openAiModels, claudeModels]);
+  }, [selectedEngine, settingsLoaded, cachedOllamaModels, cachedLmStudioModels]);
 
   const loadSettings = async (userIdToUse: string) => {
     setLoading(true);
@@ -530,7 +616,23 @@ const ModelSettings = () => {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ollama Model</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">Ollama Model</label>
+                <button
+                  className="btn btn-ghost border text-sm flex items-center"
+                  onClick={refreshOllamaModels}
+                  disabled={refreshingOllama || loading}
+                >
+                  {refreshingOllama ? (
+                    <>
+                      <span className="loader mr-1"></span>
+                      Refreshing...
+                    </>
+                  ) : (
+                    '🔄 Refresh Models'
+                  )}
+                </button>
+              </div>
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
@@ -538,105 +640,195 @@ const ModelSettings = () => {
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
-                {ollamaModels.map(model => (
+                {cachedOllamaModels.map(model => (
                   <option key={model} value={model}>
                     {model}
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {cachedOllamaModels.length > 0
+                  ? `${cachedOllamaModels.length} cached models available`
+                  : 'No models cached. Click "Refresh Models" to load from Ollama.'
+                }
+              </p>
             </div>
           </>
         )}
 
         {selectedEngine === 'lmstudio' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
-              LM Studio API URL
-              <Tooltip text="URL of your LM Studio server (default http://localhost:1234).">
-                <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
-              </Tooltip>
-            </label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                placeholder="http://localhost:1234"
-                value={lmStudioApiUrl}
-                onChange={e => setLmStudioApiUrl(e.target.value)}
-                className="flex-grow border rounded px-3 py-2"
-                disabled={loading}
-              />
-              <button
-                className="btn btn-primary"
-                onClick={async () => {
-                  try {
-                    setLoading(true);
-                    const res = await fetch(`${lmStudioApiUrl}/v1/models`);
-                    if (res.ok) {
-                      const data = await res.json();
-                      alert(
-                        data.data && data.data.length > 0
-                          ? `Connected! Model: ${data.data[0].id}`
-                          : 'Connected, but no models found.'
-                      );
-                    } else {
-                      alert(`Connection failed: ${res.status} ${res.statusText}`);
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                LM Studio API URL
+                <Tooltip text="URL of your LM Studio server (default http://localhost:1234).">
+                  <span className="ml-1 text-gray-400 cursor-help">&#9432;</span>
+                </Tooltip>
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  placeholder="http://localhost:1234"
+                  value={lmStudioApiUrl}
+                  onChange={e => setLmStudioApiUrl(e.target.value)}
+                  className="flex-grow border rounded px-3 py-2"
+                  disabled={loading}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const res = await fetch(`${lmStudioApiUrl}/v1/models`);
+                      if (res.ok) {
+                        const data = await res.json();
+                        alert(
+                          data.data && data.data.length > 0
+                            ? `Connected! Model: ${data.data[0].id}`
+                            : 'Connected, but no models found.'
+                        );
+                      } else {
+                        alert(`Connection failed: ${res.status} ${res.statusText}`);
+                      }
+                    } catch (err) {
+                      alert(`Connection failed: ${(err as Error).message}`);
+                    } finally {
+                      setLoading(false);
                     }
-                  } catch (err) {
-                    alert(`Connection failed: ${(err as Error).message}`);
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
+                  }}
+                  disabled={loading}
+                >
+                  Test Connection
+                </button>
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">LM Studio Model</label>
+                <button
+                  className="btn btn-ghost border text-sm flex items-center"
+                  onClick={refreshLmStudioModels}
+                  disabled={refreshingLmStudio || loading}
+                >
+                  {refreshingLmStudio ? (
+                    <>
+                      <span className="loader mr-1"></span>
+                      Refreshing...
+                    </>
+                  ) : (
+                    '🔄 Refresh Models'
+                  )}
+                </button>
+              </div>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedModel}
+                onChange={e => setSelectedModel(e.target.value)}
                 disabled={loading}
               >
-                Test Connection
-              </button>
+                <option value="">Select a model...</option>
+                {cachedLmStudioModels.map(model => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {cachedLmStudioModels.length > 0
+                  ? `${cachedLmStudioModels.length} cached models available`
+                  : 'No models cached. Click "Refresh Models" to load from LM Studio.'
+                }
+              </p>
             </div>
-          </div>
+          </>
         )}
 
         {selectedEngine === 'openai' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI API URL</label>
-            <input
-              type="text"
-              placeholder="https://api.openai.com"
-              value={openAiApiUrl}
-              onChange={e => setOpenAiApiUrl(e.target.value)}
-              className="w-full border rounded px-3 py-2 mb-2"
-              disabled={loading}
-            />
-            <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI API Key</label>
-            <input
-              type="password"
-              value={openAiApiKey}
-              onChange={e => setOpenAiApiKey(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loading}
-            />
-          </div>
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI API URL</label>
+              <input
+                type="text"
+                placeholder="https://api.openai.com"
+                value={openAiApiUrl}
+                onChange={e => setOpenAiApiUrl(e.target.value)}
+                className="w-full border rounded px-3 py-2 mb-2"
+                disabled={loading}
+              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI API Key</label>
+              <input
+                type="password"
+                value={openAiApiKey}
+                onChange={e => setOpenAiApiKey(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">OpenAI Model</label>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedModel}
+                onChange={e => setSelectedModel(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">Select a model...</option>
+                <option value="DEBUG_PLACEHOLDER">🔧 DEBUG: If you see this, models are loading...</option>
+                {OPENAI_MODELS.map(model => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Debug: {OPENAI_MODELS.length} OpenAI models available
+              </p>
+            </div>
+          </>
         )}
 
         {selectedEngine === 'claude' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Claude API URL</label>
-            <input
-              type="text"
-              placeholder="https://api.anthropic.com"
-              value={claudeApiUrl}
-              onChange={e => setClaudeApiUrl(e.target.value)}
-              className="w-full border rounded px-3 py-2 mb-2"
-              disabled={loading}
-            />
-            <label className="block text-sm font-medium text-gray-700 mb-1">Claude API Key</label>
-            <input
-              type="password"
-              value={claudeApiKey}
-              onChange={e => setClaudeApiKey(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loading}
-            />
-          </div>
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Claude API URL</label>
+              <input
+                type="text"
+                placeholder="https://api.anthropic.com"
+                value={claudeApiUrl}
+                onChange={e => setClaudeApiUrl(e.target.value)}
+                className="w-full border rounded px-3 py-2 mb-2"
+                disabled={loading}
+              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Claude API Key</label>
+              <input
+                type="password"
+                value={claudeApiKey}
+                onChange={e => setClaudeApiKey(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Claude Model</label>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedModel}
+                onChange={e => setSelectedModel(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">Select a model...</option>
+                <option value="DEBUG_PLACEHOLDER">🔧 DEBUG: If you see this, models are loading...</option>
+                {CLAUDE_MODELS.map(model => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Debug: {CLAUDE_MODELS.length} Claude models available
+              </p>
+            </div>
+          </>
         )}
 
         <div>

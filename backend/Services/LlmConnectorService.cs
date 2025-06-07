@@ -218,22 +218,47 @@ namespace SwAIvyn.Services
         {
             try
             {
+                // Define the recommended models first
+                var recommendedModels = new List<string>
+                {
+                    "o4-mini-high",          // o4-mini (default - advanced reasoning)
+                    "gpt-4o",                // GPT-4o (multimodal, real-time)
+                    "gpt-4.1",               // GPT-4.1 (extensive context)
+                    "gpt-4.1-nano",          // GPT-4.1-nano (cost-effective)
+                    "gpt-4-turbo",           // GPT-4 Turbo
+                    "gpt-3.5-turbo"          // GPT-3.5 Turbo (legacy)
+                };
+
                 var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
                 var apiKey = await _configurationService.GetOpenAiApiKey(userId);
                 _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
 
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-                var response = await _httpClient.SendAsync(request);
-                if (!response.IsSuccessStatusCode)
+                // Try to fetch models from API
+                try
                 {
-                    _logger.LogError($"OpenAI models endpoint returned {response.StatusCode}");
-                    return new List<string>();
+                    var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+                    var response = await _httpClient.SendAsync(request);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var modelsResponse = await response.Content.ReadFromJsonAsync<OpenAiModelsResponse>();
+                        var apiModels = modelsResponse?.Data?.Select(m => m.Id) ?? new List<string>();
+
+                        // Combine recommended models with API models, removing duplicates
+                        var allModels = recommendedModels.Concat(apiModels).Distinct().ToList();
+                        _logger.LogInfo($"Returning {allModels.Count} OpenAI models (recommended + API)");
+                        return allModels;
+                    }
+                }
+                catch (Exception apiEx)
+                {
+                    _logger.LogWarning($"Failed to fetch OpenAI models from API: {apiEx.Message}");
                 }
 
-                var modelsResponse = await response.Content.ReadFromJsonAsync<OpenAiModelsResponse>();
-                return modelsResponse?.Data?.Select(m => m.Id) ?? new List<string>();
+                // Fallback to recommended models only
+                _logger.LogInfo($"Returning {recommendedModels.Count} recommended OpenAI models");
+                return recommendedModels;
             }
             catch (Exception ex)
             {
@@ -250,23 +275,22 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
-                var apiKey = await _configurationService.GetClaudeApiKey(userId);
-                _logger.LogInfo($"Using Claude API URL: {apiUrl}");
-
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{apiUrl}/v1/models");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-                request.Headers.Add("anthropic-version", "2023-06-01");
-
-                var response = await _httpClient.SendAsync(request);
-                if (!response.IsSuccessStatusCode)
+                // Claude doesn't have a models endpoint like OpenAI
+                // Return the predefined available models
+                var availableModels = new List<string>
                 {
-                    _logger.LogError($"Claude models endpoint returned {response.StatusCode}");
-                    return new List<string>();
-                }
+                    "claude-sonnet-4-20250514",      // Claude Sonnet 4 (default - recommended balance)
+                    "claude-opus-4-20250514",        // Claude Opus 4 (most powerful)
+                    "claude-3-5-haiku-20241022",     // Claude 3.5 Haiku (fastest/cheapest)
+                    "claude-3-7-sonnet-20241022",    // Claude 3.7 Sonnet (hybrid reasoning)
+                    "claude-3-5-sonnet-20241022",    // Claude 3.5 Sonnet (legacy)
+                    "claude-3-opus-20240229",        // Claude 3 Opus (legacy)
+                    "claude-3-sonnet-20240229",      // Claude 3 Sonnet (legacy)
+                    "claude-3-haiku-20240307"        // Claude 3 Haiku (legacy)
+                };
 
-                var claudeModels = await response.Content.ReadFromJsonAsync<ClaudeModelsResponse>();
-                return claudeModels?.Models?.Select(m => m.Name) ?? new List<string>();
+                _logger.LogInfo($"Returning {availableModels.Count} predefined Claude models");
+                return availableModels;
             }
             catch (Exception ex)
             {
@@ -493,7 +517,7 @@ namespace SwAIvyn.Services
 
                 var openAiRequest = new
                 {
-                    model = model ?? "gpt-3.5-turbo",
+                    model = model ?? "o4-mini-high",
                     messages = messages
                         .Select(m => new { role = m["role"], content = m["content"] })
                         .ToArray(),
@@ -540,7 +564,7 @@ namespace SwAIvyn.Services
 
                 var claudeRequest = new
                 {
-                    model = model ?? "claude-3-20240229",
+                    model = model ?? "claude-sonnet-4-20250514",
                     messages = messages
                         .Select(m => new { role = m["role"], content = m["content"] })
                         .ToArray(),
@@ -551,7 +575,7 @@ namespace SwAIvyn.Services
                 var request = new HttpRequestMessage(
                     HttpMethod.Post, $"{apiUrl}/v1/messages");
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-                request.Headers.Add("anthropic-version", "2023-06-01");
+                request.Headers.Add("anthropic-version", "2024-02-15");
                 request.Content = JsonContent.Create(claudeRequest);
 
                 var response = await _httpClient.SendAsync(request);
