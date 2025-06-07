@@ -75,7 +75,7 @@ namespace SwAIvyn.Data
         /// <summary>
         /// Gets or sets the Agents DbSet.
         /// </summary>
-        public DbSet<Agent> Agents { get; set; }
+        public DbSet<SwAIvyn.Data.Entities.Agent> Agents { get; set; }
 
         /// <summary>
         /// Configures the model relationships and constraints.
@@ -218,14 +218,14 @@ namespace SwAIvyn.Data
                 .HasIndex(dc => dc.IsStoredInWeaviate);
 
             // Agent
-            modelBuilder.Entity<Agent>()
+            modelBuilder.Entity<SwAIvyn.Data.Entities.Agent>()
                 .HasKey(a => a.Id);
-            modelBuilder.Entity<Agent>()
+            modelBuilder.Entity<SwAIvyn.Data.Entities.Agent>()
                 .HasOne(a => a.User)
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-            modelBuilder.Entity<Agent>()
+            modelBuilder.Entity<SwAIvyn.Data.Entities.Agent>()
                 .HasIndex(a => new { a.UserId, a.Name });
 
             // Add SQL trigger for folder cascade delete
