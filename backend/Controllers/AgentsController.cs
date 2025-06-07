@@ -1,166 +1,57 @@
 using System;
-using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using SwAIvyn.Data.Entities;
-using SwAIvyn.Services;
+using Microsoft.EntityFrameworkCore;
+using SwAIvyn.Data; // For SwAIvynDbContext and Agent
+using SwAIvyn.Services; // For IAgentService
 
 namespace SwAIvyn.Controllers
 {
-    /// <summary>
-    /// API controller for managing background agents.
-    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class AgentsController : ControllerBase
     {
         private readonly IAgentService _agentService;
-        private readonly ISimpleLoggerService _logger;
+        private readonly SwAIvynDbContext _db;
 
-        public AgentsController(IAgentService agentService, ISimpleLoggerService logger)
+        public AgentsController(IAgentService agentService, SwAIvynDbContext db)
         {
-            _agentService = agentService 
-                ?? throw new ArgumentNullException(nameof(agentService));
-            _logger = logger 
-                ?? throw new ArgumentNullException(nameof(logger));
+            _agentService = agentService;
+            _db = db;
         }
 
         /// <summary>
-        /// Gets all agents for a user.
+        /// GET /api/agents
+        /// Returns all agents (Id, Name, Status, LastRun, TasksCompleted, etc.)
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAgents([FromQuery][Required] Guid userId)
+        public async Task<IActionResult> GetAllAgents()
         {
-            var agents = await _agentService.GetAgentsAsync(userId);
+            // Ensure that we are querying the correct Agent entity from SwAIvyn.Data
+            var agents = await _db.Agents.ToListAsync();
             return Ok(agents);
         }
 
         /// <summary>
-        /// Creates a new agent.
+        /// POST /api/agents/{id}/start
+        /// Kicks off the agent: updates DB and dispatches to worker via AgentService.
         /// </summary>
-        [HttpPost]
-        public async Task<IActionResult> CreateAgent([FromBody] CreateAgentRequest request)
+        [HttpPost("{id}/start")]
+        public async Task<IActionResult> Start(Guid id)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            try
-            {
-                var agent = await _agentService.CreateAgentAsync(
-                    request.UserId,
-                    request.Name,
-                    request.Description,
-                    request.Type
-                );
-                return Ok(agent);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Error creating agent", ex);
-                return StatusCode(500, "Failed to create agent");
-            }
+            await _agentService.StartAgentAsync(id);
+            return Ok(new { message = $"Agent {id} start request processed." });
         }
 
         /// <summary>
-        /// Updates an existing agent.
+        /// POST /api/agents/{id}/stop
+        /// Marks the agent as stopped in the DB (and optionally cancels on the worker).
         /// </summary>
-        [HttpPut("{id:guid}")]
-        public async Task<IActionResult> UpdateAgent(Guid id, [FromBody] UpdateAgentRequest request)
+        [HttpPost("{id}/stop")]
+        public async Task<IActionResult> Stop(Guid id)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var agent = new Agent
-            {
-                Id = id,
-                UserId = request.UserId,
-                Name = request.Name,
-                Description = request.Description,
-                Type = request.Type,
-                Status = request.Status,
-                LastRun = request.LastRun,
-                TasksCompleted = request.TasksCompleted,
-                Enabled = request.Enabled
-            };
-
-            var success = await _agentService.UpdateAgentAsync(agent);
-            if (!success)
-                return NotFound();
-
-            return Ok(agent);
+            await _agentService.StopAgentAsync(id);
+            return Ok(new { message = $"Agent {id} stop request processed." });
         }
-
-        /// <summary>
-        /// Deletes an agent.
-        /// </summary>
-        [HttpDelete("{id:guid}")]
-        public async Task<IActionResult> DeleteAgent(Guid id)
-        {
-            var success = await _agentService.DeleteAgentAsync(id);
-            if (!success)
-                return NotFound();
-
-            return NoContent();
-        }
-
-        /// <summary>
-        /// Starts an agent.
-        /// </summary>
-        [HttpPost("{id:guid}/start")]
-        public async Task<IActionResult> StartAgent(Guid id)
-        {
-            var success = await _agentService.StartAgentAsync(id);
-            if (!success)
-                return NotFound();
-
-            return Ok();
-        }
-
-        /// <summary>
-        /// Stops an agent.
-        /// </summary>
-        [HttpPost("{id:guid}/stop")]
-        public async Task<IActionResult> StopAgent(Guid id)
-        {
-            var success = await _agentService.StopAgentAsync(id);
-            if (!success)
-                return NotFound();
-
-            return Ok();
-        }
-    }
-
-    /// <summary>
-    /// Request body for creating an agent.
-    /// </summary>
-    public class CreateAgentRequest
-    {
-        [Required]
-        public Guid UserId { get; set; }
-
-        [Required]
-        public string Name { get; set; }
-
-        public string Description { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-    }
-
-    /// <summary>
-    /// Request body for updating an agent.
-    /// </summary>
-    public class UpdateAgentRequest
-    {
-        [Required]
-        public Guid UserId { get; set; }
-
-        [Required]
-        public string Name { get; set; }
-
-        public string Description { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-        public string Status { get; set; } = "stopped";
-        public DateTime? LastRun { get; set; }
-        public int TasksCompleted { get; set; }
-        public bool Enabled { get; set; } = true;
     }
 }

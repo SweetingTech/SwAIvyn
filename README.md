@@ -191,3 +191,56 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 <div align="center">
   <i>SwAIvyn: Your AI companion that lives in your home network</i>
 </div>
+
+## Agents Feature
+
+The Agents feature allows SwAIvyn to delegate tasks to external workers, typically implemented as Python FastAPI services. This enables SwAIvyn to offload specialized or long-running jobs and monitor their progress.
+
+### Backend Configuration
+
+To use the Agents feature, you need to configure the base URL of your external worker API in the `appsettings.json` file of the SwAIvyn backend project. Add the following key:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Data Source=SwAIvyn.db"
+  },
+  "WorkerApiBaseUrl": "http://YOUR_WORKER_IP_OR_HOSTNAME:8000", // Replace with your worker's actual address
+  "Logging": {
+    // ... existing logging settings
+  }
+}
+```
+Ensure `WorkerApiBaseUrl` points to the correct address and port of your FastAPI worker, without a trailing slash.
+
+### External FastAPI Worker Setup
+
+The Agents feature is designed to communicate with an external worker application built with FastAPI.
+
+1.  **Environment**: Set up a Python environment with `fastapi` and `uvicorn`.
+2.  **Implementation**: The worker should expose at least the following endpoints:
+    *   `POST /tasks`: To receive a new task from SwAIvyn. Expects a payload like `{"agent_id": "...", "payload": {"goal": "...", "agentName": "..."}}`. Should return a `{"task_id": "..."}`.
+    *   `GET /tasks/{task_id}`: To poll for the status of a task. Should return `{"status": "queued|in-progress|completed", "result": "..."}`.
+    *   `GET /health` (optional but good practice): To check if the worker is alive.
+3.  **Running the Worker**:
+    ```bash
+    # Example: Navigate to your worker's directory
+    # uvicorn main:app --host 0.0.0.0 --port 8000
+    # Replace 'main:app' with your actual FastAPI application instance.
+    ```
+
+### SwAIvyn API Endpoints for Agents
+
+The SwAIvyn backend now exposes the following API endpoints to manage agents:
+
+*   **`GET /api/agents`**: Retrieves a list of all configured agents.
+*   **`POST /api/agents/{id}/start`**: Starts the agent with the specified `id`. SwAIvyn will then dispatch a task to the configured worker.
+*   **`POST /api/agents/{id}/stop`**: Marks the agent with the specified `id` as "stopped" in SwAIvyn. (Note: This primarily updates SwAIvyn's internal state; a full cancel on the worker side would require additional implementation on the worker and in SwAIvyn's `AgentService`).
+
+### Frontend UI
+
+A new **Agents** tab is available in the SwAIvyn frontend. This tab allows you to:
+*   View all configured agents and their current status.
+*   See when an agent was last run and how many tasks it has completed.
+*   Start and Stop agents.
+*   The status of agents is polled periodically to reflect updates from the worker.
