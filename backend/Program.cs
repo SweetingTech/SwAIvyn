@@ -261,6 +261,9 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
         // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 }, ServiceLifetime.Scoped);
 
+builder.Services.AddDbContext<SwAIvynDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 // Add database initializer service
 builder.Services.AddScoped<IDatabaseInitializer, DatabaseInitializerService>();
 
@@ -279,10 +282,13 @@ builder.Services.AddHostedService<SearchServiceHostedService>();
 // Add conversation and folder services
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IFolderService, FolderService>();
-builder.Services.AddScoped<IAgentService, AgentService>();
+// Removed duplicate AgentService registration here, it's registered below.
 
 // Register the simple logger service first (no dependencies)
 builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
+
+// Ensure IConfiguration is available (builder.Configuration is already, but explicit can be useful)
+builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
 // Register the settings provider (configuration-based, no database dependency)
 builder.Services.AddSingleton<ISettingsService, SettingsService>();
@@ -301,6 +307,7 @@ builder.Services.AddScoped<Neo4jVectorStore>();        // brain memories (scoped
 builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("WorkerApi");
 
 // Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
 builder.Services.AddScoped<IVectorRouter, VectorRouter>();

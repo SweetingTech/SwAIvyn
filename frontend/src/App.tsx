@@ -8,7 +8,7 @@ import ChatPage from './pages/ChatPage';
 import VoiceRoomPage from './pages/VoiceRoomPage';
 import MemoryPage from './pages/MemoryPage';
 import ModulesPage from './pages/ModulesPage';
-import AgentsPage from './pages/AgentsPage';
+import AgentsTab from './components/AgentsTab'; // Changed this line
 import UserProfilePage from './pages/UserProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MemoryBrowser from './pages/MemoryBrowser';
@@ -45,7 +45,7 @@ function AppContent() {
           <Route path="voice-room" element={<VoiceRoomPage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="modules" element={<ModulesPage />} />
-          <Route path="agents" element={<AgentsPage />} />
+          <Route path="agents" element={<AgentsTab />} /> {/* Changed this line */}
           <Route path="profile" element={<UserProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
