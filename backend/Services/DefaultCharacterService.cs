@@ -75,7 +75,7 @@ namespace SwAIvyn.Services
                 {
                     Id = Guid.NewGuid(),
                     UserId = defaultUser.Id, // Assign to default user
-                    Name = GetValueOrDefault(yamlData, "name", "GLaDOS"),
+                    Name = GetValueOrDefault(yamlData, "name", "GLaDOS").Trim(),
                     Description = GetValueOrDefault(yamlData, "description", ""),
                     Personality = GetValueOrDefault(yamlData, "personality", ""),
                     Scenario = GetValueOrDefault(yamlData, "scenario", ""),
@@ -90,7 +90,7 @@ namespace SwAIvyn.Services
                     Talkativeness = float.TryParse(GetValueOrDefault(yamlData, "talkativeness", "0.5"), out float talk) ? talk : 0.5f,
                     CharacterVersion = GetValueOrDefault(yamlData, "character_version", "1.0"),
                     YamlProfile = yamlContent,
-                    ImagePath = "../frontend/AI/GLaDOS/char_img.jpg",
+                    ImagePath = "character-images/GLaDOS/char_img.jpg",
                     VoiceSettings = "default",
                     IsFavorite = false,
                     Extensions = "{}",

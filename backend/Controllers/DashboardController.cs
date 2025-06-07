@@ -255,13 +255,14 @@ namespace SwAIvyn.Controllers
         {
             try
             {
-                // Get conversation count - we'll need to implement this in ConversationService
-                // For now, return 0
-                return 0;
+                // Get conversation count for the default user
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+                return await _conversationService.GetTotalConversationCountAsync(defaultUserId);
             }
-            catch
+            catch (Exception ex)
             {
-                return 0;
+                _logger.LogError("Error getting conversation count for dashboard", ex);
+                return 0; // Fallback to 0 on error
             }
         }
 
@@ -273,8 +274,8 @@ namespace SwAIvyn.Controllers
                 var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
                 // Get individual settings instead of using non-existent method
-                var engine = await _settingsService.GetSettingAsync(defaultUserId, "LlmEngine", "ollama");
-                var model = await _settingsService.GetSettingAsync(defaultUserId, "LlmModel", "llama2");
+                var engine = await _settingsService.GetSettingAsync(defaultUserId, "DefaultLlmEngine", "ollama");
+                var model = await _settingsService.GetSettingAsync(defaultUserId, "DefaultLlmModel", "");
 
                 return new
                 {

@@ -7,6 +7,7 @@ import ChatMessage from '../components/chat/ChatMessage';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import CharacterSelector from '../components/chat/CharacterSelector';
 import BrainExplorer from '../components/BrainExplorer';
+import useEngineModels from '../hooks/useEngineModels';
 
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
@@ -56,6 +57,11 @@ const ChatPage = () => {
     return stored ? stored === 'true' : true;
   });
 
+  // State for LLM overrides
+  const [chatEngineOverride, setChatEngineOverride] = useState<string | null>(null);
+  const [chatModelOverride, setChatModelOverride] = useState<string | null>(null);
+  const [availableLlms, setAvailableLlms] = useState<{ value: string; label: string; engine: string | null; model: string | null }[]>([]);
+
   // Persist image preference
   useEffect(() => {
     localStorage.setItem('showCharacterImages', showCharacterImages ? 'true' : 'false');
@@ -99,6 +105,22 @@ const ChatPage = () => {
           }
         }
 
+        // If still not found, check persisted default on server
+        if (!character) {
+          try {
+            const res = await fetch(`/api/settings/DefaultCharacterId?userId=${user.id}`);
+            if (res.ok) {
+              const data = await res.json();
+              const savedId = data.value;
+              if (savedId) {
+                character = characters.find(c => c.id === savedId) || null;
+              }
+            }
+          } catch {
+            // ignore errors
+          }
+        }
+
         if (character) {
           setSelectedCharacter(character);
           // Update URL if needed
@@ -137,6 +159,44 @@ const ChatPage = () => {
     }
   }, [sessionCharacter, navigate, user?.id]);
 
+  // Fetch Available LLMs
+  const { data: ollamaModelsApi } = useEngineModels('ollama');
+  const { data: lmStudioModelsApi } = useEngineModels('lmstudio');
+  const { data: openAiModelsApi } = useEngineModels('openai');
+  const { data: claudeModelsApi } = useEngineModels('claude');
+
+  useEffect(() => {
+    const llms = [{ value: 'default', label: 'Default LLM', engine: null, model: null }];
+
+    if (ollamaModelsApi && Array.isArray(ollamaModelsApi)) {
+      ollamaModelsApi.forEach((model: string) => llms.push({ value: `ollama:${model}`, label: `Ollama: ${model}`, engine: 'ollama', model: model }));
+    } else {
+      llms.push({ value: `ollama:default`, label: `Ollama (Default Model)`, engine: 'ollama', model: null});
+    }
+
+    if (lmStudioModelsApi?.data && Array.isArray(lmStudioModelsApi.data)) {
+      lmStudioModelsApi.data.forEach((model: any) => llms.push({ value: `lmstudio:${model.id}`, label: `LM Studio: ${model.id}`, engine: 'lmstudio', model: model.id }));
+    } else if (lmStudioModelsApi?.data?.id) {
+       llms.push({ value: `lmstudio:${lmStudioModelsApi.data.id}`, label: `LM Studio: ${lmStudioModelsApi.data.id}`, engine: 'lmstudio', model: lmStudioModelsApi.data.id});
+    } else {
+       llms.push({ value: `lmstudio:default`, label: `LM Studio (Loaded Model)`, engine: 'lmstudio', model: null });
+    }
+
+    if (openAiModelsApi && Array.isArray(openAiModelsApi)) {
+      openAiModelsApi.forEach((model: string) => llms.push({ value: `openai:${model}`, label: `OpenAI: ${model}`, engine: 'openai', model: model }));
+    } else {
+       llms.push({ value: `openai:default`, label: `OpenAI (Default)`, engine: 'openai', model: null });
+    }
+
+    if (claudeModelsApi && Array.isArray(claudeModelsApi)) {
+      claudeModelsApi.forEach((model: string) => llms.push({ value: `claude:${model}`, label: `Claude: ${model}`, engine: 'claude', model: model }));
+    } else {
+      llms.push({ value: `claude:default`, label: `Claude (Default)`, engine: 'claude', model: null });
+    }
+
+    setAvailableLlms(llms);
+  }, [ollamaModelsApi, lmStudioModelsApi, openAiModelsApi, claudeModelsApi]);
+
   // Load the most recent conversation or start a new one
   useEffect(() => {
     const loadConversation = async () => {
@@ -170,7 +230,17 @@ const ChatPage = () => {
             timestamp: msg.timestamp
           }));
 
-          setMessages(formattedMessages);
+          // Remove duplicates
+          const unique: Message[] = [];
+          const seen = new Set<string>();
+          for (const m of formattedMessages) {
+            if (!seen.has(m.id)) {
+              seen.add(m.id);
+              unique.push(m);
+            }
+          }
+
+          setMessages(unique);
           isFirstMessage.current = false;
         } else {
           // Start with a new conversation
@@ -205,6 +275,13 @@ const ChatPage = () => {
     setSelectedCharacter(character);
     if (character) {
       localStorage.setItem('selectedCharacterId', character.id);
+      if (user?.id) {
+        fetch('/api/settings/DefaultCharacterId', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, value: character.id })
+        }).catch(() => {});
+      }
       const newUrl = generateChatUrl({
         conversationId: currentConversation.id || 'new',
         characterName: character.name
@@ -212,6 +289,13 @@ const ChatPage = () => {
       navigate(newUrl, { replace: true });
     } else {
       localStorage.removeItem('selectedCharacterId');
+      if (user?.id) {
+        fetch('/api/settings/DefaultCharacterId', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, value: '' })
+        }).catch(() => {});
+      }
       const newUrl = generateChatUrl({
         conversationId: currentConversation.id || 'new'
       });
@@ -275,7 +359,16 @@ const ChatPage = () => {
         timestamp: msg.timestamp
       }));
 
-      setMessages(formattedMessages);
+      const unique: Message[] = [];
+      const seen = new Set<string>();
+      for (const m of formattedMessages) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          unique.push(m);
+        }
+      }
+
+      setMessages(unique);
       isFirstMessage.current = false;
 
       // Update URL to reflect conversation selection
@@ -381,7 +474,9 @@ const ChatPage = () => {
       const aiResponse = await chatService.sendMessage(
         conversationId,
         inputText,
-        selectedCharacter?.id || null
+        selectedCharacter?.id || null,
+        chatEngineOverride,
+        chatModelOverride
       );
 
       // Create AI message object
@@ -474,6 +569,30 @@ const ChatPage = () => {
                 />
                 <span>Use Image</span>
               </label>
+
+              {/* LLM Override Dropdown */}
+              <div className="ml-4">
+                <label htmlFor="llm-override-select" className="sr-only">Select LLM</label>
+                <select
+                  id="llm-override-select"
+                  value={chatEngineOverride ? `${chatEngineOverride}:${chatModelOverride || 'default'}` : 'default'}
+                  onChange={(e) => {
+                    const selected = availableLlms.find(llm => llm.value === e.target.value);
+                    if (selected) {
+                      setChatEngineOverride(selected.engine);
+                      setChatModelOverride(selected.model);
+                    }
+                  }}
+                  className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isLoading}
+                >
+                  {availableLlms.map(llm => (
+                    <option key={llm.value} value={llm.value}>
+                      {llm.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 

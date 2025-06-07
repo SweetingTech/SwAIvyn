@@ -9,9 +9,11 @@ const chatService = {
    * @param conversationId The ID of the conversation
    * @param message The message to send
    * @param characterId Optional character ID to use for this message
+   * @param engineOverride Optional engine to override default LLM for this message
+   * @param modelOverride Optional model to override default LLM for this message
    * @returns The AI's response
    */
-  async sendMessage(conversationId: string, message: string, characterId?: string | null): Promise<string> {
+  async sendMessage(conversationId: string, message: string, characterId?: string | null, engineOverride?: string | null, modelOverride?: string | null): Promise<string> {
     try {
       // Skip API call if conversationId is not valid
       if (!conversationId || conversationId.startsWith('temp-')) {
@@ -22,16 +24,21 @@ const chatService = {
 
       const requestBody: any = {
         conversationId,
-        message
-        // Note: userID removed - backend will use default user automatically
+        message,
+        userId: null // Backend handles user ID
       };
 
-      // Add characterId if provided and valid, otherwise use "default"
       if (characterId && characterId !== 'null' && characterId !== 'undefined') {
         requestBody.characterId = characterId;
       } else {
-        // When no character is selected, explicitly request the default character
         requestBody.characterId = "default";
+      }
+
+      if (engineOverride) {
+        requestBody.engine = engineOverride;
+      }
+      if (modelOverride) { // only include model if engine is also overridden
+        requestBody.model = modelOverride;
       }
 
       const response = await apiService.post('/api/conversation/chat', requestBody);
