@@ -251,7 +251,7 @@ namespace SwAIvyn.Controllers
         {
             try
             {
-                await _settingsService.SetClaudeApiKeyAsync(null, string.Empty);
+                await _settingsService.SetSettingAsync(null, "ClaudeApiKey", string.Empty);
                 _logger.LogInfo("Claude API key cleared successfully");
                 return Ok(new { message = "Claude API key cleared successfully" });
             }

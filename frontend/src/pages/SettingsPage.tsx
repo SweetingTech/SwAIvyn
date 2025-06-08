@@ -35,11 +35,14 @@ const OPENAI_MODELS = [
 ];
 
 const CLAUDE_MODELS = [
-  'claude-3-5-sonnet-20241022',
-  'claude-3-5-haiku-20241022',
-  'claude-3-opus-20240229',
-  'claude-3-sonnet-20240229',
-  'claude-3-haiku-20240307',
+  'claude-opus-4-20250514',      // Claude 4 - Most capable model
+  'claude-sonnet-4-20250514',    // Claude 4 - High-performance model
+  'claude-3-7-sonnet-20250219',  // Claude 3.7 - Extended thinking capabilities
+  'claude-3-5-sonnet-20241022',  // Claude 3.5 Sonnet v2
+  'claude-3-5-haiku-20241022',   // Claude 3.5 Haiku
+  'claude-3-opus-20240229',      // Claude 3 Opus (legacy)
+  'claude-3-sonnet-20240229',    // Claude 3 Sonnet (legacy)
+  'claude-3-haiku-20240307',     // Claude 3 Haiku (legacy)
 ];
 
 const tabs = [

@@ -239,7 +239,7 @@ namespace SwAIvyn.Services
                 _logger.LogWarning("OpenAI API key contains non-ASCII characters!");
             }
 
-            return apiKey;
+            return apiKey ?? string.Empty;
         }
 
         public async Task<string> GetClaudeApiUrlAsync(Guid? userId)
@@ -256,7 +256,7 @@ namespace SwAIvyn.Services
                 _logger.LogWarning("Claude API key contains non-ASCII characters!");
             }
 
-            return apiKey;
+            return apiKey ?? string.Empty;
         }
 
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
