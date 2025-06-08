@@ -159,3 +159,6 @@ sqlite-vss/
 sqlite-vss/sqlite-source/
 sqlite-vss/sqlite-source/**/*
 node_modules/
+
+# Ignore SwAIvyn_modules_settings.json
+frontend/modules/SwAIvyn_modules_settings.json
