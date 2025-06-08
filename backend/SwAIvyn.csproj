@@ -38,25 +38,21 @@
   <ItemGroup>
     <Compile Remove="old_program.cs" />
   </ItemGroup>  <ItemGroup>
-    <None Include="..\dll\sqlite-vss.dll">
+    <None Include="..\dnd_dll\sqlite-vss.dll">
       <Link>sqlite-vss.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\dll\faiss.dll">
+    <None Include="..\dnd_dll\faiss.dll">
       <Link>faiss.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\dll\libopenblas.dll">
+    <None Include="..\dnd_dll\libopenblas.dll">
       <Link>libopenblas.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="mcpServers.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+
 
   <!-- Post-build event to copy executable to root directory -->
   <Target Name="CopyToRoot" AfterTargets="Build">
