@@ -325,7 +325,7 @@ builder.Services.AddSingleton<Neo4jRuntimeService>();
 builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 
 // Add LLM and AI chat services
-builder.Services.AddScoped<ILlmConnectorService, LlmConnectorService>();
+builder.Services.AddHttpClient<ILlmConnectorService, LlmConnectorService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 // Add memory re-indexing service
