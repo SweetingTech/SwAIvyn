@@ -138,14 +138,28 @@ namespace SwAIvyn.Services
         private readonly IConfigurationService _configurationService;
         private readonly ISimpleLoggerService _logger;
 
+        private static string NormalizeBaseUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+
+            url = url.TrimEnd('/');
+            if (url.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+            {
+                url = url.Substring(0, url.Length - 3);
+            }
+
+            return url;
+        }
+
         public LlmConnectorService(
+            HttpClient httpClient,
             IConfigurationService configurationService,
             ISimpleLoggerService logger)
         {
-            _httpClient = new HttpClient();
-            _configurationService = configurationService 
+            _httpClient = httpClient;
+            _configurationService = configurationService
                 ?? throw new ArgumentNullException(nameof(configurationService));
-            _logger = logger 
+            _logger = logger
                 ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -281,7 +295,7 @@ namespace SwAIvyn.Services
                     "gpt-3.5-turbo"          // GPT-3.5 Turbo (legacy)
                 };
 
-                var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+                var apiUrl = NormalizeBaseUrl(await _configurationService.GetOpenAiApiUrl(userId));
                 var apiKey = await _configurationService.GetOpenAiApiKey(userId);
                 _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
 
@@ -584,7 +598,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+                var apiUrl = NormalizeBaseUrl(await _configurationService.GetOpenAiApiUrl(userId));
                 var apiKey = await _configurationService.GetOpenAiApiKey(userId);
                 _logger.LogInfo($"Using OpenAI API URL: {apiUrl}");
 
@@ -627,7 +641,7 @@ namespace SwAIvyn.Services
             string model = null,
             Guid? userId = null)
         {
-            var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+            var apiUrl = NormalizeBaseUrl(await _configurationService.GetOpenAiApiUrl(userId));
             var apiKey = await _configurationService.GetOpenAiApiKey(userId);
             _logger.LogInfo($"Using OpenAI streaming API URL: {apiUrl}");
 
@@ -716,7 +730,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+                var apiUrl = NormalizeBaseUrl(await _configurationService.GetClaudeApiUrl(userId));
                 var apiKey = await _configurationService.GetClaudeApiKey(userId);
                 _logger.LogInfo($"Using Claude API URL: {apiUrl}");
 
@@ -760,7 +774,7 @@ namespace SwAIvyn.Services
             string model = null,
             Guid? userId = null)
         {
-            var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+            var apiUrl = NormalizeBaseUrl(await _configurationService.GetClaudeApiUrl(userId));
             var apiKey = await _configurationService.GetClaudeApiKey(userId);
             _logger.LogInfo($"Using Claude streaming API URL: {apiUrl}");
 
@@ -1049,7 +1063,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+                var apiUrl = NormalizeBaseUrl(await _configurationService.GetOpenAiApiUrl(userId));
                 var apiKey = await _configurationService.GetOpenAiApiKey(userId);
                 _logger.LogInfo($"Using OpenAI function calling API URL: {apiUrl}");
 
@@ -1152,7 +1166,7 @@ namespace SwAIvyn.Services
         {
             try
             {
-                var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+                var apiUrl = NormalizeBaseUrl(await _configurationService.GetClaudeApiUrl(userId));
                 var apiKey = await _configurationService.GetClaudeApiKey(userId);
                 _logger.LogInfo($"Using Claude tool use API URL: {apiUrl}");
 
