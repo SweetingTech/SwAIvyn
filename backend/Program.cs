@@ -1066,53 +1066,109 @@ if (!Directory.Exists(logDir))
     Directory.CreateDirectory(logDir);
 }
 
-// Open browser window when application starts (only in production)
-if (!app.Environment.IsDevelopment())
+// Start frontend dev server automatically
+Process? frontendProcess = null;
+try
 {
-    var hostUrl = app.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
-
-    // Start the application in the background
-    var hostTask = app.RunAsync();
-
-    // Wait a moment for the server to start
-    Thread.Sleep(2000);
-
-    // Open the browser (Windows only)
-    try
+    var frontendPath = Path.Combine(Directory.GetCurrentDirectory(), "frontend");
+    if (Directory.Exists(frontendPath))
     {
-        if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+        logger.LogInfo("Starting frontend development server...");
+        var psi = new ProcessStartInfo
         {
-            logger.LogInfo($"Opening browser at URL: {hostUrl}");
-            var psi = new ProcessStartInfo
-            {
-                FileName = hostUrl,
-                UseShellExecute = true
-            };
-            Process.Start(psi);
+            FileName = "npm",
+            Arguments = "run dev",
+            WorkingDirectory = frontendPath,
+            UseShellExecute = false,
+            CreateNoWindow = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false
+        };
+
+        frontendProcess = Process.Start(psi);
+        if (frontendProcess != null)
+        {
+            logger.LogInfo("Frontend dev server started successfully at http://localhost:5173");
         }
         else
         {
-            logger.LogInfo($"Application started at URL: {hostUrl} (browser auto-open disabled on non-Windows platforms)");
+            logger.LogWarning("Failed to start frontend dev server");
         }
+    }
+    else
+    {
+        logger.LogWarning($"Frontend directory not found at: {frontendPath}");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogError("Failed to start frontend dev server", ex);
+}
+
+// Open browser window when application starts
+var hostUrl = app.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
+
+// Start the application in the background
+var hostTask = app.RunAsync();
+
+// Wait a moment for the server to start
+Thread.Sleep(2000);
+
+// Open the browser (Windows only) - prefer dev server if available
+try
+{
+    if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+    {
+        var devUrl = "http://localhost:5173";
+        // Always prefer dev server if frontend process was started
+        var targetUrl = frontendProcess != null ? devUrl : hostUrl;
+        logger.LogInfo($"Opening browser at URL: {targetUrl}");
+
+        // Wait a moment for the dev server to start if we're opening it
+        if (targetUrl == devUrl)
+        {
+            logger.LogInfo("Waiting 5 seconds for frontend dev server to start...");
+            Thread.Sleep(5000);
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = targetUrl,
+            UseShellExecute = true
+        };
+        Process.Start(psi);
+    }
+    else
+    {
+        logger.LogInfo($"Application started at URL: {hostUrl} (browser auto-open disabled on non-Windows platforms)");
+    }
+}
+catch (Exception ex)
+{
+    logger.LogError("Failed to open browser", ex);
+}
+
+// Wait for the host to stop
+await hostTask;
+
+// Cleanup frontend process when backend stops
+if (frontendProcess != null && !frontendProcess.HasExited)
+{
+    try
+    {
+        logger.LogInfo("Stopping frontend dev server...");
+        frontendProcess.Kill();
+        frontendProcess.WaitForExit(5000);
+        logger.LogInfo("Frontend dev server stopped");
     }
     catch (Exception ex)
     {
-        logger.LogError("Failed to open browser", ex);
+        logger.LogError("Failed to stop frontend dev server", ex);
     }
-
-    // Wait for the host to stop
-    await hostTask;
-
-    // Log application shutdown
-    logger.LogInfo("Application has stopped");
 }
-else
-{
-    logger.LogInfo("Running in development mode");
-    logger.LogInfo("Application URLs: " + string.Join(", ", app.Urls));
-    app.Run();
-    logger.LogInfo("Application has stopped");
-}
+
+// Log application shutdown
+logger.LogInfo("Application has stopped");
 
 /// <summary>
 /// Request model for memory search debugging
