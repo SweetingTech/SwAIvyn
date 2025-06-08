@@ -66,12 +66,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
         onCharacterSelect(null);
         return;
       }
-      // Current selection is valid, make sure we have full character data
-      if (currentCharacter) {
-        onCharacterSelect(currentCharacter);
-      }
+      // Character is valid, no need to call onCharacterSelect again
+      // The parent already has the correct character ID
     }
-  }, [characters, selectedCharacterId, onCharacterSelect]);
+  }, [characters, selectedCharacterId]); // Removed onCharacterSelect from dependencies to prevent infinite loop
 
   const loadCharacters = async () => {
     try {

@@ -242,6 +242,25 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, "An error occurred while updating LLM settings");
             }
         }
+
+        /// <summary>
+        /// Clears the corrupted Claude API key
+        /// </summary>
+        [HttpPost("clear-claude-key")]
+        public async Task<IActionResult> ClearClaudeKey()
+        {
+            try
+            {
+                await _settingsService.SetClaudeApiKeyAsync(null, string.Empty);
+                _logger.LogInfo("Claude API key cleared successfully");
+                return Ok(new { message = "Claude API key cleared successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error clearing Claude API key", ex);
+                return StatusCode(500, new { error = "Failed to clear Claude API key" });
+            }
+        }
     }
 
     /// <summary>
@@ -345,37 +364,37 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Ollama API URL
         /// </summary>
-        public string OllamaApiUrl { get; set; }
+        public string? OllamaApiUrl { get; set; }
 
         /// <summary>
         /// LM Studio API URL
         /// </summary>
-        public string LmStudioApiUrl { get; set; }
+        public string? LmStudioApiUrl { get; set; }
 
         /// <summary>
         /// OpenAI API URL
         /// </summary>
-        public string OpenAiApiUrl { get; set; }
+        public string? OpenAiApiUrl { get; set; }
 
         /// <summary>
         /// OpenAI API Key
         /// </summary>
-        public string OpenAiApiKey { get; set; }
+        public string? OpenAiApiKey { get; set; }
 
         /// <summary>
         /// Claude API URL
         /// </summary>
-        public string ClaudeApiUrl { get; set; }
+        public string? ClaudeApiUrl { get; set; }
 
         /// <summary>
         /// Claude API Key
         /// </summary>
-        public string ClaudeApiKey { get; set; }
+        public string? ClaudeApiKey { get; set; }
 
         /// <summary>
         /// Neo4j URI
         /// </summary>
-        public string Neo4jUri { get; set; }
+        public string? Neo4jUri { get; set; }
 
         /// <summary>
         /// Neo4j Bolt port
@@ -406,11 +425,11 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// LLM engine (ollama, lmstudio, openai, or claude)
         /// </summary>
-        public string Engine { get; set; }
+        public string? Engine { get; set; }
 
         /// <summary>
         /// LLM model name (for Ollama)
         /// </summary>
-        public string Model { get; set; }
+        public string? Model { get; set; }
     }
 }
