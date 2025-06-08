@@ -113,11 +113,11 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   };
 
   return (
-    <div className="relative">
+    <div className="relative inline-block w-60">
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled || loading}
-        className="flex items-center space-x-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed w-60"
+        className="flex items-center space-x-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed w-full overflow-hidden"
       >
         <div className="flex items-center space-x-2 flex-grow">
           {selectedCharacter ? (
@@ -167,7 +167,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
               {/* Default option */}
               <button
                 onClick={() => handleCharacterSelect(null)}
-                className={`w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-gray-50 ${
+                className={`w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-gray-50 overflow-hidden ${
                   !selectedCharacterId ? 'bg-blue-50 border-r-2 border-blue-500' : ''
                 }`}
               >
@@ -187,7 +187,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
                 <button
                   key={character.id}
                   onClick={() => handleCharacterSelect(character)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-gray-50 ${
+                  className={`w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-gray-50 overflow-hidden ${
                     selectedCharacterId === character.id ? 'bg-blue-50 border-r-2 border-blue-500' : ''
                   }`}
                 >
