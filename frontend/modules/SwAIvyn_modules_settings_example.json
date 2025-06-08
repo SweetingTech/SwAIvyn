@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "your-server-name": {
+      "command": "node",
+      "args": ["/path/to/your/project/dist/main.js", "some_argument"]
+    }
+  }
+}
