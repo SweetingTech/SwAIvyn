@@ -1040,25 +1040,6 @@ if (app.Urls.Count == 0)
 // Log application startup
 logger.LogInfo($"Application starting on URLs: {string.Join(", ", app.Urls)}");
 
-// Register shutdown handler
-var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-lifetime.ApplicationStopping.Register(() =>
-{
-    logger.LogInfo("Application is shutting down...");
-
-    // Gracefully shut down Neo4j
-    // try
-    // {
-    //     var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
-    //     neo4jRuntime.Dispose();
-    //     logger.LogInfo("Neo4j runtime shut down successfully");
-    // }
-    // catch (Exception ex)
-    // {
-    //     logger.LogError("Failed to shut down Neo4j runtime", ex);
-    // }
-});
-
 // Create logs directory if it doesn't exist
 var logDir = builder.Configuration["AppSettings:LogDirectory"] ?? "logs";
 if (!Directory.Exists(logDir))
@@ -1066,7 +1047,7 @@ if (!Directory.Exists(logDir))
     Directory.CreateDirectory(logDir);
 }
 
-// Start frontend dev server automatically
+// Start frontend dev server automatically BEFORE starting the main application
 Process? frontendProcess = null;
 try
 {
@@ -1074,21 +1055,56 @@ try
     if (Directory.Exists(frontendPath))
     {
         logger.LogInfo("Starting frontend development server...");
+
+        // Use cmd.exe to run npm to ensure PATH is properly resolved
         var psi = new ProcessStartInfo
         {
-            FileName = "npm",
-            Arguments = "run dev",
+            FileName = "cmd.exe",
+            Arguments = "/c npm run dev",
             WorkingDirectory = frontendPath,
             UseShellExecute = false,
             CreateNoWindow = false,
-            RedirectStandardOutput = false,
-            RedirectStandardError = false
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
 
         frontendProcess = Process.Start(psi);
         if (frontendProcess != null)
         {
             logger.LogInfo("Frontend dev server started successfully at http://localhost:5173");
+
+            // Read initial output to check for errors
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var output = await frontendProcess.StandardOutput.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(output))
+                    {
+                        logger.LogInfo($"Frontend dev server output: {output}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError("Error reading frontend dev server output", ex);
+                }
+            });
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var error = await frontendProcess.StandardError.ReadLineAsync();
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        logger.LogWarning($"Frontend dev server error: {error}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError("Error reading frontend dev server error output", ex);
+                }
+            });
         }
         else
         {
@@ -1105,14 +1121,50 @@ catch (Exception ex)
     logger.LogError("Failed to start frontend dev server", ex);
 }
 
+// Register shutdown handler to cleanup frontend process
+var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+lifetime.ApplicationStopping.Register(() =>
+{
+    logger.LogInfo("Application is shutting down...");
+
+    // Cleanup frontend process when backend stops
+    if (frontendProcess != null && !frontendProcess.HasExited)
+    {
+        try
+        {
+            logger.LogInfo("Stopping frontend dev server...");
+            frontendProcess.Kill();
+            frontendProcess.WaitForExit(5000);
+            logger.LogInfo("Frontend dev server stopped");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Failed to stop frontend dev server", ex);
+        }
+    }
+
+    // Gracefully shut down Neo4j
+    // try
+    // {
+    //     var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
+    //     neo4jRuntime.Dispose();
+    //     logger.LogInfo("Neo4j runtime shut down successfully");
+    // }
+    // catch (Exception ex)
+    // {
+    //     logger.LogError("Failed to shut down Neo4j runtime", ex);
+    // }
+});
+
 // Open browser window when application starts
 var hostUrl = app.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
 
-// Start the application in the background
-var hostTask = app.RunAsync();
-
-// Wait a moment for the server to start
-Thread.Sleep(2000);
+// Wait a moment for the frontend dev server to start if we started it
+if (frontendProcess != null)
+{
+    logger.LogInfo("Waiting 5 seconds for frontend dev server to start...");
+    Thread.Sleep(5000);
+}
 
 // Open the browser (Windows only) - prefer dev server if available
 try
@@ -1123,13 +1175,6 @@ try
         // Always prefer dev server if frontend process was started
         var targetUrl = frontendProcess != null ? devUrl : hostUrl;
         logger.LogInfo($"Opening browser at URL: {targetUrl}");
-
-        // Wait a moment for the dev server to start if we're opening it
-        if (targetUrl == devUrl)
-        {
-            logger.LogInfo("Waiting 5 seconds for frontend dev server to start...");
-            Thread.Sleep(5000);
-        }
 
         var psi = new ProcessStartInfo
         {
@@ -1148,24 +1193,8 @@ catch (Exception ex)
     logger.LogError("Failed to open browser", ex);
 }
 
-// Wait for the host to stop
-await hostTask;
-
-// Cleanup frontend process when backend stops
-if (frontendProcess != null && !frontendProcess.HasExited)
-{
-    try
-    {
-        logger.LogInfo("Stopping frontend dev server...");
-        frontendProcess.Kill();
-        frontendProcess.WaitForExit(5000);
-        logger.LogInfo("Frontend dev server stopped");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError("Failed to stop frontend dev server", ex);
-    }
-}
+// Start the application (this will block until the application stops)
+app.Run();
 
 // Log application shutdown
 logger.LogInfo("Application has stopped");

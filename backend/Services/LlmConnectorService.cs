@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
@@ -72,6 +75,56 @@ namespace SwAIvyn.Services
         /// </summary>
         Task<string> GenerateClaudeResponseAsync(
             List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null);
+
+        /// <summary>
+        /// Generates a streaming chat completion via OpenAI's chat endpoint.
+        /// </summary>
+        IAsyncEnumerable<string> GenerateOpenAiStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null);
+
+        /// <summary>
+        /// Generates a streaming chat completion via Claude's chat endpoint.
+        /// </summary>
+        IAsyncEnumerable<string> GenerateClaudeStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null);
+
+        /// <summary>
+        /// Generates a streaming chat completion via Ollama's chat endpoint.
+        /// </summary>
+        IAsyncEnumerable<string> GenerateOllamaStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null);
+
+        /// <summary>
+        /// Generates a streaming chat completion via LM Studio's OpenAI-compatible endpoint.
+        /// </summary>
+        IAsyncEnumerable<string> GenerateLmStudioStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null);
+
+        /// <summary>
+        /// Generates a chat completion with function calling support via OpenAI.
+        /// </summary>
+        Task<LlmFunctionResponse> GenerateOpenAiWithFunctionsAsync(
+            List<Dictionary<string, string>> messages,
+            List<LlmFunction> functions,
+            string model = null,
+            Guid? userId = null);
+
+        /// <summary>
+        /// Generates a chat completion with tool use support via Claude.
+        /// </summary>
+        Task<LlmFunctionResponse> GenerateClaudeWithToolsAsync(
+            List<Dictionary<string, string>> messages,
+            List<LlmFunction> tools,
             string model = null,
             Guid? userId = null);
     }
@@ -218,14 +271,13 @@ namespace SwAIvyn.Services
         {
             try
             {
-                // Define the recommended models first
+                // Define the recommended models first (using actual OpenAI model names)
                 var recommendedModels = new List<string>
                 {
-                    "o4-mini-high",          // o4-mini (default - advanced reasoning)
+                    "gpt-4o-mini",           // GPT-4o Mini (default - cost-effective)
                     "gpt-4o",                // GPT-4o (multimodal, real-time)
-                    "gpt-4.1",               // GPT-4.1 (extensive context)
-                    "gpt-4.1-nano",          // GPT-4.1-nano (cost-effective)
                     "gpt-4-turbo",           // GPT-4 Turbo
+                    "gpt-4",                 // GPT-4
                     "gpt-3.5-turbo"          // GPT-3.5 Turbo (legacy)
                 };
 
@@ -276,17 +328,14 @@ namespace SwAIvyn.Services
             try
             {
                 // Claude doesn't have a models endpoint like OpenAI
-                // Return the predefined available models
+                // Return the predefined available models (using actual Claude model names)
                 var availableModels = new List<string>
                 {
-                    "claude-sonnet-4-20250514",      // Claude Sonnet 4 (default - recommended balance)
-                    "claude-opus-4-20250514",        // Claude Opus 4 (most powerful)
+                    "claude-3-5-sonnet-20241022",    // Claude 3.5 Sonnet (default - recommended balance)
                     "claude-3-5-haiku-20241022",     // Claude 3.5 Haiku (fastest/cheapest)
-                    "claude-3-7-sonnet-20241022",    // Claude 3.7 Sonnet (hybrid reasoning)
-                    "claude-3-5-sonnet-20241022",    // Claude 3.5 Sonnet (legacy)
-                    "claude-3-opus-20240229",        // Claude 3 Opus (legacy)
-                    "claude-3-sonnet-20240229",      // Claude 3 Sonnet (legacy)
-                    "claude-3-haiku-20240307"        // Claude 3 Haiku (legacy)
+                    "claude-3-opus-20240229",        // Claude 3 Opus (most powerful)
+                    "claude-3-sonnet-20240229",      // Claude 3 Sonnet
+                    "claude-3-haiku-20240307"        // Claude 3 Haiku
                 };
 
                 _logger.LogInfo($"Returning {availableModels.Count} predefined Claude models");
@@ -321,20 +370,21 @@ namespace SwAIvyn.Services
                     if (string.IsNullOrEmpty(model))
                     {
                         var available = await GetOllamaModelsAsync(userId);
-                        model = available.FirstOrDefault() 
+                        model = available.FirstOrDefault()
                             ?? throw new Exception("No Ollama models available");
                     }
 
+                    // Convert prompt to messages format for chat endpoint
+                    var messages = ConvertLegacyPromptToMessages(prompt);
                     var requestPayload = new
                     {
-                        model = model,
-                        prompt = prompt,
+                        model = model ?? "llama2",
+                        messages = messages.Select(m => new { role = m["role"], content = m["content"] }).ToArray(),
                         stream = false
                     };
 
-                    var response = await _httpClient.PostAsJsonAsync(
-                        $"{ollamaApiUrl}/api/generate",
-                        requestPayload);
+                    var response = await ExecuteWithRetryAsync(() =>
+                        _httpClient.PostAsJsonAsync($"{ollamaApiUrl}/api/chat", requestPayload));
 
                     if (!response.IsSuccessStatusCode)
                     {
@@ -342,8 +392,8 @@ namespace SwAIvyn.Services
                     }
 
                     var result = await response.Content
-                        .ReadFromJsonAsync<OllamaGenerateResponse>();
-                    return result?.Response ?? "No response from Ollama";
+                        .ReadFromJsonAsync<OllamaChatResponse>();
+                    return result?.Message?.Content ?? "No response from Ollama";
                 }
                 else if (engine == "lmstudio")
                 {
@@ -362,9 +412,8 @@ namespace SwAIvyn.Services
                             max_tokens = 1000
                         };
 
-                        var openAiResponse = await _httpClient.PostAsJsonAsync(
-                            $"{lmStudioApiUrl}/v1/chat/completions",
-                            openAiRequest);
+                        var openAiResponse = await ExecuteWithRetryAsync(() =>
+                            _httpClient.PostAsJsonAsync($"{lmStudioApiUrl}/v1/chat/completions", openAiRequest));
 
                         if (openAiResponse.IsSuccessStatusCode)
                         {
@@ -385,9 +434,8 @@ namespace SwAIvyn.Services
 
                     // Fallback to legacy /generate
                     var legacyRequest = new { prompt = prompt };
-                    var legacyResponse = await _httpClient.PostAsJsonAsync(
-                        $"{lmStudioApiUrl}/generate",
-                        legacyRequest);
+                    var legacyResponse = await ExecuteWithRetryAsync(() =>
+                        _httpClient.PostAsJsonAsync($"{lmStudioApiUrl}/generate", legacyRequest));
 
                     if (!legacyResponse.IsSuccessStatusCode)
                     {
@@ -434,8 +482,34 @@ namespace SwAIvyn.Services
             {
                 if (engine == "ollama")
                 {
-                    var prompt = ConvertMessagesToPrompt(messages);
-                    return await GenerateResponseAsync(prompt, engine, model, userId);
+                    var ollamaApiUrl = (await _configurationService.GetOllamaApiUrl()).TrimEnd('/');
+                    _logger.LogInfo($"Using Ollama API URL (structured messages): {ollamaApiUrl}");
+
+                    if (string.IsNullOrEmpty(model))
+                    {
+                        var available = await GetOllamaModelsAsync(userId);
+                        model = available.FirstOrDefault()
+                            ?? throw new Exception("No Ollama models available");
+                    }
+
+                    var requestPayload = new
+                    {
+                        model = model,
+                        messages = messages.Select(m => new { role = m["role"], content = m["content"] }).ToArray(),
+                        stream = false
+                    };
+
+                    var response = await ExecuteWithRetryAsync(() =>
+                        _httpClient.PostAsJsonAsync($"{ollamaApiUrl}/api/chat", requestPayload));
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return $"Ollama API error: {response.StatusCode}";
+                    }
+
+                    var result = await response.Content
+                        .ReadFromJsonAsync<OllamaChatResponse>();
+                    return result?.Message?.Content ?? "No response from Ollama";
                 }
                 else if (engine == "lmstudio")
                 {
@@ -455,9 +529,8 @@ namespace SwAIvyn.Services
                             max_tokens = 1000
                         };
 
-                        var openAiResponse = await _httpClient.PostAsJsonAsync(
-                            $"{lmStudioApiUrl}/v1/chat/completions",
-                            openAiRequest);
+                        var openAiResponse = await ExecuteWithRetryAsync(() =>
+                            _httpClient.PostAsJsonAsync($"{lmStudioApiUrl}/v1/chat/completions", openAiRequest));
 
                         if (openAiResponse.IsSuccessStatusCode)
                         {
@@ -517,33 +590,118 @@ namespace SwAIvyn.Services
 
                 var openAiRequest = new
                 {
-                    model = model ?? "o4-mini-high",
+                    model = model ?? "gpt-4o-mini",
                     messages = messages
                         .Select(m => new { role = m["role"], content = m["content"] })
                         .ToArray(),
                     temperature = 0.7,
-                    max_tokens = 1000
+                    max_tokens = 1000,
+                    stream = false
                 };
 
-                var request = new HttpRequestMessage(
-                    HttpMethod.Post, $"{apiUrl}/v1/chat/completions");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-                request.Content = JsonContent.Create(openAiRequest);
-
-                var response = await _httpClient.SendAsync(request);
+                var response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/v1/chat/completions");
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    request.Content = JsonContent.Create(openAiRequest);
+                    return _httpClient.SendAsync(request);
+                });
                 if (!response.IsSuccessStatusCode)
                 {
                     return $"OpenAI API error: {response.StatusCode}";
                 }
 
                 var result = await response.Content.ReadFromJsonAsync<OpenAiCompletionResponse>();
-                return result?.Choices?.FirstOrDefault()?.Message.Content 
+                return result?.Choices?.FirstOrDefault()?.Message.Content
                     ?? "No response from OpenAI";
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to call OpenAI: {ex.Message}");
                 return $"Error: {ex.Message}";
+            }
+        }
+
+        public async IAsyncEnumerable<string> GenerateOpenAiStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null)
+        {
+            var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+            var apiKey = await _configurationService.GetOpenAiApiKey(userId);
+            _logger.LogInfo($"Using OpenAI streaming API URL: {apiUrl}");
+
+            var openAiRequest = new
+            {
+                model = model ?? "gpt-4o-mini",
+                messages = messages
+                    .Select(m => new { role = m["role"], content = m["content"] })
+                    .ToArray(),
+                temperature = 0.7,
+                max_tokens = 1000,
+                stream = true
+            };
+
+            HttpResponseMessage? response = null;
+            try
+            {
+                response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/v1/chat/completions");
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    request.Content = JsonContent.Create(openAiRequest);
+                    return _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    yield return $"OpenAI API error: {response.StatusCode}";
+                    yield break;
+                }
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
+
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (line.StartsWith("data: "))
+                    {
+                        var data = line.Substring(6);
+
+                        if (data == "[DONE]")
+                            break;
+
+                        string? token = null;
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(data);
+                            var choices = doc.RootElement.GetProperty("choices");
+                            if (choices.GetArrayLength() > 0)
+                            {
+                                var delta = choices[0].GetProperty("delta");
+                                if (delta.TryGetProperty("content", out var content))
+                                {
+                                    token = content.GetString();
+                                }
+                            }
+                        }
+                        catch (System.Text.Json.JsonException)
+                        {
+                            // Skip malformed JSON chunks
+                            continue;
+                        }
+
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            yield return token;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                response?.Dispose();
             }
         }
 
@@ -564,28 +722,30 @@ namespace SwAIvyn.Services
 
                 var claudeRequest = new
                 {
-                    model = model ?? "claude-sonnet-4-20250514",
+                    model = model ?? "claude-3-5-sonnet-20241022",
                     messages = messages
                         .Select(m => new { role = m["role"], content = m["content"] })
                         .ToArray(),
                     max_tokens = 1000,
-                    temperature = 0.7
+                    temperature = 0.7,
+                    stream = false
                 };
 
-                var request = new HttpRequestMessage(
-                    HttpMethod.Post, $"{apiUrl}/v1/messages");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-                request.Headers.Add("anthropic-version", "2024-02-15");
-                request.Content = JsonContent.Create(claudeRequest);
-
-                var response = await _httpClient.SendAsync(request);
+                var response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/v1/messages");
+                    request.Headers.Add("x-api-key", apiKey);
+                    request.Headers.Add("anthropic-version", "2023-06-01");
+                    request.Content = JsonContent.Create(claudeRequest);
+                    return _httpClient.SendAsync(request);
+                });
                 if (!response.IsSuccessStatusCode)
                 {
                     return $"Claude API error: {response.StatusCode}";
                 }
 
                 var result = await response.Content.ReadFromJsonAsync<ClaudeCompletionResponse>();
-                return result?.Content?.FirstOrDefault()?.Text 
+                return result?.Content?.FirstOrDefault()?.Text
                     ?? "No response from Claude";
             }
             catch (Exception ex)
@@ -595,9 +755,556 @@ namespace SwAIvyn.Services
             }
         }
 
+        public async IAsyncEnumerable<string> GenerateClaudeStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null)
+        {
+            var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+            var apiKey = await _configurationService.GetClaudeApiKey(userId);
+            _logger.LogInfo($"Using Claude streaming API URL: {apiUrl}");
+
+            var claudeRequest = new
+            {
+                model = model ?? "claude-3-5-sonnet-20241022",
+                messages = messages
+                    .Select(m => new { role = m["role"], content = m["content"] })
+                    .ToArray(),
+                max_tokens = 1000,
+                temperature = 0.7,
+                stream = true
+            };
+
+            HttpResponseMessage? response = null;
+            try
+            {
+                response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/v1/messages");
+                    request.Headers.Add("x-api-key", apiKey);
+                    request.Headers.Add("anthropic-version", "2023-06-01");
+                    request.Content = JsonContent.Create(claudeRequest);
+                    return _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    yield return $"Claude API error: {response.StatusCode}";
+                    yield break;
+                }
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
+
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (line.StartsWith("data: "))
+                    {
+                        var data = line.Substring(6);
+
+                        if (data == "[DONE]")
+                            break;
+
+                        string? token = null;
+                        bool shouldBreak = false;
+
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(data);
+                            if (doc.RootElement.TryGetProperty("type", out var typeProperty))
+                            {
+                                var eventType = typeProperty.GetString();
+
+                                // Handle different Claude streaming event types
+                                if (eventType == "content_block_delta")
+                                {
+                                    if (doc.RootElement.TryGetProperty("delta", out var delta) &&
+                                        delta.TryGetProperty("text", out var text))
+                                    {
+                                        token = text.GetString();
+                                    }
+                                }
+                                else if (eventType == "message_delta")
+                                {
+                                    // Handle message-level deltas if needed
+                                    continue;
+                                }
+                                else if (eventType == "message_stop")
+                                {
+                                    // End of message
+                                    shouldBreak = true;
+                                }
+                            }
+                        }
+                        catch (System.Text.Json.JsonException)
+                        {
+                            // Skip malformed JSON chunks
+                            continue;
+                        }
+
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            yield return token;
+                        }
+
+                        if (shouldBreak)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                response?.Dispose();
+            }
+        }
+
+        public async IAsyncEnumerable<string> GenerateOllamaStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null)
+        {
+            var ollamaApiUrl = (await _configurationService.GetOllamaApiUrl()).TrimEnd('/');
+            _logger.LogInfo($"Using Ollama streaming API URL: {ollamaApiUrl}");
+
+            if (string.IsNullOrEmpty(model))
+            {
+                var available = await GetOllamaModelsAsync(userId);
+                model = available.FirstOrDefault() ?? "llama2";
+            }
+
+            var ollamaRequest = new
+            {
+                model = model,
+                messages = messages
+                    .Select(m => new { role = m["role"], content = m["content"] })
+                    .ToArray(),
+                stream = true
+            };
+
+            HttpResponseMessage? response = null;
+            Stream? stream = null;
+            StreamReader? reader = null;
+
+            try
+            {
+                response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{ollamaApiUrl}/api/chat");
+                    request.Content = JsonContent.Create(ollamaRequest);
+                    return _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    yield return $"Ollama API error: {response.StatusCode}";
+                    yield break;
+                }
+
+                stream = await response.Content.ReadAsStreamAsync();
+                reader = new StreamReader(stream);
+
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(line))
+                    {
+                        string? token = null;
+                        bool isDone = false;
+
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(line);
+                            if (doc.RootElement.TryGetProperty("message", out var message) &&
+                                message.TryGetProperty("content", out var content))
+                            {
+                                token = content.GetString();
+                            }
+
+                            // Check if done
+                            if (doc.RootElement.TryGetProperty("done", out var done))
+                            {
+                                isDone = done.GetBoolean();
+                            }
+                        }
+                        catch (System.Text.Json.JsonException)
+                        {
+                            // Skip malformed JSON chunks
+                            continue;
+                        }
+
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            yield return token;
+                        }
+
+                        if (isDone)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                reader?.Dispose();
+                stream?.Dispose();
+                response?.Dispose();
+            }
+        }
+
+        public async IAsyncEnumerable<string> GenerateLmStudioStreamingResponseAsync(
+            List<Dictionary<string, string>> messages,
+            string model = null,
+            Guid? userId = null)
+        {
+            var lmStudioApiUrl = (await _configurationService.GetLmStudioApiUrl()).TrimEnd('/');
+            _logger.LogInfo($"Using LM Studio streaming API URL: {lmStudioApiUrl}");
+
+            var lmStudioRequest = new
+            {
+                model = model ?? "default",
+                messages = messages
+                    .Select(m => new { role = m["role"], content = m["content"] })
+                    .ToArray(),
+                temperature = 0.7,
+                max_tokens = 1000,
+                stream = true
+            };
+
+            HttpResponseMessage? response = null;
+            Stream? stream = null;
+            StreamReader? reader = null;
+
+            try
+            {
+                response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{lmStudioApiUrl}/v1/chat/completions");
+                    request.Content = JsonContent.Create(lmStudioRequest);
+                    return _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    yield return $"LM Studio API error: {response.StatusCode}";
+                    yield break;
+                }
+
+                stream = await response.Content.ReadAsStreamAsync();
+                reader = new StreamReader(stream);
+
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (line.StartsWith("data: "))
+                    {
+                        var data = line.Substring(6);
+
+                        if (data == "[DONE]")
+                            break;
+
+                        string? token = null;
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(data);
+                            var choices = doc.RootElement.GetProperty("choices");
+                            if (choices.GetArrayLength() > 0)
+                            {
+                                var delta = choices[0].GetProperty("delta");
+                                if (delta.TryGetProperty("content", out var content))
+                                {
+                                    token = content.GetString();
+                                }
+                            }
+                        }
+                        catch (System.Text.Json.JsonException)
+                        {
+                            // Skip malformed JSON chunks
+                            continue;
+                        }
+
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            yield return token;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                reader?.Dispose();
+                stream?.Dispose();
+                response?.Dispose();
+            }
+        }
+
+        public async Task<LlmFunctionResponse> GenerateOpenAiWithFunctionsAsync(
+            List<Dictionary<string, string>> messages,
+            List<LlmFunction> functions,
+            string model = null,
+            Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = (await _configurationService.GetOpenAiApiUrl(userId)).TrimEnd('/');
+                var apiKey = await _configurationService.GetOpenAiApiKey(userId);
+                _logger.LogInfo($"Using OpenAI function calling API URL: {apiUrl}");
+
+                var openAiFunctions = functions.Select(f => new
+                {
+                    name = f.Name,
+                    description = f.Description,
+                    parameters = f.Parameters
+                }).ToArray();
+
+                var openAiRequest = new
+                {
+                    model = model ?? "gpt-4o-mini",
+                    messages = messages
+                        .Select(m => new { role = m["role"], content = m["content"] })
+                        .ToArray(),
+                    temperature = 0.7,
+                    max_tokens = 1000,
+                    functions = openAiFunctions,
+                    function_call = "auto"
+                };
+
+                var response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/v1/chat/completions");
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    request.Content = JsonContent.Create(openAiRequest);
+                    return _httpClient.SendAsync(request);
+                });
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new LlmFunctionResponse
+                    {
+                        Content = $"OpenAI API error: {response.StatusCode}"
+                    };
+                }
+
+                var result = await response.Content.ReadFromJsonAsync<OpenAiFunctionCompletionResponse>();
+                var choice = result?.Choices?.FirstOrDefault();
+
+                if (choice?.Message?.FunctionCall != null)
+                {
+                    // Function call response
+                    var functionCall = choice.Message.FunctionCall;
+                    var arguments = new Dictionary<string, object>();
+
+                    if (!string.IsNullOrEmpty(functionCall.Arguments))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(functionCall.Arguments);
+                            foreach (var prop in doc.RootElement.EnumerateObject())
+                            {
+                                arguments[prop.Name] = prop.Value.ToString();
+                            }
+                        }
+                        catch (System.Text.Json.JsonException ex)
+                        {
+                            _logger.LogError($"Failed to parse function arguments: {ex.Message}");
+                        }
+                    }
+
+                    return new LlmFunctionResponse
+                    {
+                        FunctionCalls = new List<LlmFunctionCall>
+                        {
+                            new LlmFunctionCall
+                            {
+                                Name = functionCall.Name,
+                                Arguments = arguments
+                            }
+                        },
+                        RequiresFunctionExecution = true
+                    };
+                }
+                else
+                {
+                    // Regular text response
+                    return new LlmFunctionResponse
+                    {
+                        Content = choice?.Message?.Content ?? "No response from OpenAI"
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to call OpenAI with functions: {ex.Message}");
+                return new LlmFunctionResponse
+                {
+                    Content = $"Error: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<LlmFunctionResponse> GenerateClaudeWithToolsAsync(
+            List<Dictionary<string, string>> messages,
+            List<LlmFunction> tools,
+            string model = null,
+            Guid? userId = null)
+        {
+            try
+            {
+                var apiUrl = (await _configurationService.GetClaudeApiUrl(userId)).TrimEnd('/');
+                var apiKey = await _configurationService.GetClaudeApiKey(userId);
+                _logger.LogInfo($"Using Claude tool use API URL: {apiUrl}");
+
+                var claudeTools = tools.Select(t => new
+                {
+                    name = t.Name,
+                    description = t.Description,
+                    input_schema = t.Parameters
+                }).ToArray();
+
+                var claudeRequest = new
+                {
+                    model = model ?? "claude-3-5-sonnet-20241022",
+                    messages = messages
+                        .Select(m => new { role = m["role"], content = m["content"] })
+                        .ToArray(),
+                    max_tokens = 1000,
+                    temperature = 0.7,
+                    tools = claudeTools
+                };
+
+                var response = await ExecuteWithRetryAsync(() =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/v1/messages");
+                    request.Headers.Add("x-api-key", apiKey);
+                    request.Headers.Add("anthropic-version", "2023-06-01");
+                    request.Content = JsonContent.Create(claudeRequest);
+                    return _httpClient.SendAsync(request);
+                });
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new LlmFunctionResponse
+                    {
+                        Content = $"Claude API error: {response.StatusCode}"
+                    };
+                }
+
+                var result = await response.Content.ReadFromJsonAsync<ClaudeToolCompletionResponse>();
+                var content = result?.Content?.FirstOrDefault();
+
+                if (content?.Type == "tool_use")
+                {
+                    // Tool use response
+                    var arguments = new Dictionary<string, object>();
+
+                    if (content.Input != null)
+                    {
+                        foreach (var prop in content.Input)
+                        {
+                            arguments[prop.Key] = prop.Value;
+                        }
+                    }
+
+                    return new LlmFunctionResponse
+                    {
+                        FunctionCalls = new List<LlmFunctionCall>
+                        {
+                            new LlmFunctionCall
+                            {
+                                Name = content.Name ?? string.Empty,
+                                Arguments = arguments
+                            }
+                        },
+                        RequiresFunctionExecution = true
+                    };
+                }
+                else
+                {
+                    // Regular text response
+                    return new LlmFunctionResponse
+                    {
+                        Content = content?.Text ?? "No response from Claude"
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to call Claude with tools: {ex.Message}");
+                return new LlmFunctionResponse
+                {
+                    Content = $"Error: {ex.Message}"
+                };
+            }
+        }
+
         //
         // === Utility Methods ===
         //
+
+        /// <summary>
+        /// Executes an HTTP request with retry logic and exponential backoff.
+        /// </summary>
+        private async Task<HttpResponseMessage> ExecuteWithRetryAsync(
+            Func<Task<HttpResponseMessage>> httpCall,
+            RetryConfig? retryConfig = null)
+        {
+            var config = retryConfig ?? new RetryConfig();
+            var attempt = 0;
+            var delay = config.BaseDelay;
+
+            while (attempt <= config.MaxRetries)
+            {
+                try
+                {
+                    var response = await httpCall();
+
+                    // Success or non-retryable error
+                    if (response.IsSuccessStatusCode ||
+                        (!IsRetryableStatusCode(response.StatusCode) && attempt > 0))
+                    {
+                        return response;
+                    }
+
+                    // If this is the last attempt, return the response anyway
+                    if (attempt == config.MaxRetries)
+                    {
+                        return response;
+                    }
+
+                    _logger.LogWarning($"HTTP request failed with {response.StatusCode}, retrying in {delay.TotalSeconds}s (attempt {attempt + 1}/{config.MaxRetries + 1})");
+                }
+                catch (Exception ex) when (attempt < config.MaxRetries)
+                {
+                    _logger.LogWarning($"HTTP request threw exception: {ex.Message}, retrying in {delay.TotalSeconds}s (attempt {attempt + 1}/{config.MaxRetries + 1})");
+                }
+
+                // Wait before retry
+                await Task.Delay(delay);
+
+                // Exponential backoff
+                delay = TimeSpan.FromMilliseconds(Math.Min(
+                    delay.TotalMilliseconds * config.BackoffMultiplier,
+                    config.MaxDelay.TotalMilliseconds));
+
+                attempt++;
+            }
+
+            // This should never be reached, but just in case
+            throw new InvalidOperationException("Retry logic failed unexpectedly");
+        }
+
+        /// <summary>
+        /// Determines if an HTTP status code is retryable.
+        /// </summary>
+        private static bool IsRetryableStatusCode(HttpStatusCode statusCode)
+        {
+            return statusCode == HttpStatusCode.TooManyRequests ||  // 429
+                   statusCode == HttpStatusCode.InternalServerError ||  // 500
+                   statusCode == HttpStatusCode.BadGateway ||  // 502
+                   statusCode == HttpStatusCode.ServiceUnavailable ||  // 503
+                   statusCode == HttpStatusCode.GatewayTimeout;  // 504
+        }
 
         /// <summary>
         /// Converts structured messages into a single prompt string for Ollama or legacy LM Studio.
@@ -690,6 +1397,18 @@ namespace SwAIvyn.Services
             public bool Done { get; set; }
         }
 
+        private class OllamaChatResponse
+        {
+            public OllamaMessage Message { get; set; } = new();
+            public bool Done { get; set; }
+        }
+
+        private class OllamaMessage
+        {
+            public string Role { get; set; } = string.Empty;
+            public string Content { get; set; } = string.Empty;
+        }
+
         private class LmStudioGenerateResponse
         {
             public string Text { get; set; } = string.Empty;
@@ -732,6 +1451,23 @@ namespace SwAIvyn.Services
         {
             public string Role { get; set; } = string.Empty;
             public string Content { get; set; } = string.Empty;
+            public OpenAiFunctionCall? FunctionCall { get; set; }
+        }
+
+        private class OpenAiFunctionCall
+        {
+            public string Name { get; set; } = string.Empty;
+            public string Arguments { get; set; } = string.Empty;
+        }
+
+        private class OpenAiFunctionCompletionResponse
+        {
+            public List<OpenAiFunctionChoice> Choices { get; set; } = new();
+        }
+
+        private class OpenAiFunctionChoice
+        {
+            public OpenAiMessage Message { get; set; } = new();
         }
 
         private class ClaudeModelsResponse
@@ -752,6 +1488,59 @@ namespace SwAIvyn.Services
         private class ClaudeContent
         {
             public string Text { get; set; } = string.Empty;
+            public string Type { get; set; } = string.Empty;
+            public string? Name { get; set; }
+            public Dictionary<string, object>? Input { get; set; }
         }
+
+        private class ClaudeToolCompletionResponse
+        {
+            public List<ClaudeContent> Content { get; set; } = new();
+        }
+    }
+
+    //
+    // === Function Calling DTOs ===
+    //
+
+    /// <summary>
+    /// Represents a function that can be called by the LLM.
+    /// </summary>
+    public class LlmFunction
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public Dictionary<string, object> Parameters { get; set; } = new();
+        public Func<Dictionary<string, object>, Task<string>>? Handler { get; set; }
+    }
+
+    /// <summary>
+    /// Represents a function call request from the LLM.
+    /// </summary>
+    public class LlmFunctionCall
+    {
+        public string Name { get; set; } = string.Empty;
+        public Dictionary<string, object> Arguments { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Represents the response from an LLM that may include function calls.
+    /// </summary>
+    public class LlmFunctionResponse
+    {
+        public string? Content { get; set; }
+        public List<LlmFunctionCall> FunctionCalls { get; set; } = new();
+        public bool RequiresFunctionExecution { get; set; }
+    }
+
+    /// <summary>
+    /// Configuration for retry logic.
+    /// </summary>
+    public class RetryConfig
+    {
+        public int MaxRetries { get; set; } = 3;
+        public TimeSpan BaseDelay { get; set; } = TimeSpan.FromSeconds(1);
+        public double BackoffMultiplier { get; set; } = 2.0;
+        public TimeSpan MaxDelay { get; set; } = TimeSpan.FromSeconds(30);
     }
 }

@@ -14,6 +14,32 @@ $rootDir = Split-Path -Parent $PSScriptRoot
 $distDir = Join-Path $rootDir $OutputDir
 $dllDir  = Join-Path $rootDir "dll"
 
+# Navigate to frontend and run npm install
+Write-Host "Navigating to frontend directory..." -ForegroundColor Cyan
+Push-Location "$rootDir\frontend"
+
+Write-Host "Running npm install in frontend directory..." -ForegroundColor Cyan
+npm install
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "npm install failed with exit code $LASTEXITCODE"
+    exit 1
+}
+Write-Host "npm install completed successfully." -ForegroundColor Green
+
+Pop-Location
+Write-Host "Returned to root directory." -ForegroundColor Cyan
+
+# Clean backend/wwwroot directory
+$wwwRootDir = Join-Path $rootDir "backend\wwwroot"
+Write-Host "Checking backend/wwwroot directory: $wwwRootDir" -ForegroundColor Cyan
+if (Test-Path $wwwRootDir) {
+    Write-Host "Cleaning backend/wwwroot directory..." -ForegroundColor Yellow
+    Get-ChildItem -Path $wwwRootDir -Recurse | Remove-Item -Force -Recurse
+    Write-Host "backend/wwwroot directory cleaned." -ForegroundColor Green
+} else {
+    Write-Host "backend/wwwroot directory does not exist. Skipping cleanup." -ForegroundColor Gray
+}
+
 # Skip frontend build - we'll use npm run dev for live development
 Write-Host "=== SKIPPING FRONTEND BUILD ===" -ForegroundColor Yellow
 Write-Host "Frontend will be served via 'npm run dev' for live development" -ForegroundColor Yellow

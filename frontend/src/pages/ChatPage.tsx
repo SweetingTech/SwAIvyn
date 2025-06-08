@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Paperclip, Camera, Mic, Plus } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -271,7 +271,7 @@ const ChatPage = () => {
   }, [user?.id]);
 
   // Handle character selection
-  const handleCharacterSelect = async (character: any) => {
+  const handleCharacterSelect = useCallback(async (character: any) => {
     setSelectedCharacter(character);
     if (character) {
       localStorage.setItem('selectedCharacterId', character.id);
@@ -301,7 +301,7 @@ const ChatPage = () => {
       });
       navigate(newUrl, { replace: true });
     }
-  };
+  }, [user?.id, currentConversation.id, navigate]);
   /**
    * Creates a new conversation
    */

@@ -486,6 +486,46 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
+        /// Generates a streaming chat‐style response using the OpenAI chat endpoint.
+        /// </summary>
+        [HttpPost("openai/generate/stream")]
+        public async Task GenerateOpenAiStream([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                Response.Headers["Content-Type"] = "text/event-stream";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                await foreach (var token in _llmConnectorService.GenerateOpenAiStreamingResponseAsync(
+                    messages,
+                    request.Model,
+                    request.UserId))
+                {
+                    await Response.WriteAsync($"data: {token}\n\n");
+                    await Response.Body.FlushAsync();
+                }
+
+                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.Body.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating OpenAI streaming response", ex);
+                await Response.WriteAsync($"data: Error: {ex.Message}\n\n");
+                await Response.Body.FlushAsync();
+            }
+        }
+
+        /// <summary>
         /// Generates a chat‐style response using the Claude chat endpoint.
         /// </summary>
         [HttpPost("claude/generate")]
@@ -512,6 +552,352 @@ namespace SwAIvyn.Controllers
             {
                 _logger.LogError("Error generating Claude response", ex);
                 return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Generates a streaming chat‐style response using the Claude chat endpoint.
+        /// </summary>
+        [HttpPost("claude/generate/stream")]
+        public async Task GenerateClaudeStream([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                Response.Headers["Content-Type"] = "text/event-stream";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                await foreach (var token in _llmConnectorService.GenerateClaudeStreamingResponseAsync(
+                    messages,
+                    request.Model,
+                    request.UserId))
+                {
+                    await Response.WriteAsync($"data: {token}\n\n");
+                    await Response.Body.FlushAsync();
+                }
+
+                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.Body.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating Claude streaming response", ex);
+                await Response.WriteAsync($"data: Error: {ex.Message}\n\n");
+                await Response.Body.FlushAsync();
+            }
+        }
+
+        /// <summary>
+        /// Generates a streaming chat‐style response using the Ollama chat endpoint.
+        /// </summary>
+        [HttpPost("ollama/generate/stream")]
+        public async Task GenerateOllamaStream([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                Response.Headers["Content-Type"] = "text/event-stream";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                await foreach (var token in _llmConnectorService.GenerateOllamaStreamingResponseAsync(
+                    messages,
+                    request.Model,
+                    request.UserId))
+                {
+                    await Response.WriteAsync($"data: {token}\n\n");
+                    await Response.Body.FlushAsync();
+                }
+
+                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.Body.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating Ollama streaming response", ex);
+                await Response.WriteAsync($"data: Error: {ex.Message}\n\n");
+                await Response.Body.FlushAsync();
+            }
+        }
+
+        /// <summary>
+        /// Generates a streaming chat‐style response using the LM Studio OpenAI-compatible endpoint.
+        /// </summary>
+        [HttpPost("lmstudio/generate/stream")]
+        public async Task GenerateLmStudioStream([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                Response.Headers["Content-Type"] = "text/event-stream";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                await foreach (var token in _llmConnectorService.GenerateLmStudioStreamingResponseAsync(
+                    messages,
+                    request.Model,
+                    request.UserId))
+                {
+                    await Response.WriteAsync($"data: {token}\n\n");
+                    await Response.Body.FlushAsync();
+                }
+
+                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.Body.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating LM Studio streaming response", ex);
+                await Response.WriteAsync($"data: Error: {ex.Message}\n\n");
+                await Response.Body.FlushAsync();
+            }
+        }
+
+        /// <summary>
+        /// Generates a response with function calling support using OpenAI.
+        /// </summary>
+        [HttpPost("openai/generate/functions")]
+        public async Task<IActionResult> GenerateOpenAiWithFunctions([FromBody] GenerateFunctionsRequest request)
+        {
+            try
+            {
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                var result = await _llmConnectorService.GenerateOpenAiWithFunctionsAsync(
+                    messages,
+                    request.Functions,
+                    request.Model,
+                    request.UserId);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating OpenAI response with functions", ex);
+                return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Generates a response with tool use support using Claude.
+        /// </summary>
+        [HttpPost("claude/generate/tools")]
+        public async Task<IActionResult> GenerateClaudeWithTools([FromBody] GenerateFunctionsRequest request)
+        {
+            try
+            {
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                var result = await _llmConnectorService.GenerateClaudeWithToolsAsync(
+                    messages,
+                    request.Functions,
+                    request.Model,
+                    request.UserId);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error generating Claude response with tools", ex);
+                return StatusCode(500, $"An error occurred while generating response: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Test endpoint for function calling with a simple example function.
+        /// </summary>
+        [HttpPost("test/functions")]
+        public async Task<IActionResult> TestFunctionCalling([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                // Define a simple test function
+                var functions = new List<SwAIvyn.Services.LlmFunction>
+                {
+                    new SwAIvyn.Services.LlmFunction
+                    {
+                        Name = "get_current_time",
+                        Description = "Get the current date and time",
+                        Parameters = new Dictionary<string, object>
+                        {
+                            ["type"] = "object",
+                            ["properties"] = new Dictionary<string, object>(),
+                            ["required"] = new string[0]
+                        },
+                        Handler = async (args) => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                    }
+                };
+
+                var result = await _llmConnectorService.GenerateOpenAiWithFunctionsAsync(
+                    messages,
+                    functions,
+                    request.Model,
+                    request.UserId);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing function calling", ex);
+                return StatusCode(500, $"An error occurred while testing function calling: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Test endpoint for Claude tool use with a simple example tool.
+        /// </summary>
+        [HttpPost("test/claude-tools")]
+        public async Task<IActionResult> TestClaudeToolUse([FromBody] GenerateMessagesRequest request)
+        {
+            try
+            {
+                var messages = request.Messages
+                    .Select(m => new Dictionary<string, string>
+                    {
+                        { "role", m.Role },
+                        { "content", m.Content }
+                    })
+                    .ToList();
+
+                // Define a simple test tool for Claude
+                var tools = new List<SwAIvyn.Services.LlmFunction>
+                {
+                    new SwAIvyn.Services.LlmFunction
+                    {
+                        Name = "get_current_time",
+                        Description = "Get the current date and time",
+                        Parameters = new Dictionary<string, object>
+                        {
+                            ["type"] = "object",
+                            ["properties"] = new Dictionary<string, object>(),
+                            ["required"] = new string[0]
+                        },
+                        Handler = async (args) => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                    }
+                };
+
+                var result = await _llmConnectorService.GenerateClaudeWithToolsAsync(
+                    messages,
+                    tools,
+                    request.Model,
+                    request.UserId);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing Claude tool use", ex);
+                return StatusCode(500, $"An error occurred while testing Claude tool use: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Simple test endpoint for Ollama streaming - just send "Hello, how are you?"
+        /// </summary>
+        [HttpGet("test/ollama-stream")]
+        public async Task TestOllamaStreamSimple()
+        {
+            try
+            {
+                Response.Headers["Content-Type"] = "text/event-stream";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                var messages = new List<Dictionary<string, string>>
+                {
+                    new Dictionary<string, string> { { "role", "user" }, { "content", "Hello, how are you?" } }
+                };
+
+                await foreach (var token in _llmConnectorService.GenerateOllamaStreamingResponseAsync(messages))
+                {
+                    await Response.WriteAsync($"data: {token}\n\n");
+                    await Response.Body.FlushAsync();
+                }
+
+                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.Body.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing Ollama streaming", ex);
+                await Response.WriteAsync($"data: Error: {ex.Message}\n\n");
+                await Response.Body.FlushAsync();
+            }
+        }
+
+        /// <summary>
+        /// Simple test endpoint for LM Studio streaming - just send "Hello, how are you?"
+        /// </summary>
+        [HttpGet("test/lmstudio-stream")]
+        public async Task TestLmStudioStreamSimple()
+        {
+            try
+            {
+                Response.Headers["Content-Type"] = "text/event-stream";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["Connection"] = "keep-alive";
+
+                var messages = new List<Dictionary<string, string>>
+                {
+                    new Dictionary<string, string> { { "role", "user" }, { "content", "Hello, how are you?" } }
+                };
+
+                await foreach (var token in _llmConnectorService.GenerateLmStudioStreamingResponseAsync(messages))
+                {
+                    await Response.WriteAsync($"data: {token}\n\n");
+                    await Response.Body.FlushAsync();
+                }
+
+                await Response.WriteAsync("data: [DONE]\n\n");
+                await Response.Body.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error testing LM Studio streaming", ex);
+                await Response.WriteAsync($"data: Error: {ex.Message}\n\n");
+                await Response.Body.FlushAsync();
             }
         }
     }
@@ -551,5 +937,16 @@ namespace SwAIvyn.Controllers
     {
         public string Role { get; set; }
         public string Content { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for function calling generation
+    /// </summary>
+    public class GenerateFunctionsRequest
+    {
+        public Guid? UserId { get; set; }
+        public string Model { get; set; }
+        public List<MessageDto> Messages { get; set; } = new();
+        public List<SwAIvyn.Services.LlmFunction> Functions { get; set; } = new();
     }
 }

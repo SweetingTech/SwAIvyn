@@ -99,6 +99,47 @@ namespace SwAIvyn.Services
             }
         }
 
+        /// <summary>
+        /// Gets a global setting (ignores user ID and looks for any existing setting with the key)
+        /// </summary>
+        public async Task<string> GetGlobalSettingAsync(string key, string defaultValue = null)
+        {
+            try
+            {
+                _logger.LogInfo($"Getting global setting '{key}'");
+
+                // Use direct database connection to bypass Entity Framework
+                using var connection = new Microsoft.Data.Sqlite.SqliteConnection(_dbContext.Database.GetConnectionString());
+                await connection.OpenAsync();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT Value FROM Settings WHERE Key = @key LIMIT 1";
+                command.Parameters.AddWithValue("@key", key);
+
+                var result = await command.ExecuteScalarAsync() as string;
+
+                if (!string.IsNullOrEmpty(result))
+                {
+                    _logger.LogInfo($"Found setting value for '{key}': {result?.Substring(0, Math.Min(50, result.Length))}...");
+                    return result;
+                }
+
+                _logger.LogInfo($"No setting found for '{key}', checking configuration");
+
+                // Fall back to configuration
+                var configValue = _configuration[$"AppSettings:{key}"];
+                var finalResult = string.IsNullOrEmpty(configValue) ? defaultValue : configValue;
+
+                _logger.LogInfo($"Returning default/config value for '{key}': {finalResult}");
+                return finalResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error getting global setting '{key}'", ex);
+                return defaultValue;
+            }
+        }
+
         public async Task<Dictionary<string, string>> GetAllSettingsAsync(Guid? userId)
         {
             try
@@ -179,22 +220,44 @@ namespace SwAIvyn.Services
         }
 
         public async Task<string> GetOllamaApiUrlAsync(Guid? userId)
-            => await GetSettingAsync(userId, OLLAMA_API_URL_KEY, "http://localhost:11434");
+            => await GetGlobalSettingAsync(OLLAMA_API_URL_KEY, "http://localhost:11434");
 
         public async Task<string> GetLmStudioApiUrlAsync(Guid? userId)
-            => await GetSettingAsync(userId, LM_STUDIO_API_URL_KEY, "http://localhost:1234");
+            => await GetGlobalSettingAsync(LM_STUDIO_API_URL_KEY, "http://localhost:1234");
 
         public async Task<string> GetOpenAiApiUrlAsync(Guid? userId)
-            => await GetSettingAsync(userId, OPENAI_API_URL_KEY, "https://api.openai.com/v1");
+            => await GetGlobalSettingAsync(OPENAI_API_URL_KEY, "https://api.openai.com/v1");
 
         public async Task<string> GetOpenAiApiKeyAsync(Guid? userId)
-            => await GetSettingAsync(userId, OPENAI_API_KEY_KEY, string.Empty);
+        {
+            var apiKey = await GetGlobalSettingAsync(OPENAI_API_KEY_KEY, string.Empty);
+            _logger.LogInfo($"OpenAI API key length: {apiKey?.Length ?? 0}, starts with: {apiKey?.Substring(0, Math.Min(10, apiKey?.Length ?? 0))}...");
+
+            // Check for non-ASCII characters
+            if (!string.IsNullOrEmpty(apiKey) && apiKey.Any(c => c > 127))
+            {
+                _logger.LogWarning("OpenAI API key contains non-ASCII characters!");
+            }
+
+            return apiKey;
+        }
 
         public async Task<string> GetClaudeApiUrlAsync(Guid? userId)
-            => await GetSettingAsync(userId, CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
+            => await GetGlobalSettingAsync(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
 
         public async Task<string> GetClaudeApiKeyAsync(Guid? userId)
-            => await GetSettingAsync(userId, CLAUDE_API_KEY_KEY, string.Empty);
+        {
+            var apiKey = await GetGlobalSettingAsync(CLAUDE_API_KEY_KEY, string.Empty);
+            _logger.LogInfo($"Claude API key length: {apiKey?.Length ?? 0}, starts with: {apiKey?.Substring(0, Math.Min(15, apiKey?.Length ?? 0))}...");
+
+            // Check for non-ASCII characters
+            if (!string.IsNullOrEmpty(apiKey) && apiKey.Any(c => c > 127))
+            {
+                _logger.LogWarning("Claude API key contains non-ASCII characters!");
+            }
+
+            return apiKey;
+        }
 
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
         {

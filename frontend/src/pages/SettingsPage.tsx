@@ -27,20 +27,16 @@ import fetchWithTimeout from '../utils/fetchWithTimeout';
 
 // Hardcoded model arrays (defined outside component to prevent recreation on every render)
 const OPENAI_MODELS = [
-  'o4-mini-high',
+  'gpt-4o-mini',
   'gpt-4o',
-  'gpt-4.1',
-  'gpt-4.1-nano',
   'gpt-4-turbo',
+  'gpt-4',
   'gpt-3.5-turbo',
 ];
 
 const CLAUDE_MODELS = [
-  'claude-sonnet-4-20250514',
-  'claude-opus-4-20250514',
-  'claude-3-5-haiku-20241022',
-  'claude-3-7-sonnet-20241022',
   'claude-3-5-sonnet-20241022',
+  'claude-3-5-haiku-20241022',
   'claude-3-opus-20240229',
   'claude-3-sonnet-20240229',
   'claude-3-haiku-20240307',
@@ -325,6 +321,7 @@ const ModelSettings = () => {
   const [selectedEngine, setSelectedEngine] = useState<'ollama' | 'openai' | 'claude' | 'lmstudio'>('claude');
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
+  const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
   const [openAiApiKey, setOpenAiApiKey] = useState('');
   const [claudeApiUrl, setClaudeApiUrl] = useState('https://api.anthropic.com/v1');
   const [claudeApiKey, setClaudeApiKey] = useState('');
@@ -337,11 +334,27 @@ const ModelSettings = () => {
   useEffect(() => {
     if (!user?.id) return;
     setLoading(true);
+
+    // Load LLM settings
     chatService.getLlmSettings(user.id)
       .then(settings => {
         setSelectedEngine(settings.engine as any);
         setSelectedModel(settings.model || '');
       })
+      .catch(() => {});
+
+    // Load connection settings (API keys) - backend returns PascalCase
+    fetch(`/api/settings/connections?userId=${user.id}`)
+      .then(response => response.json())
+      .then(data => {
+        if (data.OpenAiApiKey) setOpenAiApiKey(data.OpenAiApiKey);
+        if (data.ClaudeApiKey) setClaudeApiKey(data.ClaudeApiKey);
+        if (data.ClaudeApiUrl) setClaudeApiUrl(data.ClaudeApiUrl);
+        if (data.OllamaApiUrl) setOllamaApiUrl(data.OllamaApiUrl);
+        if (data.LmStudioApiUrl) setLmStudioApiUrl(data.LmStudioApiUrl);
+        if (data.EnableStreaming !== undefined) setEnableStreaming(data.EnableStreaming);
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
 
     const cached = localStorage.getItem('cachedOllamaModels');
@@ -350,15 +363,27 @@ const ModelSettings = () => {
 
   const refreshOllamaModels = async () => {
     try {
-      const res = await fetchWithTimeout(`${ollamaApiUrl}/api/tags`);
+      const apiUrl = selectedEngine === 'lmstudio' ? lmStudioApiUrl : ollamaApiUrl;
+      const endpoint = selectedEngine === 'lmstudio' ? '/v1/models' : '/api/tags';
+
+      const res = await fetchWithTimeout(`${apiUrl}${endpoint}`);
       if (res.ok) {
         const json = await res.json();
-        const models = json.models?.map((m: any) => m.name) || [];
+        let models: string[] = [];
+
+        if (selectedEngine === 'lmstudio') {
+          // LM Studio uses OpenAI-compatible format
+          models = json.data?.map((m: any) => m.id) || [];
+        } else {
+          // Ollama format
+          models = json.models?.map((m: any) => m.name) || [];
+        }
+
         setCachedOllamaModels(models);
         localStorage.setItem('cachedOllamaModels', JSON.stringify(models));
       }
     } catch (e) {
-      console.error('Ollama refresh failed', e);
+      console.error('Model refresh failed', e);
     }
   };
 
@@ -536,8 +561,8 @@ const ModelSettings = () => {
               <input
                 type="text"
                 placeholder="http://localhost:1234"
-                value={ollamaApiUrl}
-                onChange={e => setOllamaApiUrl(e.target.value)}
+                value={lmStudioApiUrl}
+                onChange={e => setLmStudioApiUrl(e.target.value)}
                 className="w-full border rounded px-3 py-2"
                 disabled={loading}
               />
@@ -579,10 +604,45 @@ const ModelSettings = () => {
     setLoading(true);
     setSaveError('');
     try {
+      // Save LLM engine and model settings
       await chatService.updateLlmSettings(selectedEngine, selectedModel, user.id);
+
+      // Save API keys and connection settings
+      const connectionSettings: any = {
+        UserId: user.id,
+        EnableStreaming: enableStreaming
+      };
+
+      // Add API keys based on selected engine (using PascalCase to match backend)
+      if (selectedEngine === 'openai' && openAiApiKey) {
+        connectionSettings.OpenAiApiKey = openAiApiKey;
+        connectionSettings.OpenAiApiUrl = 'https://api.openai.com/v1';
+      }
+
+      if (selectedEngine === 'claude' && claudeApiKey) {
+        connectionSettings.ClaudeApiKey = claudeApiKey;
+        connectionSettings.ClaudeApiUrl = claudeApiUrl || 'https://api.anthropic.com/v1';
+      }
+
+      if (selectedEngine === 'ollama' && ollamaApiUrl) {
+        connectionSettings.OllamaApiUrl = ollamaApiUrl;
+      }
+
+      if (selectedEngine === 'lmstudio' && lmStudioApiUrl) {
+        connectionSettings.LmStudioApiUrl = lmStudioApiUrl;
+      }
+
+      // Save connection settings
+      await fetch('/api/settings/connections', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(connectionSettings)
+      });
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (e) {
+      console.error('Save failed:', e);
       setSaveError('Save failed');
     } finally {
       setLoading(false);
