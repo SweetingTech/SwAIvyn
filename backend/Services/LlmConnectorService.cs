@@ -340,16 +340,18 @@ namespace SwAIvyn.Services
         public async Task<IEnumerable<string>> GetClaudeModelsAsync(Guid? userId = null)
         {
             try
-            {
-                // Claude doesn't have a models endpoint like OpenAI
+            {                // Claude doesn't have a models endpoint like OpenAI
                 // Return the predefined available models (using actual Claude model names)
                 var availableModels = new List<string>
                 {
-                    "claude-3-5-sonnet-20241022",    // Claude 3.5 Sonnet (default - recommended balance)
-                    "claude-3-5-haiku-20241022",     // Claude 3.5 Haiku (fastest/cheapest)
-                    "claude-3-opus-20240229",        // Claude 3 Opus (most powerful)
-                    "claude-3-sonnet-20240229",      // Claude 3 Sonnet
-                    "claude-3-haiku-20240307"        // Claude 3 Haiku
+                    "claude-opus-4-20250514",        // Claude 4 Opus (most capable and intelligent)
+                    "claude-sonnet-4-20250514",      // Claude 4 Sonnet (high-performance)
+                    "claude-3-7-sonnet-20250219",   // Claude 3.7 Sonnet (extended thinking capabilities)
+                    "claude-3-5-sonnet-20241022",   // Claude 3.5 Sonnet v2 (default - recommended balance)
+                    "claude-3-5-haiku-20241022",    // Claude 3.5 Haiku (fastest/cheapest)
+                    "claude-3-opus-20240229",       // Claude 3 Opus (legacy)
+                    "claude-3-sonnet-20240229",     // Claude 3 Sonnet (legacy)
+                    "claude-3-haiku-20240307"       // Claude 3 Haiku (legacy)
                 };
 
                 _logger.LogInfo($"Returning {availableModels.Count} predefined Claude models");
@@ -734,16 +736,25 @@ namespace SwAIvyn.Services
                 var apiKey = await _configurationService.GetClaudeApiKey(userId);
                 _logger.LogInfo($"Using Claude API URL: {apiUrl}");
 
+                // Separate system messages from user/assistant messages for Claude API
+                var systemMessages = messages.Where(m => m["role"] == "system").ToList();
+                var conversationMessages = messages.Where(m => m["role"] != "system").ToList();
+
+                var systemPrompt = systemMessages.Any()
+                    ? string.Join("\n\n", systemMessages.Select(m => m["content"]))
+                    : null;
+
                 var claudeRequest = new
                 {
-                    model = model ?? "claude-3-5-sonnet-20241022",
-                    messages = messages
+                    model = model ?? "claude-sonnet-4-20250514",
+                    system = systemPrompt,
+                    messages = conversationMessages
                         .Select(m => new { role = m["role"], content = m["content"] })
                         .ToArray(),
                     max_tokens = 1000,
                     temperature = 0.7,
                     stream = false
-                };
+                };                _logger.LogInfo($"Claude request: {System.Text.Json.JsonSerializer.Serialize(claudeRequest)}");
 
                 var response = await ExecuteWithRetryAsync(() =>
                 {
@@ -755,7 +766,9 @@ namespace SwAIvyn.Services
                 });
                 if (!response.IsSuccessStatusCode)
                 {
-                    return $"Claude API error: {response.StatusCode}";
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Claude API error: {response.StatusCode} - {errorContent}");
+                    return $"Claude API error: {response.StatusCode} - {errorContent}";
                 }
 
                 var result = await response.Content.ReadFromJsonAsync<ClaudeCompletionResponse>();
@@ -778,15 +791,23 @@ namespace SwAIvyn.Services
             var apiKey = await _configurationService.GetClaudeApiKey(userId);
             _logger.LogInfo($"Using Claude streaming API URL: {apiUrl}");
 
+            // Separate system messages from user/assistant messages for Claude API
+            var systemMessages = messages.Where(m => m["role"] == "system").ToList();
+            var conversationMessages = messages.Where(m => m["role"] != "system").ToList();
+
+            var systemPrompt = systemMessages.Any()
+                ? string.Join("\n\n", systemMessages.Select(m => m["content"]))
+                : null;
+
             var claudeRequest = new
             {
-                model = model ?? "claude-3-5-sonnet-20241022",
-                messages = messages
+                model = model ?? "claude-sonnet-4-20250514",
+                system = systemPrompt,
+                messages = conversationMessages
                     .Select(m => new { role = m["role"], content = m["content"] })
                     .ToArray(),
                 max_tokens = 1000,
-                temperature = 0.7,
-                stream = true
+                temperature = 0.7,                stream = true
             };
 
             HttpResponseMessage? response = null;
@@ -803,7 +824,9 @@ namespace SwAIvyn.Services
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    yield return $"Claude API error: {response.StatusCode}";
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Claude streaming API error: {response.StatusCode} - {errorContent}");
+                    yield return $"Claude API error: {response.StatusCode} - {errorContent}";
                     yield break;
                 }
 
@@ -1177,15 +1200,23 @@ namespace SwAIvyn.Services
                     input_schema = t.Parameters
                 }).ToArray();
 
+                // Separate system messages from user/assistant messages for Claude API
+                var systemMessages = messages.Where(m => m["role"] == "system").ToList();
+                var conversationMessages = messages.Where(m => m["role"] != "system").ToList();
+
+                var systemPrompt = systemMessages.Any()
+                    ? string.Join("\n\n", systemMessages.Select(m => m["content"]))
+                    : null;
+
                 var claudeRequest = new
                 {
-                    model = model ?? "claude-3-5-sonnet-20241022",
-                    messages = messages
+                    model = model ?? "claude-sonnet-4-20250514",
+                    system = systemPrompt,
+                    messages = conversationMessages
                         .Select(m => new { role = m["role"], content = m["content"] })
                         .ToArray(),
                     max_tokens = 1000,
-                    temperature = 0.7,
-                    tools = claudeTools
+                    temperature = 0.7,                    tools = claudeTools
                 };
 
                 var response = await ExecuteWithRetryAsync(() =>
@@ -1198,9 +1229,11 @@ namespace SwAIvyn.Services
                 });
                 if (!response.IsSuccessStatusCode)
                 {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Claude tools API error: {response.StatusCode} - {errorContent}");
                     return new LlmFunctionResponse
                     {
-                        Content = $"Claude API error: {response.StatusCode}"
+                        Content = $"Claude API error: {response.StatusCode} - {errorContent}"
                     };
                 }
 
