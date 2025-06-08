@@ -51,6 +51,13 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="mcpServers.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- Post-build event to copy executable to root directory -->
   <Target Name="CopyToRoot" AfterTargets="Build">
     <ItemGroup>
