@@ -344,6 +344,9 @@ builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
 // Add agent service
 builder.Services.AddScoped<IAgentService, AgentService>();
 
+// Add module service
+builder.Services.AddSingleton<IModuleService, ModuleService>();
+
 builder.Services.AddSignalR().AddJsonProtocol();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

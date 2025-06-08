@@ -168,13 +168,13 @@ const ChatPage = () => {
   useEffect(() => {
     const llms = [{ value: 'default', label: 'Default LLM', engine: null, model: null }];
 
-    if (ollamaModelsApi && Array.isArray(ollamaModelsApi)) {
+    if (ollamaModelsApi && Array.isArray(ollamaModelsApi) && ollamaModelsApi.length > 0) {
       ollamaModelsApi.forEach((model: string) => llms.push({ value: `ollama:${model}`, label: `Ollama: ${model}`, engine: 'ollama', model: model }));
     } else {
       llms.push({ value: `ollama:default`, label: `Ollama (Default Model)`, engine: 'ollama', model: null});
     }
 
-    if (lmStudioModelsApi?.data && Array.isArray(lmStudioModelsApi.data)) {
+    if (lmStudioModelsApi?.data && Array.isArray(lmStudioModelsApi.data) && lmStudioModelsApi.data.length > 0) {
       lmStudioModelsApi.data.forEach((model: any) => llms.push({ value: `lmstudio:${model.id}`, label: `LM Studio: ${model.id}`, engine: 'lmstudio', model: model.id }));
     } else if (lmStudioModelsApi?.data?.id) {
        llms.push({ value: `lmstudio:${lmStudioModelsApi.data.id}`, label: `LM Studio: ${lmStudioModelsApi.data.id}`, engine: 'lmstudio', model: lmStudioModelsApi.data.id});
@@ -182,13 +182,13 @@ const ChatPage = () => {
        llms.push({ value: `lmstudio:default`, label: `LM Studio (Loaded Model)`, engine: 'lmstudio', model: null });
     }
 
-    if (openAiModelsApi && Array.isArray(openAiModelsApi)) {
+    if (openAiModelsApi && Array.isArray(openAiModelsApi) && openAiModelsApi.length > 0) {
       openAiModelsApi.forEach((model: string) => llms.push({ value: `openai:${model}`, label: `OpenAI: ${model}`, engine: 'openai', model: model }));
     } else {
        llms.push({ value: `openai:default`, label: `OpenAI (Default)`, engine: 'openai', model: null });
     }
 
-    if (claudeModelsApi && Array.isArray(claudeModelsApi)) {
+    if (claudeModelsApi && Array.isArray(claudeModelsApi) && claudeModelsApi.length > 0) {
       claudeModelsApi.forEach((model: string) => llms.push({ value: `claude:${model}`, label: `Claude: ${model}`, engine: 'claude', model: model }));
     } else {
       llms.push({ value: `claude:default`, label: `Claude (Default)`, engine: 'claude', model: null });

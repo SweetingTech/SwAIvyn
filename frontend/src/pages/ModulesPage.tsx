@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Download, Settings, RefreshCw, X, Search, Plus, Package } from 'lucide-react';
 import InlineSpinner from '../components/ui/InlineSpinner';
 
@@ -17,6 +18,7 @@ const ModulesPage = () => {
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadModules();
@@ -108,7 +110,7 @@ const ModulesPage = () => {
                   ? 'Try adjusting your search criteria.'
                   : 'No modules are currently installed. Browse the module store to add functionality to your AI assistant.'}
               </p>
-              <button className="btn btn-primary">
+              <button className="btn btn-primary" onClick={() => navigate('/module-store')}>
                 <Plus size={16} className="mr-1.5" />
                 Browse Module Store
               </button>
