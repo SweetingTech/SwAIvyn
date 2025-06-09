@@ -1,79 +1,41 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using SwAIvyn.Data;
-using SwAIvyn.Services;
-using SwAIvyn.Services.VectorStore;
-using SwAIvyn.Services.Graph; // Ensure this is present
-using SwAIvyn.Hubs;
-using SwAIvyn.Middleware;
-using SwAIvyn.HostedServices;
 using System;
 using System.IO;
 using System.Text;
+using System.Linq;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using SQLitePCL;
-using Microsoft.Data.Sqlite;
+using System.Runtime.InteropServices;
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+
+using SQLitePCL;
 using YamlDotNet.Serialization;
-using System.Linq;
-using System.Collections.Generic;
+
+using SwAIvyn.Data;
+using SwAIvyn.Hubs;
+using SwAIvyn.Middleware;
+using SwAIvyn.Configuration;
+using SwAIvyn.Services;
+using SwAIvyn.Services.VectorStore;
+using SwAIvyn.Services.Graph;
+using SwAIvyn.HostedServices;
 
 // Initialize SQLitePCL.raw for extension loading
 Batteries_V2.Init();
 
-// Targeted Neo4j port cleanup method
-static void CleanupAllNeo4jProcesses()
-{
-    try
-    {
-        Console.WriteLine("[CLEANUP] Starting targeted Neo4j port cleanup...");
+// ─── Helpers for process cleanup ──────────────────────────────────────────────
 
-        // Kill any processes using ports 7474 or 7687 (Neo4j's default ports)
-        KillProcessesUsingPorts([7474, 7687]);
-
-        // Also kill any processes specifically named neo4j (but not all Java)
-        var neo4jProcesses = Process.GetProcesses()
-            .Where(p => p.ProcessName.Contains("neo4j", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (neo4jProcesses.Count > 0)
-        {
-            Console.WriteLine($"[CLEANUP] Found {neo4jProcesses.Count} Neo4j-named processes to terminate");
-            foreach (var process in neo4jProcesses)
-            {
-                try
-                {
-                    Console.WriteLine($"[CLEANUP] Killing Neo4j process {process.Id}: {process.ProcessName}");
-                    process.Kill();
-                    process.WaitForExit(3000);
-                    Console.WriteLine($"[CLEANUP] Neo4j process {process.Id} terminated");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[CLEANUP] Failed to kill Neo4j process {process.Id}: {ex.Message}");
-                }
-            }
-        }
-        else
-        {
-            Console.WriteLine("[CLEANUP] No Neo4j-named processes found");
-        }
-
-        Console.WriteLine("[CLEANUP] Neo4j port cleanup completed");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[CLEANUP] Error during Neo4j port cleanup: {ex.Message}");
-    }
-}
-
-// Helper method to kill processes using specific ports
 static void KillProcessesUsingPorts(int[] ports)
 {
     try
@@ -90,31 +52,29 @@ static void KillProcessesUsingPorts(int[] ports)
             };
 
             using var process = Process.Start(startInfo);
-            if (process != null)
-            {
-                var output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit();
+            if (process == null) continue;
 
-                var lines = output.Split('\n');
-                foreach (var line in lines)
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            foreach (var line in output.Split('\n'))
+            {
+                if (line.Contains($":{port}") && line.Contains("LISTENING"))
                 {
-                    if (line.Contains($":{port}") && line.Contains("LISTENING"))
+                    var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0 && int.TryParse(parts[^1], out var pid))
                     {
-                        var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length > 0 && int.TryParse(parts[^1], out var pid))
+                        try
                         {
-                            try
-                            {
-                                var processToKill = Process.GetProcessById(pid);
-                                Console.WriteLine($"[CLEANUP] Killing process {pid} using port {port}: {processToKill.ProcessName}");
-                                processToKill.Kill();
-                                processToKill.WaitForExit(3000);
-                                Console.WriteLine($"[CLEANUP] Process {pid} terminated");
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"[CLEANUP] Failed to kill process {pid} on port {port}: {ex.Message}");
-                            }
+                            var p = Process.GetProcessById(pid);
+                            Console.WriteLine($"[CLEANUP] Killing process {pid} using port {port}: {p.ProcessName}");
+                            p.Kill();
+                            p.WaitForExit(3000);
+                            Console.WriteLine($"[CLEANUP] Process {pid} terminated");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[CLEANUP] Failed to kill process {pid} on port {port}: {ex.Message}");
                         }
                     }
                 }
@@ -127,33 +87,73 @@ static void KillProcessesUsingPorts(int[] ports)
     }
 }
 
-// Kill any existing SwAIvyn processes and orphaned Neo4j processes to prevent conflicts
+static void CleanupAllNeo4jProcesses()
+{
+    try
+    {
+        Console.WriteLine("[CLEANUP] Starting targeted Neo4j port cleanup...");
+        KillProcessesUsingPorts(new[] { 7474, 7687 });
+
+        var neo4jProcesses = Process.GetProcesses()
+            .Where(p => p.ProcessName.Contains("neo4j", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (neo4jProcesses.Any())
+        {
+            Console.WriteLine($"[CLEANUP] Found {neo4jProcesses.Count} Neo4j-named processes to terminate");
+            foreach (var process in neo4jProcesses)
+            {
+                try
+                {
+                    Console.WriteLine($"[CLEANUP] Killing Neo4j process {process.Id}: {process.ProcessName}");
+                    process.Kill();
+                    process.WaitForExit(3000);
+                    Console.WriteLine($"[CLEANUP] Process {process.Id} terminated");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CLEANUP] Failed to kill process {process.Id}: {ex.Message}");
+                }
+            }
+        }
+        else
+        {
+            Console.WriteLine("[CLEANUP] No Neo4j-named processes found");
+        }
+
+        Console.WriteLine("[CLEANUP] Neo4j port cleanup completed");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[CLEANUP] Error during Neo4j port cleanup: {ex.Message}");
+    }
+}
+
+// ─── Pre-startup: kill any existing SwAIvyn and Neo4j processes ───────────────
 try
 {
-    var currentProcess = Process.GetCurrentProcess();
-    var existingProcesses = Process.GetProcessesByName("SwAIvyn")
-        .Where(p => p.Id != currentProcess.Id)
-        .ToList();
+    var me = Process.GetCurrentProcess();
+    var others = Process.GetProcessesByName("SwAIvyn")
+                        .Where(p => p.Id != me.Id)
+                        .ToList();
 
-    if (existingProcesses.Any())
+    if (others.Any())
     {
-        Console.WriteLine($"[STARTUP] Found {existingProcesses.Count} existing SwAIvyn process(es). Terminating...");
-        foreach (var process in existingProcesses)
+        Console.WriteLine($"[STARTUP] Found {others.Count} existing SwAIvyn process(es). Terminating...");
+        foreach (var p in others)
         {
             try
             {
-                Console.WriteLine($"[STARTUP] Killing process {process.Id}...");
-                process.Kill();
-                process.WaitForExit(5000); // Wait up to 5 seconds
-                Console.WriteLine($"[STARTUP] Process {process.Id} terminated successfully");
+                Console.WriteLine($"[STARTUP] Killing process {p.Id}...");
+                p.Kill();
+                p.WaitForExit(5000);
+                Console.WriteLine($"[STARTUP] Process {p.Id} terminated successfully");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[STARTUP] Failed to kill process {process.Id}: {ex.Message}");
+                Console.WriteLine($"[STARTUP] Failed to kill process {p.Id}: {ex.Message}");
             }
         }
-
-        // Give processes time to fully clean up
         Console.WriteLine("[STARTUP] Waiting 3 seconds for cleanup...");
         Thread.Sleep(3000);
     }
@@ -162,7 +162,6 @@ try
         Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
     }
 
-    // Kill all orphaned Neo4j processes (aggressive cleanup)
     Console.WriteLine("[STARTUP] Performing aggressive Neo4j process cleanup...");
     CleanupAllNeo4jProcesses();
 }
@@ -171,16 +170,17 @@ catch (Exception ex)
     Console.WriteLine($"[STARTUP] Error checking for existing processes: {ex.Message}");
 }
 
+// ─── Build host ────────────────────────────────────────────────────────────────
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 builder.Services.AddControllers();
 
 // Configure API behavior to show model validation errors
-builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
-        new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(context.ModelState);
+        new BadRequestObjectResult(context.ModelState);
 });
 
 // Register the SQLite-VSS extension interceptor
@@ -196,232 +196,177 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options 
 // Register DbContext with WAL mode and connection pooling
 builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
 {
-    var configuration = sp.GetRequiredService<IConfiguration>();
-    var connectionString = configuration.GetConnectionString("DefaultConnection");
-    var appSettingsDataDir = configuration["AppSettings:DataDirectory"] ?? "../data";
-    string resolvedDataDirectory;
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var conn = cfg.GetConnectionString("DefaultConnection");
+    var dataDir = cfg["AppSettings:DataDirectory"] ?? "../data";
 
-    if (Path.IsPathRooted(appSettingsDataDir))
-    {
-        resolvedDataDirectory = appSettingsDataDir;
-    }
-    else
-    {
-        resolvedDataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, appSettingsDataDir));
-    }
+    var resolvedDir = Path.IsPathRooted(dataDir)
+        ? dataDir
+        : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, dataDir));
 
-    var csBuilder = new SqliteConnectionStringBuilder(connectionString);
-    if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
+    var csb = new SqliteConnectionStringBuilder(conn);
+    if (!string.IsNullOrEmpty(csb.DataSource) && !Path.IsPathRooted(csb.DataSource))
     {
-        // Ensure the DataSource path is made absolute, relative to the application base directory
-        // This handles cases like "Data Source=Sqldatabase/swai-vyn.db" or "Data Source=../data/swai-vyn.db"
-        // by preserving the full relative path structure.
-        csBuilder.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csBuilder.DataSource));
+        csb.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csb.DataSource));
     }
-    connectionString = csBuilder.ToString();
-    var loggerForDb = sp.GetRequiredService<ISimpleLoggerService>(); // Assuming ISimpleLoggerService is registered as Singleton or Scoped
-    loggerForDb.LogInfo($"Using resolved connection string for ApplicationDbContext: {connectionString}");
+    conn = csb.ToString();
 
-    options
-        .UseSqlite(connectionString);
-        // TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
-        // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
-});
+    var logDb = sp.GetRequiredService<ISimpleLoggerService>();
+    logDb.LogInfo($"Using resolved connection string for ApplicationDbContext: {conn}");
+
+    options.UseSqlite(conn);
+    // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
+}, ServiceLifetime.Scoped);
 
 // Add DbContextFactory for background services
 builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
 {
-    var configuration = sp.GetRequiredService<IConfiguration>();
-    var connectionString = configuration.GetConnectionString("DefaultConnection");
-    var appSettingsDataDir = configuration["AppSettings:DataDirectory"] ?? "../data";
-    string resolvedDataDirectory;
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var conn = cfg.GetConnectionString("DefaultConnection");
+    var dataDir = cfg["AppSettings:DataDirectory"] ?? "../data";
 
-    if (Path.IsPathRooted(appSettingsDataDir))
-    {
-        resolvedDataDirectory = appSettingsDataDir;
-    }
-    else
-    {
-        resolvedDataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, appSettingsDataDir));
-    }
+    var resolvedDir = Path.IsPathRooted(dataDir)
+        ? dataDir
+        : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, dataDir));
 
-    var csBuilder = new SqliteConnectionStringBuilder(connectionString);
-    if (!string.IsNullOrEmpty(csBuilder.DataSource) && !Path.IsPathRooted(csBuilder.DataSource))
+    var csb = new SqliteConnectionStringBuilder(conn);
+    if (!string.IsNullOrEmpty(csb.DataSource) && !Path.IsPathRooted(csb.DataSource))
     {
-        // Ensure the DataSource path is made absolute, relative to the application base directory
-        csBuilder.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csBuilder.DataSource));
+        csb.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csb.DataSource));
     }
-    connectionString = csBuilder.ToString();
-    var loggerForDbFactory = sp.GetRequiredService<ISimpleLoggerService>();  // Assuming ISimpleLoggerService is registered as Singleton or Scoped
-    loggerForDbFactory.LogInfo($"Using resolved connection string for ApplicationDbContext (Factory): {connectionString}");
+    conn = csb.ToString();
 
-    options
-        .UseSqlite(connectionString);
-        // TEMPORARILY COMMENTED OUT - SQLite-VSS extension loading causes errors
-        // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
+    var logFactory = sp.GetRequiredService<ISimpleLoggerService>();
+    logFactory.LogInfo($"Using resolved connection string for ApplicationDbContext (Factory): {conn}");
+
+    options.UseSqlite(conn);
+    // .AddInterceptors(sp.GetRequiredService<SqliteVssExtensionInterceptor>());
 }, ServiceLifetime.Scoped);
 
-builder.Services.AddDbContext<SwAIvynDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Secondary DbContext (if needed)
+builder.Services.AddDbContext<SwAIvynDbContext>(opts =>
+    opts.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Add database initializer service
+// Core services
 builder.Services.AddScoped<IDatabaseInitializer, DatabaseInitializerService>();
-
-// Add direct database service for Users table creation
 builder.Services.AddScoped<IDirectDatabaseService, DirectDatabaseService>();
-
-// Add directory initializer service
 builder.Services.AddSingleton<DirectoryInitializerService>();
-
-// Add backup service
-builder.Services.AddHostedService<SwAIvyn.HostedServices.BackupService>();
-
-// Add search service hosted service
-builder.Services.AddHostedService<SearchServiceHostedService>();
-
-// Add conversation and folder services
-builder.Services.AddScoped<IConversationService, ConversationService>();
-builder.Services.AddScoped<IFolderService, FolderService>();
-// Removed duplicate AgentService registration here, it's registered below.
-
-// Register the simple logger service first (no dependencies)
 builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
-
-// Ensure IConfiguration is available (builder.Configuration is already, but explicit can be useful)
 builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
-// Register the settings provider (configuration-based, no database dependency)
+// Hosted services
+builder.Services.AddHostedService<SwAIvyn.HostedServices.BackupService>(); // Explicitly specify namespace
+builder.Services.AddHostedService<SearchServiceHostedService>();
+builder.Services.AddHostedService<FishSpeechHostedService>();
+builder.Services.AddHostedService<ApplicationMonitorService>();
+
+// App services
+builder.Services.AddScoped<IConversationService, ConversationService>();
+builder.Services.AddScoped<IFolderService, FolderService>();
+
+// Settings
+builder.Services.Configure<FishSpeechOptions>(builder.Configuration.GetSection(FishSpeechOptions.SectionName));
 builder.Services.AddSingleton<ISettingsService, SettingsService>();
-
-// Register the settings service (database-based, for user settings)
 builder.Services.AddScoped<ISettingsService, SettingsService>();
-
-// Register the configuration service
 builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
 
-// Add vector store and brain services
+// Embedding + Vector stores
 builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
-
-// Register individual vector stores
-builder.Services.AddScoped<Neo4jVectorStore>();        // brain memories (scoped because it depends on INeo4jService)
+builder.Services.AddScoped<Neo4jVectorStore>();
 builder.Services.AddHttpClient<WeaviateVectorStore>();
-builder.Services.AddSingleton<WeaviateVectorStore>();     // uploads
+builder.Services.AddSingleton<WeaviateVectorStore>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("WorkerApi");
-
-// Register vector router (orchestrator) - scoped because it depends on Neo4jVectorStore
 builder.Services.AddScoped<IVectorRouter, VectorRouter>();
-
-// Register BrainService with IVectorRouter instead of IVectorStore
 builder.Services.AddScoped<IBrainService, BrainService>();
 
-// Register HybridSearchService for calling search.py API
+// Hybrid search
 builder.Services.AddHttpClient<IHybridSearchService, HybridSearchService>();
-builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
 
-// Add Neo4j and BrainGraph services
+// TTS
+builder.Services.AddHttpClient<ElevenLabsTtsService>();
+builder.Services.AddHttpClient<FishSpeechTtsService>();
+
+// Graph & brain
 builder.Services.AddScoped<INeo4jService, Neo4jService>();
 builder.Services.AddSingleton<Neo4jRuntimeService>();
 builder.Services.AddScoped<IBrainGraphService, BrainGraphService>();
 
-// Add LLM and AI chat services
+// AI chat + agents
 builder.Services.AddHttpClient<ILlmConnectorService, LlmConnectorService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
-
-// Add memory re-indexing service
 builder.Services.AddScoped<SwAIvyn.Services.Memory.MemoryReindexService>();
-
-// Add character services
 builder.Services.AddScoped<ICharacterService, CharacterService>();
 builder.Services.AddScoped<CharacterCardLoaderService>();
 builder.Services.AddScoped<IDefaultCharacterService, DefaultCharacterService>();
-
-// Add document upload and processing services
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
 builder.Services.AddScoped<IDocumentUploadService, DocumentUploadService>();
-builder.Services.AddHttpClient<ITtsService, ElevenLabsTtsService>();
-
-// Add agent service
 builder.Services.AddScoped<IAgentService, AgentService>();
-
-// Add module service
 builder.Services.AddSingleton<IModuleService, ModuleService>();
 
+// SignalR, Swagger, CORS
 builder.Services.AddSignalR().AddJsonProtocol();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-// Register the application monitor service
-builder.Services.AddHostedService<ApplicationMonitorService>();
-
-// Make the logger available via dependency injection
 builder.Services.AddTransient<ILogger>(sp => sp.GetRequiredService<ILogger<Program>>());
 
-// Configure standard logging
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
-// Add CORS
-builder.Services.AddCors(options =>
+builder.Services.AddCors(opts =>
 {
-    options.AddPolicy("CorsPolicy", corsBuilder =>
+    opts.AddPolicy("CorsPolicy", policy =>
     {
         if (builder.Environment.IsDevelopment())
         {
-            // Development: Allow common dev server ports
-            corsBuilder.WithOrigins(
-                "http://localhost:3000",   // Create React App
-                "http://localhost:5000",   // ASP.NET Core
-                "http://localhost:5173",   // Vite default
-                "http://localhost:5174",   // Vite alternate
-                "https://localhost:5001"   // ASP.NET Core HTTPS
-            );
+            policy.WithOrigins(
+                "http://localhost:3000",
+                "http://localhost:5000",
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "https://localhost:5001");
         }
         else
         {
-            // Production: Only allow the configured base URL
             var baseUrl = builder.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
-            corsBuilder.WithOrigins(baseUrl);
+            policy.WithOrigins(baseUrl);
         }
-
-        corsBuilder.AllowAnyMethod()
-                   .AllowAnyHeader()
-                   .AllowCredentials();
+        policy.AllowAnyMethod().AllowAnyHeader().AllowCredentials();
     });
 });
 
-// Build the app
 var app = builder.Build();
-
-// Get the logger service
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
-// Startup health guard: warn if SQLite unavailable
+// Force-check FishSpeechHostedService instantiation
+try
+{
+    _ = app.Services.GetRequiredService<FishSpeechHostedService>();
+    logger.LogInfo("Successfully got FishSpeechHostedService instance during startup.");
+}
+catch (Exception ex)
+{
+    logger.LogError("Failed to get FishSpeechHostedService instance during startup.", ex);
+}
+
+// Health checks
 logger.LogInfo("Performing startup health checks...");
 using (var scope = app.Services.CreateScope())
 {
-    var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-    if (!await dbInitializer.CanConnectAsync())
-    {
-        logger.LogWarning("SQLite database connection check failed. Some features may not be available.");
-    }
+    var dbInit = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+    if (!await dbInit.CanConnectAsync())
+        logger.LogWarning("SQLite database connection check failed. Some features may be unavailable.");
     else
-    {
         logger.LogInfo("SQLite database connection check passed.");
-    }    // Skip Neo4j health check completely
     logger.LogInfo("Startup health checks completed.");
-
-    // Memory sync will be performed after Neo4j initialization
-    logger.LogInfo("Memory synchronization will be performed after Neo4j initialization");
 }
 
 // Initialize directories
 try
 {
     logger.LogInfo("Initializing application directories...");
-    var directoryInitializer = app.Services.GetRequiredService<DirectoryInitializerService>();
-    directoryInitializer.InitializeDirectories();
+    app.Services.GetRequiredService<DirectoryInitializerService>().InitializeDirectories();
     logger.LogInfo("Directory initialization completed successfully");
 }
 catch (Exception ex)
@@ -429,27 +374,23 @@ catch (Exception ex)
     logger.LogCritical("Failed to initialize directories", ex);
 }
 
-// Initialize database
+// Initialize database & default user
 try
 {
     logger.LogInfo("Initializing database...");
-    using (var scope = app.Services.CreateScope())
-    {
-        var dbInitializer = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-        await dbInitializer.InitializeAsync();
-        logger.LogInfo("Database initialization completed successfully");
+    using var scope = app.Services.CreateScope();
+    var dbInit = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+    await dbInit.InitializeAsync();
+    logger.LogInfo("Database initialization completed successfully");
 
-        // Create Users table and default user if needed
-        logger.LogInfo("Ensuring Users table and default user exist...");
-        var directDatabaseService = scope.ServiceProvider.GetRequiredService<IDirectDatabaseService>();
-        await directDatabaseService.CreateUsersTableAndDefaultUserAsync();
-        logger.LogInfo("Users table and default user initialization completed successfully");
-    }
+    logger.LogInfo("Ensuring Users table and default user exist...");
+    await scope.ServiceProvider.GetRequiredService<IDirectDatabaseService>()
+               .CreateUsersTableAndDefaultUserAsync();
+    logger.LogInfo("Users table and default user initialization completed successfully");
 }
 catch (Exception ex)
 {
     logger.LogCritical("Failed to initialize database", ex);
-    // Don't exit - continue with startup even if database initialization fails
     logger.LogWarning("Continuing startup despite database initialization failure");
 }
 
@@ -459,235 +400,202 @@ logger.LogInfo("Skipping Neo4j database schema initialization - will be done aft
 try
 {
     logger.LogInfo("Initializing Weaviate vector store schema...");
-    using (var scope = app.Services.CreateScope())
-    {
-        var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
-        await vectorStore.InitializeAsync();
-        logger.LogInfo("Weaviate vector store schema initialization completed successfully");
-    }
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
+    logger.LogInfo("Weaviate vector store schema initialization completed successfully");
 }
 catch (Exception ex)
 {
-    logger.LogWarning($"Failed to initialize Weaviate vector store schema - this is expected if Weaviate is not available. Error: {ex.Message}");
+    logger.LogWarning($"Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
 }
 
 // --- Seed default user and AI profile on first run ---
 try
 {
-    using (var scope = app.Services.CreateScope())    {
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        // Ensure there is exactly one default user for this single-user application
-        Guid defaultUserId;
-        var existingUsers = db.Users.ToList();
+    Guid defaultUserId;
+    var existingUsers = db.Users.ToList();
 
-        if (existingUsers.Count == 0)
+    if (existingUsers.Count == 0)
+    {
+        logger.LogInfo("No users found. Creating default user for single-user application...");
+        var defaultUser = new SwAIvyn.Data.Entities.AppUser
         {
-            // No users exist, create the default user
-            logger.LogInfo("No users found. Creating default user for single-user application...");
+            Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+            Username = "Default User",
+            PasswordHash = "",
+            PINCode = "",
+            RecoveryPhrase = "",
+            CreatedAt = DateTime.UtcNow,
+            LastLogin = DateTime.UtcNow
+        };
+        db.Users.Add(defaultUser);
+        db.SaveChanges();
+        defaultUserId = defaultUser.Id;
+        logger.LogInfo($"Created default user: {defaultUserId}");
+    }
+    else if (existingUsers.Count == 1)
+    {
+        defaultUserId = existingUsers[0].Id;
+        logger.LogInfo($"Using existing single user: {defaultUserId}");
+    }
+    else
+    {
+        defaultUserId = existingUsers[0].Id;
+        logger.LogWarning($"Multiple users found ({existingUsers.Count}). Using first user: {defaultUserId}");
+    }
 
-            var defaultUser = new SwAIvyn.Data.Entities.AppUser
-            {
-                Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
-                Username = "Default User",
-                PasswordHash = "", // No password needed for single-user app
-                PINCode = "",
-                RecoveryPhrase = "",
-                CreatedAt = DateTime.UtcNow,
-                LastLogin = DateTime.UtcNow
-            };
+    // Initialize default settings
+    await scope.ServiceProvider.GetRequiredService<ISettingsService>()
+               .InitializeDefaultSettingsAsync(defaultUserId);
 
-            db.Users.Add(defaultUser);
-            db.SaveChanges();
-            defaultUserId = defaultUser.Id;
-            logger.LogInfo($"Created default user: {defaultUserId}");
-        }
-        else if (existingUsers.Count == 1)
+    // Load character cards
+    logger.LogInfo("Loading character cards from filesystem...");
+    await scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>()
+               .LoadCharacterCardsAsync();
+    logger.LogInfo("Character card loading completed");
+
+    // Ensure default character
+    logger.LogInfo("Ensuring GLaDOS default character is loaded...");
+    await scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>()
+               .EnsureDefaultCharacterAsync();
+    logger.LogInfo("GLaDOS default character loaded successfully");
+
+    // Create welcome conversation
+    if (!db.Conversations.Any())
+    {
+        logger.LogInfo("No conversations found. Creating welcome conversation...");
+        var convo = new SwAIvyn.Data.Entities.Conversation
         {
-            // Exactly one user exists, use it
-            defaultUserId = existingUsers[0].Id;
-            logger.LogInfo($"Using existing single user: {defaultUserId}");
-        }
-        else
+            Id = Guid.NewGuid(),
+            UserId = defaultUserId,
+            Title = "Welcome to SwAIvyn! 🎉",
+            Summary = "Getting started guide and tutorial",
+            Status = "active",
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+            LastOpenUtc = DateTime.UtcNow,
+            Tags = "welcome,tutorial,getting-started"
+        };
+        db.Conversations.Add(convo);
+        db.SaveChanges();
+
+        var messages = new[]
         {
-            // Multiple users exist, consolidate to first one and log warning
-            logger.LogWarning($"Multiple users found ({existingUsers.Count}). This is a single-user application. Using first user: {existingUsers[0].Id}");
-            defaultUserId = existingUsers[0].Id;
+            new { Role="assistant", Content=@"# Welcome to SwAIvyn! 🎉
 
-            // Optionally, you could migrate data from other users to the first one here
-            // For now, just use the first user
-        }
+Hello! I'm your AI assistant, and I'm excited to help you get started with SwAIvyn. This is a powerful AI chat application that lets you:
 
-        // COMMENTED OUT: Hardcoded character creation - only load from database
-        // If no AI character profiles exist, create a default one linked to our user
-        // if (!db.Avatars.Any())
-        // {
-        //     logger.LogInfo("No AI profiles found. Creating default AI profile...");
-        //     db.Avatars.Add(new SwAIvyn.Data.Entities.AvatarInfo
-        //     {
-        //         Id = Guid.NewGuid(),
-        //         UserId = defaultUserId, // Use our confirmed user ID
-        //         Name = "Default AI",
-        //         ImagePath = "",
-        //         Personality = "Friendly and helpful AI assistant.",
-        //         VoiceSettings = "default",
-        //         Description = "A helpful AI assistant ready to chat with you.",
-        //         Scenario = "General conversation",
-        //         FirstMessage = "Hello! I'm your AI assistant. How can I help you today?",
-        //         MessageExample = "",
-        //         SystemPrompt = "You are a helpful, harmless, and honest AI assistant.",
-        //         PostHistoryInstructions = "",
-        //         AlternateGreetings = "[]",
-        //         Tags = "[]",
-        //         Creator = "SwAIvyn",
-        //         CreatorNotes = "Default AI assistant character",
-        //         CharacterVersion = "1.0",
-        //         Talkativeness = 0.5f,
-        //         IsFavorite = false,
-        //         Extensions = "{}",
-        //         YamlProfile = "",
-        //         CreatedAt = DateTime.UtcNow,
-        //         LastModified = DateTime.UtcNow
-        //     });
-        //
-        //     db.SaveChanges();
-        //     logger.LogInfo("Seeded default AI profile.");
-        // }
+✨ **Chat with multiple AI engines** (Ollama, LM Studio)
+📁 **Organize conversations** in folders
+🧠 **Store memories** for context
+🎭 **Create AI personas** with different personalities
+📊 **Search through your chat history**
 
-        // Initialize default settings for the user
-        var settingsService = scope.ServiceProvider.GetRequiredService<ISettingsService>();
-        await settingsService.InitializeDefaultSettingsAsync(defaultUserId);
+Let me show you around!" },
+            new { Role="assistant", Content=@"## 🔧 Getting Started
 
-        // Load character cards from filesystem
-        logger.LogInfo("Loading character cards from filesystem...");
-        var characterCardLoader = scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>();
-        await characterCardLoader.LoadCharacterCardsAsync();
-        logger.LogInfo("Character card loading completed");
+**1. Choose your AI Engine:**
+- Go to Settings to configure Ollama or LM Studio
+- Default is Ollama (http://localhost:11434)
+- You can switch between engines anytime
 
-        // Ensure GLaDOS default character is loaded
-        logger.LogInfo("Ensuring GLaDOS default character is loaded...");
-        var defaultCharacterService = scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>();
-        await defaultCharacterService.EnsureDefaultCharacterAsync();
-        logger.LogInfo("GLaDOS default character loaded successfully");
+**2. Your settings are automatically saved:**
+- When you change the AI engine, it persists across sessions
+- All your preferences are stored locally
+- Your conversations are saved automatically
 
-        // Create a welcome conversation if no conversations exist
-        if (!db.Conversations.Any())
+**3. Try these features:**
+- Create folders to organize conversations
+- Ask me anything - I'll remember our context
+- Use the search to find old conversations" },
+            new { Role="assistant", Content=@"## 🎯 Quick Tips
+
+**Settings Persistence:**
+- ✅ All settings save automatically
+- ✅ Your AI engine choice is remembered
+- ✅ Conversations persist between sessions
+- ✅ No data is lost when you refresh or restart
+
+**Current Configuration:**
+- 🤖 Default AI Engine: Ollama
+- 💾 Database: SQLite with WAL mode
+- 📍 Data Location: `../data/swai-vyn.db`
+- 🔍 Vector Search: Available (when SQLite-VSS loads)
+
+**Ready to start?** Try asking me a question, or feel free to delete this conversation once you're comfortable with the app!" }
+        };
+
+        foreach (var msg in messages)
         {
-            logger.LogInfo("No conversations found. Creating welcome conversation...");
-
-            var welcomeConversation = new SwAIvyn.Data.Entities.Conversation
+            db.ChatIndices.Add(new SwAIvyn.Data.Entities.ChatIndex
             {
                 Id = Guid.NewGuid(),
-                UserId = defaultUserId,
-                Title = "Welcome to SwAIvyn! 🎉",
-                Summary = "Getting started guide and tutorial",
-                Status = "active",
-                CreatedUtc = DateTime.UtcNow,
-                UpdatedUtc = DateTime.UtcNow,
-                LastOpenUtc = DateTime.UtcNow,
-                Tags = "welcome,tutorial,getting-started"
-            };
-
-            db.Conversations.Add(welcomeConversation);
-            db.SaveChanges();
-
-            // Add welcome messages to the conversation
-            var welcomeMessages = new[]
-            {
-                new { Role = "assistant", Content = "# Welcome to SwAIvyn! 🎉\n\nHello! I'm your AI assistant, and I'm excited to help you get started with SwAIvyn. This is a powerful AI chat application that lets you:\n\n✨ **Chat with multiple AI engines** (Ollama, LM Studio)\n📁 **Organize conversations** in folders\n🧠 **Store memories** for context\n🎭 **Create AI personas** with different personalities\n📊 **Search through your chat history**\n\nLet me show you around!" },
-                new { Role = "assistant", Content = "## 🔧 Getting Started\n\n**1. Choose your AI Engine:**\n- Go to Settings to configure Ollama or LM Studio\n- Default is Ollama (http://localhost:11434)\n- You can switch between engines anytime\n\n**2. Your settings are automatically saved:**\n- When you change the AI engine, it persists across sessions\n- All your preferences are stored locally\n- Your conversations are saved automatically\n\n**3. Try these features:**\n- Create folders to organize conversations\n- Ask me anything - I'll remember our context\n- Use the search to find old conversations" },
-                new { Role = "assistant", Content = "## 🎯 Quick Tips\n\n**Settings Persistence:**\n- ✅ All settings save automatically\n- ✅ Your AI engine choice is remembered\n- ✅ Conversations persist between sessions\n- ✅ No data is lost when you refresh or restart\n\n**Current Configuration:**\n- 🤖 Default AI Engine: Ollama\n- 💾 Database: SQLite with WAL mode\n- 📍 Data Location: `../data/swai-vyn.db`\n- 🔍 Vector Search: Available (when SQLite-VSS loads)\n\n**Ready to start?** Try asking me a question, or feel free to delete this conversation once you're comfortable with the app!" }
-            };
-
-            foreach (var message in welcomeMessages)
-            {
-                var chatIndex = new SwAIvyn.Data.Entities.ChatIndex
-                {
-                    Id = Guid.NewGuid(),
-                    ConversationId = welcomeConversation.Id,
-                    Role = message.Role,
-                    FilePath = $"welcome_{Guid.NewGuid()}.json",
-                    CreatedUtc = DateTime.UtcNow
-                };
-
-                db.ChatIndices.Add(chatIndex);
-            }
-
-            db.SaveChanges();
-            logger.LogInfo("Created welcome conversation with tutorial messages.");
+                ConversationId = convo.Id,
+                Role = msg.Role,
+                FilePath = $"welcome_{Guid.NewGuid()}.json",
+                CreatedUtc = DateTime.UtcNow
+            });
         }
+        db.SaveChanges();
+        logger.LogInfo("Created welcome conversation with tutorial messages.");
     }
 }
 catch (Exception ex)
 {
     logger.LogError("Failed to seed default user and AI profile", ex);
-    logger.LogError($"Error details: {ex.Message}");
-
     if (ex.InnerException != null)
-    {
         logger.LogError($"Inner exception: {ex.InnerException.Message}");
-    }
 }
 
-// Initialize vector stores
+// Initialize Weaviate vector store
 try
 {
     logger.LogInfo("Initializing Weaviate vector store...");
-    var weaviateStore = app.Services.GetRequiredService<WeaviateVectorStore>();
-    await weaviateStore.InitializeAsync();
+    await app.Services.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
     logger.LogInfo("Weaviate vector store initialization completed successfully");
 }
 catch (Exception ex)
 {
-    logger.LogError($"Failed to initialize Weaviate vector store. Upload search will not be available. Error: {ex.Message}");
+    logger.LogWarning($"Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
 }
 
-// Initialize Neo4j runtime and service
+// Initialize Neo4j runtime + service
 var neo4jEmbedded = builder.Configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", false);
-var requireNeo4j = builder.Configuration.GetValue<bool>("AppSettings:RequireNeo4j", false);
+var requireNeo4j  = builder.Configuration.GetValue<bool>("AppSettings:RequireNeo4j", false);
 logger.LogInfo($"Neo4j embedded mode is {(neo4jEmbedded ? "enabled" : "disabled")}");
 logger.LogInfo($"Neo4j required: {requireNeo4j}");
 
 try
 {
-    // Get Neo4j services
-    var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
-
-    // Initialize Neo4j runtime (extract and start Neo4j)
+    var rt = app.Services.GetRequiredService<Neo4jRuntimeService>();
     logger.LogInfo("Initializing Neo4j runtime...");
-    await neo4jRuntime.InitializeAsync();
+    await rt.InitializeAsync();
 
-    // Give Neo4j time to fully start up before connecting
     if (neo4jEmbedded)
     {
         logger.LogInfo("Waiting 30 seconds for Neo4j to fully start up...");
         await Task.Delay(TimeSpan.FromSeconds(30));
-        logger.LogInfo("Neo4j startup delay completed, proceeding with service initialization...");
+        logger.LogInfo("Neo4j startup delay completed");
     }
 
-    using (var scope = app.Services.CreateScope())
+    using var scope = app.Services.CreateScope();
+    var nx = scope.ServiceProvider.GetRequiredService<INeo4jService>();
+
+    logger.LogInfo("Initializing Neo4j service...");
+    await nx.InitializeAsync();
+    logger.LogInfo("Neo4j service initialization completed successfully");
+
+    var ok = await nx.PingAsync();
+    if (!ok && requireNeo4j)
     {
-        var neo4jService = scope.ServiceProvider.GetRequiredService<INeo4jService>();
-
-        // Initialize Neo4j service
-        logger.LogInfo("Initializing Neo4j service...");
-        await neo4jService.InitializeAsync();
-        logger.LogInfo("Neo4j service initialization completed successfully");
-
-
-        // Check if Neo4j is available
-        var graphOk = await neo4jService.PingAsync();
-        if (!graphOk && requireNeo4j)
-        {
-            logger.LogCritical("Startup aborted: Neo4j service unavailable.");
-            Environment.Exit(1);
-        }
-
-        if (!graphOk)
-        {
-            logger.LogWarning("Neo4j offline - graph features disabled until reconnection.");
-        }
+        logger.LogCritical("Startup aborted: Neo4j service unavailable.");
+        Environment.Exit(1);
     }
+    if (!ok)
+        logger.LogWarning("Neo4j offline - graph features disabled until reconnection.");
 }
 catch (Exception ex)
 {
@@ -697,17 +605,14 @@ catch (Exception ex)
         Environment.Exit(1);
     }
     else
-    {
-        logger.LogWarning($"Failed to initialize Neo4j service. Graph functionality will not be available. Error: {ex.Message}");
-    }
+        logger.LogWarning($"Failed to initialize Neo4j service. Graph functionality unavailable. Error: {ex.Message}");
 }
 
-// Initialize Neo4j vector store after Neo4j runtime is ready
+// Initialize Neo4j vector store
 try
 {
     logger.LogInfo("Initializing Neo4j vector store...");
-    var neo4jStore = app.Services.GetRequiredService<Neo4jVectorStore>();
-    await neo4jStore.InitializeAsync();
+    await app.Services.GetRequiredService<Neo4jVectorStore>().InitializeAsync();
     logger.LogInfo("Neo4j vector store initialization completed successfully");
 }
 catch (Exception ex)
@@ -715,159 +620,105 @@ catch (Exception ex)
     logger.LogError($"Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
 }
 
-// Perform memory synchronization after Neo4j is fully initialized
+// Memory synchronization after Neo4j ready
 try
 {
     logger.LogInfo("Performing memory synchronization after Neo4j initialization...");
-    using (var scope = app.Services.CreateScope())
+    using var scope = app.Services.CreateScope();
+    var dbCtx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var bg    = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
+
+    var userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+    var sqliteMem = await dbCtx.Memories.Where(m => m.UserId == userId).ToListAsync();
+
+    List<Guid> neo4jIds = new();
+    try { neo4jIds = await bg.GetAllMemoryIdsAsync(userId); }
+    catch (Exception ex) { logger.LogWarning($"Failed to get Neo4j memories: {ex.Message}"); }
+
+    var missing = sqliteMem.Select(m => m.Id).Except(neo4jIds).ToList();
+    if (missing.Any())
     {
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var brainGraphService = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
-
-        const string defaultUserId = "00000000-0000-0000-0000-000000000001";
-        var userId = Guid.Parse(defaultUserId);
-
-        // Check sync status first
-        var sqliteMemories = await dbContext.Memories
-            .Where(m => m.UserId == userId)
-            .ToListAsync();
-
-        var neo4jMemoryIds = new List<Guid>();
-        try
+        logger.LogInfo($"Found {missing.Count} memories missing in Neo4j. Repairing...");
+        int success=0, failure=0;
+        foreach(var id in missing)
         {
-            neo4jMemoryIds = await brainGraphService.GetAllMemoryIdsAsync(userId);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Failed to get Neo4j memories during startup sync: {ex.Message}");
-        }
-
-        var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
-        var neo4jIds = neo4jMemoryIds.ToHashSet();
-        var missingInNeo4j = sqliteIds.Except(neo4jIds).ToList();
-
-        if (missingInNeo4j.Count > 0)
-        {
-            logger.LogInfo($"Found {missingInNeo4j.Count} memories missing from Neo4j. Performing repair...");
-
-            int successCount = 0;
-            int failureCount = 0;
-
-            foreach (var memoryId in missingInNeo4j)
+            var mem = sqliteMem.First(m => m.Id == id);
+            try
             {
-                var memory = sqliteMemories.First(m => m.Id == memoryId);
-
-                try
+                var meta = new Dictionary<string,string>
                 {
-                    var metadata = new Dictionary<string, string>
-                    {
-                        { "category", memory.Category ?? "general" },
-                        { "userId", memory.UserId.ToString() },
-                        { "isShared", memory.IsShared.ToString() },
-                        { "createdAt", memory.CreatedAt.ToString("O") },
-                        { "source", "startup-sync" }
-                    };
-
-                    var success = await brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
-
-                    if (success)
-                    {
-                        successCount++;
-                    }
-                    else
-                    {
-                        failureCount++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failureCount++;
-                    logger.LogWarning($"Failed to sync memory {memory.Id} during startup: {ex.Message}");
-                }
+                    {"category", mem.Category ?? "general"},
+                    {"userId",   mem.UserId.ToString()},
+                    {"isShared", mem.IsShared.ToString()},
+                    {"createdAt", mem.CreatedAt.ToString("O")},
+                    {"source",  "startup-sync"}
+                };
+                if (await bg.AddMemoryAsync(mem.Id, mem.Content, meta))
+                    success++;
+                else
+                    failure++;
             }
-
-            logger.LogInfo($"Startup memory repair completed: {successCount} successful, {failureCount} failed");
+            catch
+            {
+                failure++;
+            }
         }
-        else
-        {
-            logger.LogInfo("Memory databases are already in sync.");
-        }
+        logger.LogInfo($"Startup memory repair: {success} succeeded, {failure} failed");
+    }
+    else
+    {
+        logger.LogInfo("Memory databases already in sync.");
     }
 }
 catch (Exception ex)
 {
     logger.LogError("Failed to perform startup memory sync", ex);
-    // Don't fail startup for sync issues
 }
 
-// Set up global exception handler
+// Global unhandled exception handler
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
 {
-    var exception = args.ExceptionObject as Exception;
-    var isTerminating = args.IsTerminating;
-
-    logger.LogCritical(
-        $"Unhandled exception: {(isTerminating ? "Application is terminating" : "Application will continue")}",
-        exception);
-
-    // If the application is terminating, ensure logs are flushed
-    if (isTerminating)
-    {
-        try
-        {
-            // Give some time for logs to be written
-            Thread.Sleep(1000);
-        }
-        catch
-        {
-            // Last resort - if we can't even sleep
-            Console.WriteLine("Failed to wait for logs to be written. Application is terminating.");
-        }
-    }
+    var ex = args.ExceptionObject as Exception;
+    var term = args.IsTerminating ? "Application is terminating" : "Application will continue";
+    logger.LogCritical($"Unhandled exception: {term}", ex);
+    if (args.IsTerminating)
+        Thread.Sleep(1000);
 };
 
-// Configure the HTTP request pipeline
+// ─── HTTP pipeline ─────────────────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-// Add request logging middleware for debugging
-app.Use(async (context, next) =>
+app.Use(async (ctx, next) =>
 {
-    var path = context.Request.Path.Value;
-    var method = context.Request.Method;
-    logger.LogInfo($"[REQUEST] {method} {path}");
-
+    logger.LogInfo($"[REQUEST]  {ctx.Request.Method} {ctx.Request.Path}");
     await next();
-
-    logger.LogInfo($"[RESPONSE] {method} {path} -> {context.Response.StatusCode}");
+    logger.LogInfo($"[RESPONSE] {ctx.Request.Method} -> {ctx.Response.StatusCode}");
 });
 
-// Add global exception handler middleware
 app.UseGlobalExceptionHandler();
-
 app.UseHttpsRedirection();
-app.UseDefaultFiles(); // Add this to serve index.html by default
-
-// Configure static files with cache-busting headers for development
+app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
     {
-        // Add cache-busting headers to prevent browser caching during development
-        ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
-        ctx.Context.Response.Headers.Append("Pragma", "no-cache");
-        ctx.Context.Response.Headers.Append("Expires", "0");
+        if (app.Environment.IsDevelopment())
+        {
+            ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
+            ctx.Context.Response.Headers.Append("Pragma",        "no-cache");
+            ctx.Context.Response.Headers.Append("Expires",       "0");
+        }
     }
 });
-
 app.UseRouting();
 app.UseCors("CorsPolicy");
 app.UseAuthorization();
 
-// Map API controllers first
+// ─── Endpoints ────────────────────────────────────────────────────────────────
 logger.LogInfo("[ROUTING] Mapping controllers...");
 app.MapControllers();
 logger.LogInfo("[ROUTING] Controllers mapped successfully");
@@ -876,12 +727,10 @@ app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
 app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");
 app.MapHub<NotificationHub>("/hubs/notification").RequireCors("CorsPolicy");
 
-// Add health endpoint for Neo4j
-app.MapGet("/api/health/neo4j", async (INeo4jService neo4jService) =>
-    Results.Ok(await neo4jService.GetStatusAsync()))
-    .RequireCors("CorsPolicy");
+app.MapGet("/api/health/neo4j", async (INeo4jService nx) =>
+    Results.Ok(await nx.GetStatusAsync())
+).RequireCors("CorsPolicy");
 
-// Add memory debug endpoints
 app.MapPost("/api/debug/memory-search", async (
     HttpContext context,
     [FromBody] MemorySearchRequest request,
@@ -894,58 +743,45 @@ app.MapPost("/api/debug/memory-search", async (
     try
     {
         logger.LogInfo($"[MEMORY DEBUG] Testing memory search for: {request.Query}");
-        
-        // Use a test user ID for debug purposes
+
         var testUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
-        
-        // Test BrainService search
-        logger.LogInfo("[MEMORY DEBUG] Testing BrainService.SearchAsync...");
+
+        logger.LogInfo("[MEMORY DEBUG] BrainService.SearchAsync...");
         var brainResults = await brainService.SearchAsync(request.Query, request.Limit ?? 5);
-        logger.LogInfo($"[MEMORY DEBUG] BrainService returned {brainResults.Count()} results");
-        
-        // Test Neo4j vector store directly (need to generate embedding first)
-        logger.LogInfo("[MEMORY DEBUG] Testing Neo4jVectorStore.SearchAsync...");
-        var queryEmbedding = await embeddingService.EmbedTextAsync(request.Query);
-        var neo4jResults = await neo4jStore.SearchAsync(queryEmbedding, request.Limit ?? 5);
-        logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore returned {neo4jResults.Count()} results");
-        
-        // Test VectorRouter
-        logger.LogInfo("[MEMORY DEBUG] Testing VectorRouter.SearchMemoryAsync...");
+
+        logger.LogInfo("[MEMORY DEBUG] Neo4jVectorStore.SearchAsync...");
+        var embed = await embeddingService.EmbedTextAsync(request.Query);
+        var neoResults = await neo4jStore.SearchAsync(embed, request.Limit ?? 5);
+
+        logger.LogInfo("[MEMORY DEBUG] VectorRouter.SearchMemoryAsync...");
         var routerResults = await vectorRouter.SearchMemoryAsync(testUserId, request.Query, request.Limit ?? 5);
-        logger.LogInfo($"[MEMORY DEBUG] VectorRouter returned {routerResults.Count()} results");        
-        return Results.Ok(new
-        {
+
+        return Results.Ok(new {
             query = request.Query,
-            brainService = new
-            {
+            brainService = new {
                 count = brainResults.Count(),
-                results = brainResults.Select(r => new
-                {
+                results = brainResults.Select(r => new {
                     id = r.Id,
                     score = r.Score,
-                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    content = r.Metadata?.GetValueOrDefault("content",""),
                     metadata = r.Metadata
                 }).ToList()
             },
-            neo4jVectorStore = new
-            {
-                count = neo4jResults.Count(),
-                results = neo4jResults.Select(r => new
-                {
+            neo4jVectorStore = new {
+                count = neoResults.Count(),
+                results = neoResults.Select(r => new {
                     id = r.Id,
                     score = r.Score,
-                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    content = r.Metadata?.GetValueOrDefault("content",""),
                     metadata = r.Metadata
                 }).ToList()
             },
-            vectorRouter = new
-            {
+            vectorRouter = new {
                 count = routerResults.Count(),
-                results = routerResults.Select(r => new
-                {
+                results = routerResults.Select(r => new {
                     id = r.Id,
                     score = r.Score,
-                    content = r.Metadata?.GetValueOrDefault("content", ""),
+                    content = r.Metadata?.GetValueOrDefault("content",""),
                     metadata = r.Metadata
                 }).ToList()
             }
@@ -956,8 +792,7 @@ app.MapPost("/api/debug/memory-search", async (
         logger.LogError($"[MEMORY DEBUG] Error testing memory search: {ex.Message}", ex);
         return Results.BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
     }
-})
-.RequireCors("CorsPolicy");
+}).RequireCors("CorsPolicy");
 
 app.MapGet("/api/debug/memory-count", async (
     IBrainService brainService,
@@ -968,36 +803,30 @@ app.MapGet("/api/debug/memory-count", async (
     try
     {
         logger.LogInfo("[MEMORY DEBUG] Getting memory counts...");
-        
-        // Get all memories from BrainService
-        var allBrainMemories = await brainService.SearchAsync("", 1000); // Large limit to get all
-        logger.LogInfo($"[MEMORY DEBUG] BrainService has {allBrainMemories.Count()} memories");
-        
-        // Try to get count from Neo4j directly
-        var neo4jCount = 0;
+        var allBrain = await brainService.SearchAsync("", 1000);
+        logger.LogInfo($"[MEMORY DEBUG] BrainService: {allBrain.Count()} memories");
+
+        int neoCount = 0;
         try
         {
-            var emptyEmbedding = await embeddingService.EmbedTextAsync("");
-            var allNeo4jResults = await neo4jStore.SearchAsync(emptyEmbedding, 1000);
-            neo4jCount = allNeo4jResults.Count();
-            logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore has {neo4jCount} memories");
+            var emptyEmbed = await embeddingService.EmbedTextAsync("");
+            neoCount = (await neo4jStore.SearchAsync(emptyEmbed, 1000)).Count();
+            logger.LogInfo($"[MEMORY DEBUG] Neo4jVectorStore: {neoCount} memories");
         }
         catch (Exception ex)
         {
             logger.LogError($"[MEMORY DEBUG] Failed to query Neo4j: {ex.Message}");
         }
-        
-        return Results.Ok(new
-        {
-            brainService = allBrainMemories.Count(),
-            neo4jVectorStore = neo4jCount,
-            brainMemories = allBrainMemories.Select(r => new
-            {
+
+        return Results.Ok(new {
+            brainService = allBrain.Count(),
+            neo4jVectorStore = neoCount,
+            brainMemories = allBrain.Take(10).Select(r => new {
                 id = r.Id,
                 score = r.Score,
-                content = r.Metadata?.GetValueOrDefault("content", ""),
+                content = r.Metadata?.GetValueOrDefault("content",""),
                 metadata = r.Metadata
-            }).Take(10).ToList() // Show first 10
+            }).ToList()
         });
     }
     catch (Exception ex)
@@ -1005,49 +834,38 @@ app.MapGet("/api/debug/memory-count", async (
         logger.LogError($"[MEMORY DEBUG] Error getting memory counts: {ex.Message}", ex);
         return Results.BadRequest(new { error = ex.Message });
     }
-})
-.RequireCors("CorsPolicy");
+}).RequireCors("CorsPolicy");
 
-// Fallback to index.html for SPA routes - CRITICAL for React Router to work
-// Use a pattern that excludes API routes
+// SPA Fallback
 logger.LogInfo("[ROUTING] Setting up SPA fallback...");
-app.MapFallback(context =>
+app.MapFallback(async context =>
 {
     var path = context.Request.Path.Value;
     logger.LogInfo($"[FALLBACK] Processing path: {path}");
-
-    // Don't fallback for API routes, hubs, or static files
     if (path != null && (path.StartsWith("/api/") || path.StartsWith("/hubs/") || path.Contains('.')))
     {
         logger.LogInfo($"[FALLBACK] Rejecting path (API/hub/static): {path}");
         context.Response.StatusCode = 404;
-        return Task.CompletedTask;
+        return;
     }
-
     logger.LogInfo($"[FALLBACK] Serving index.html for SPA route: {path}");
-    // Serve index.html for SPA routes
     context.Response.ContentType = "text/html";
-    return context.Response.SendFileAsync("wwwroot/index.html");
+    await context.Response.SendFileAsync("wwwroot/index.html");
 });
 logger.LogInfo("[ROUTING] SPA fallback configured");
 
-// Set URLs explicitly
-if (app.Urls.Count == 0)
-{
+// Explicit URLs
+if (!app.Urls.Any())
     app.Urls.Add("http://localhost:5000");
-}
 
-// Log application startup
 logger.LogInfo($"Application starting on URLs: {string.Join(", ", app.Urls)}");
 
-// Create logs directory if it doesn't exist
+// Ensure logs directory exists
 var logDir = builder.Configuration["AppSettings:LogDirectory"] ?? "logs";
 if (!Directory.Exists(logDir))
-{
     Directory.CreateDirectory(logDir);
-}
 
-// Start frontend dev server automatically BEFORE starting the main application
+// ─── Frontend dev server (Windows only) ──────────────────────────────────────
 Process? frontendProcess = null;
 try
 {
@@ -1055,8 +873,6 @@ try
     if (Directory.Exists(frontendPath))
     {
         logger.LogInfo("Starting frontend development server...");
-
-        // Use cmd.exe to run npm to ensure PATH is properly resolved
         var psi = new ProcessStartInfo
         {
             FileName = "cmd.exe",
@@ -1067,42 +883,26 @@ try
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-
         frontendProcess = Process.Start(psi);
         if (frontendProcess != null)
         {
-            logger.LogInfo("Frontend dev server started successfully at http://localhost:5173");
-
-            // Read initial output to check for errors
+            logger.LogInfo("Frontend dev server started at http://localhost:5173");
             Task.Run(async () =>
             {
-                try
+                string? outLine;
+                while ((outLine = await frontendProcess.StandardOutput.ReadLineAsync()) != null)
                 {
-                    var output = await frontendProcess.StandardOutput.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(output))
-                    {
-                        logger.LogInfo($"Frontend dev server output: {output}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError("Error reading frontend dev server output", ex);
+                    if (!string.IsNullOrEmpty(outLine))
+                        logger.LogInfo($"Frontend ⟶ {outLine}");
                 }
             });
-
             Task.Run(async () =>
             {
-                try
+                string? errLine;
+                while ((errLine = await frontendProcess.StandardError.ReadLineAsync()) != null)
                 {
-                    var error = await frontendProcess.StandardError.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(error))
-                    {
-                        logger.LogWarning($"Frontend dev server error: {error}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError("Error reading frontend dev server error output", ex);
+                    if (!string.IsNullOrEmpty(errLine))
+                        logger.LogWarning($"Frontend ERR ⟶ {errLine}");
                 }
             });
         }
@@ -1113,7 +913,7 @@ try
     }
     else
     {
-        logger.LogWarning($"Frontend directory not found at: {frontendPath}");
+        logger.LogWarning($"Frontend directory not found: {frontendPath}");
     }
 }
 catch (Exception ex)
@@ -1121,13 +921,11 @@ catch (Exception ex)
     logger.LogError("Failed to start frontend dev server", ex);
 }
 
-// Register shutdown handler to cleanup frontend process
+// Shutdown hook to kill frontend
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(() =>
 {
-    logger.LogInfo("Application is shutting down...");
-
-    // Cleanup frontend process when backend stops
+    logger.LogInfo("Application shutting down...");
     if (frontendProcess != null && !frontendProcess.HasExited)
     {
         try
@@ -1142,75 +940,34 @@ lifetime.ApplicationStopping.Register(() =>
             logger.LogError("Failed to stop frontend dev server", ex);
         }
     }
-
-    // Gracefully shut down Neo4j
-    // try
-    // {
-    //     var neo4jRuntime = app.Services.GetRequiredService<Neo4jRuntimeService>();
-    //     neo4jRuntime.Dispose();
-    //     logger.LogInfo("Neo4j runtime shut down successfully");
-    // }
-    // catch (Exception ex)
-    // {
-    //     logger.LogError("Failed to shut down Neo4j runtime", ex);
-    // }
 });
 
-// Open browser window when application starts
-var hostUrl = app.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000";
-
-// Wait a moment for the frontend dev server to start if we started it
-if (frontendProcess != null)
+// Auto-open browser (Windows)
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
-    logger.LogInfo("Waiting 5 seconds for frontend dev server to start...");
-    Thread.Sleep(5000);
-}
-
-// Open the browser (Windows only) - prefer dev server if available
-try
-{
-    if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+    Thread.Sleep( frontendProcess != null ? 5000 : 0 );
+    var target = frontendProcess != null ? "http://localhost:5173" : (builder.Configuration["AppSettings:BaseUrl"] ?? "http://localhost:5000");
+    try
     {
-        var devUrl = "http://localhost:5173";
-        // Always prefer dev server if frontend process was started
-        var targetUrl = frontendProcess != null ? devUrl : hostUrl;
-        logger.LogInfo($"Opening browser at URL: {targetUrl}");
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = targetUrl,
-            UseShellExecute = true
-        };
+        var psi = new ProcessStartInfo("cmd", $"/c start {target}") { CreateNoWindow = true };
         Process.Start(psi);
+        logger.LogInfo($"Opened browser at {target}");
     }
-    else
+    catch (Exception ex)
     {
-        logger.LogInfo($"Application started at URL: {hostUrl} (browser auto-open disabled on non-Windows platforms)");
+        logger.LogError("Failed to open browser", ex);
     }
-}
-catch (Exception ex)
-{
-    logger.LogError("Failed to open browser", ex);
 }
 
-// Start the application (this will block until the application stops)
+// Start the app
 app.Run();
 
-// Log application shutdown
-logger.LogInfo("Application has stopped");
-
-/// <summary>
-/// Request model for memory search debugging
-/// </summary>
+// ─── Request model for memory debug ───────────────────────────────────────────
 public class MemorySearchRequest
 {
-    /// <summary>
-    /// The search query to test
-    /// </summary>
+    /// <summary>The search query to test</summary>
     public required string Query { get; set; }
-    
-    /// <summary>
-    /// Maximum number of results to return (optional, defaults to 5)
-    /// </summary>
+
+    /// <summary>Maximum number of results to return (defaults to 5)</summary>
     public int? Limit { get; set; }
 }

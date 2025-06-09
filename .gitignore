@@ -80,6 +80,16 @@ data/backups/*
 data/modules/*
 !data/modules/.gitkeep
 
+# Speech models and data (ignore all contents except specific files)
+# Keep the instruction file at the root
+!speech/DOWNLOAD_INSTRUCTIONS.txt
+# Ignore everything in STT and TTS subfolders
+speech/STT/**
+speech/TTS/**
+# But keep the .gitkeep files to preserve folder structure
+!speech/STT/.gitkeep
+!speech/TTS/.gitkeep
+
 # Database exports (these are snapshots, not source)
 swai_database_export_*.json
 

@@ -124,10 +124,12 @@ Write-Host "Executable is located at: $rootExePath" -ForegroundColor Green
 Write-Host "DLL files are organized in: $dllDir" -ForegroundColor Green
 Write-Host ""
 Write-Host "=== NEXT STEPS FOR DEVELOPMENT ===" -ForegroundColor Green
-Write-Host "1. Start the application: .\SwAIvyn.exe" -ForegroundColor Yellow
+Write-Host "1. Start the application: $rootExePath" -ForegroundColor Yellow
 Write-Host "   - This will automatically start BOTH backend AND frontend dev server" -ForegroundColor Cyan
+Write-Host "   - Fish Speech TTS will auto-start in the background" -ForegroundColor Cyan
 Write-Host "2. Access your app at:" -ForegroundColor Cyan
 Write-Host "   - Live Development:  http://localhost:5173 (with hot reloading)" -ForegroundColor White
 Write-Host "   - Backend API:       http://localhost:5000" -ForegroundColor White
+Write-Host "   - Fish Speech TTS:   http://127.0.0.1:8081 (auto-started)" -ForegroundColor White
 Write-Host ""
-Write-Host "🎉 One command starts everything with live reloading!" -ForegroundColor Green
+Write-Host "One command starts everything with live reloading!" -ForegroundColor Green
