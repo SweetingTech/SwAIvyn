@@ -1,0 +1,35 @@
+SPEECH MODELS DOWNLOAD INSTRUCTIONS
+===================================
+
+This folder contains subdirectories for Speech-to-Text (STT) and Text-to-Speech (TTS) models.
+The actual model files are NOT included in this repository due to their large size.
+
+WHAT TO DOWNLOAD:
+================
+
+STT (Speech-to-Text) Models:
+---------------------------
+- Place STT models in the speech/STT/ folder
+- Recommended: OpenAI Whisper models
+- Download from: https://github.com/openai/whisper
+- Or use Hugging Face models
+
+TTS (Text-to-Speech) Models:
+---------------------------
+- Place TTS models in the speech/TTS/ folder
+- For Fish Speech integration: Download openaudio-s1-mini model
+- For other TTS: Coqui TTS, Tortoise TTS, etc.
+
+IMPORTANT NOTES:
+===============
+- Model files (.pth, .bin, .safetensors) are ignored by git
+- Only download models you have proper licenses to use
+- Large model files can be several GB in size
+- The SwAIvyn application will look for models in these directories
+
+CURRENT INTEGRATIONS:
+====================
+- FishSpeechTtsService.cs expects models in speech/TTS/
+- Additional TTS/STT services can be added as needed
+
+For specific model setup instructions, check the SwAIvyn documentation or source code.

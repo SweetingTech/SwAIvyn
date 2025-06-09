@@ -1,0 +1,2 @@
+# This file ensures the STT directory is tracked by git
+# Model files in this directory are ignored but the folder structure is preserved
