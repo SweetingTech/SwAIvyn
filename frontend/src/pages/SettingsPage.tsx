@@ -13,16 +13,12 @@ import {
   Upload,
   Volume2,
   ServerCog,
-  Plus,
   Edit,
   Trash2,
   Bot,
 } from 'lucide-react';
-import CharacterEditor from './CharacterEditor';
 import chatService from '../services/chatService';
-import ttsService, { VoiceDetails, UploadVoiceRequest } from '../services/ttsService';
-import yaml from 'js-yaml';
-import { Tooltip } from '../components/Tooltip';
+import ttsService, { VoiceDetails } from '../services/ttsService';
 import { useInitialization } from '../contexts/InitializationContext';
 import fetchWithTimeout from '../utils/fetchWithTimeout';
 
