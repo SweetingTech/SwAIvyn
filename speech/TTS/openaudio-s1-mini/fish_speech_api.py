@@ -1,6 +1,7 @@
 import torch
 import torchaudio
 import sys
+from pathlib import Path
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import StreamingResponse
 # Ensure the bundled Fish Speech library is on the import path
@@ -11,7 +12,6 @@ from fish_speech.config import get_cfg_defaults
 from fish_speech.s1.build_model import build_model_from_cfg
 import soundfile as sf
 import io
-from pathlib import Path
 
 app = FastAPI()
 
