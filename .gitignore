@@ -89,6 +89,8 @@ speech/TTS/**
 # But keep the .gitkeep files to preserve folder structure
 !speech/STT/.gitkeep
 !speech/TTS/.gitkeep
+# Allow the custom Fish Speech API script
+!speech/TTS/openaudio-s1-mini/fish_speech_api.py
 
 # Database exports (these are snapshots, not source)
 swai_database_export_*.json
