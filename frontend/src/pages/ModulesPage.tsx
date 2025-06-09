@@ -248,6 +248,7 @@ const ModuleItem = ({ id, name, version, description, enabled, installed, onTogg
             <h3 className="text-base font-medium text-gray-800">{name}</h3>
             <div className={`w-3 h-3 rounded-full ${enabled ? 'bg-green-500' : 'bg-red-500'} ml-2`}></div>
             <span className="ml-auto text-xs text-gray-500">{version}</span>
+            <span className="ml-2 text-xs text-gray-400">{installed ? 'Installed' : 'Not installed'}</span>
           </div>
           <p className="mt-1 text-sm text-gray-600">{description}</p>
         </div>
