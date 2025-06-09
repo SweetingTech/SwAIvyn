@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import InlineSpinner from '../components/ui/InlineSpinner';
@@ -19,7 +20,7 @@ import {
 } from 'lucide-react';
 import CharacterEditor from './CharacterEditor';
 import chatService from '../services/chatService';
-import ttsService from '../services/ttsService';
+import ttsService, { VoiceDetails, UploadVoiceRequest } from '../services/ttsService';
 import yaml from 'js-yaml';
 import { Tooltip } from '../components/Tooltip';
 import { useInitialization } from '../contexts/InitializationContext';
@@ -60,11 +61,24 @@ const tabs = [
 const VoiceSettings = () => {
   const { user } = useInitialization();
   const [apiKey, setApiKey] = useState('');
-  const [voice, setVoice] = useState('Rachel');
+  const [voiceId, setVoiceId] = useState('Rachel');
+  const [ttsProvider, setTtsProvider] = useState('elevenlabs');
+  const [providers, setProviders] = useState<any[]>([]);
+  const [availableVoices, setAvailableVoices] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-
-  const voices = ['Rachel', 'Domi', 'Bella', 'Antoni'];
+  
+  // Voice management states for Fish Speech
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadData, setUploadData] = useState({
+    voiceName: '',
+    transcript: '',
+    audioFile: null as File | null,
+  });
+  const [uploadError, setUploadError] = useState('');
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [voiceDetails, setVoiceDetails] = useState<VoiceDetails[]>([]);
+  const [showVoiceDetails, setShowVoiceDetails] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -72,16 +86,128 @@ const VoiceSettings = () => {
     ttsService.getSettings(user.id)
       .then(result => {
         setApiKey(result.apiKey || '');
-        setVoice(result.voice || 'Rachel');
+        setVoiceId(result.voiceId || 'Rachel');
+        setTtsProvider(result.ttsProvider || 'elevenlabs');
+        setProviders(result.providers || []);
+        
+        // Load voices for current provider
+        const currentProvider = result.ttsProvider || 'elevenlabs';
+        loadVoices(currentProvider);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [user?.id]);
 
+  const loadVoices = async (provider: string) => {
+    try {
+      const voices = await ttsService.getVoices(provider, user?.id);
+      setAvailableVoices(voices);
+      
+      // If Fish Speech, also load voice details
+      if (provider === 'fishspeech') {
+        loadVoiceDetails(voices);
+      }
+    } catch (error) {
+      console.error('Failed to load voices:', error);
+      // Fallback to default voices based on provider
+      if (provider === 'elevenlabs') {
+        setAvailableVoices(['Rachel', 'Domi', 'Bella', 'Antoni']);
+      } else {
+        setAvailableVoices(['default']);
+      }
+    }
+  };
+
+  const loadVoiceDetails = async (voices: string[]) => {
+    try {
+      const details = await Promise.all(
+        voices.map(async (voice) => {
+          try {
+            return await ttsService.getVoiceDetails(voice);
+          } catch {
+            return null;
+          }
+        })
+      );
+      setVoiceDetails(details.filter(Boolean) as VoiceDetails[]);
+    } catch (error) {
+      console.error('Failed to load voice details:', error);
+    }
+  };
+
+  const handleProviderChange = (newProvider: string) => {
+    setTtsProvider(newProvider);
+    loadVoices(newProvider);
+    // Reset voice to first available when switching providers
+    setVoiceId('');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validation = ttsService.validateVoiceFile(file);
+    if (!validation.valid) {
+      setUploadError(validation.error || 'Invalid file');
+      return;
+    }
+
+    setUploadData(prev => ({ ...prev, audioFile: file }));
+    setUploadError('');
+  };
+
+  const handleUploadVoice = async () => {
+    if (!uploadData.audioFile || !uploadData.voiceName || !uploadData.transcript) {
+      setUploadError('Please fill in all fields and select an audio file.');
+      return;
+    }
+
+    setUploadLoading(true);
+    setUploadError('');
+
+    try {
+      await ttsService.uploadVoice({
+        audioFile: uploadData.audioFile,
+        transcript: uploadData.transcript,
+        voiceName: uploadData.voiceName,
+      });
+
+      // Reset form and refresh voices
+      setUploadData({ voiceName: '', transcript: '', audioFile: null });
+      setShowUploadModal(false);
+      loadVoices(ttsProvider);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Failed to upload voice');
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  const handleDeleteVoice = async (voiceName: string) => {
+    if (!confirm(`Are you sure you want to delete the voice "${voiceName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await ttsService.deleteVoice(voiceName);
+      loadVoices(ttsProvider);
+    } catch (error) {
+      alert(`Failed to delete voice: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const save = () => {
     if (!user?.id) return;
     setLoading(true);
-    ttsService.updateSettings(apiKey, voice, user.id)
+    
+    const settings = {
+      userId: user.id,
+      apiKey: apiKey || undefined,
+      voiceId: voiceId || undefined,
+      ttsProvider: ttsProvider || undefined
+    };
+
+    ttsService.updateSettings(settings)
       .then(() => {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
@@ -93,37 +219,144 @@ const VoiceSettings = () => {
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-medium">Voice Settings</h2>
-      <p className="text-sm text-gray-600">Configure voice settings for your AI assistant.</p>
+      <p className="text-sm text-gray-600">Configure text-to-speech settings for your AI assistant.</p>
 
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            ElevenLabs API Key
+            TTS Provider
           </label>
-          <input
-            type="password"
+          <select
             className="w-full border rounded px-3 py-2"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
+            value={ttsProvider}
+            onChange={e => handleProviderChange(e.target.value)}
             disabled={loading}
-          />
+          >
+            {providers.map(provider => (
+              <option key={provider.id} value={provider.id} disabled={!provider.available}>
+                {provider.name} {!provider.available ? '(Unavailable)' : ''}
+              </option>
+            ))}
+          </select>
         </div>
+
+        {ttsProvider === 'elevenlabs' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              ElevenLabs API Key
+            </label>
+            <input
+              type="password"
+              className="w-full border rounded px-3 py-2"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              disabled={loading}
+              placeholder="Enter your ElevenLabs API key"
+            />
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Voice</label>
           <select
             className="w-full border rounded px-3 py-2"
-            value={voice}
-            onChange={e => setVoice(e.target.value)}
-            disabled={loading}
+            value={voiceId}
+            onChange={e => setVoiceId(e.target.value)}
+            disabled={loading || availableVoices.length === 0}
           >
-            {voices.map(v => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
+            {availableVoices.length === 0 ? (
+              <option value="">Loading voices...</option>
+            ) : (
+              availableVoices.map(voice => (
+                <option key={voice} value={voice}>
+                  {voice}
+                </option>
+              ))
+            )}
           </select>
         </div>
+
+        {ttsProvider === 'fishspeech' && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-3 rounded">
+              <p className="text-sm text-blue-700">
+                Fish Speech TTS provides high-quality voice synthesis. You can upload custom voices or use existing ones.
+              </p>
+            </div>
+
+            {/* Voice Management Section */}
+            <div className="border rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-medium">Voice Management</h3>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  <Upload size={16} />
+                  <span>Upload Voice</span>
+                </button>
+              </div>
+
+              {/* Voice List */}
+              <div className="space-y-2">
+                {voiceDetails.map((voice) => (
+                  <div key={voice.name} className="border rounded p-3 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-medium">{voice.name}</h4>
+                        <p className="text-sm text-gray-600 truncate">
+                          {voice.transcript?.substring(0, 100)}
+                          {voice.transcript?.length > 100 ? '...' : ''}
+                        </p>
+                        <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                          <span>Audio: {voice.hasAudioFile ? '✓' : '✗'}</span>
+                          <span>Embedding: {voice.hasEmbedding ? '✓' : '✗'}</span>
+                          {voice.audioFileSize && (
+                            <span>Size: {(voice.audioFileSize / 1024 / 1024).toFixed(1)}MB</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => setShowVoiceDetails(showVoiceDetails === voice.name ? null : voice.name)}
+                          className="p-2 text-gray-500 hover:text-gray-700"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteVoice(voice.name)}
+                          className="p-2 text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {showVoiceDetails === voice.name && (
+                      <div className="mt-3 pt-3 border-t bg-white p-3 rounded">
+                        <h5 className="font-medium mb-2">Voice Details</h5>
+                        <p className="text-sm text-gray-700 mb-2">
+                          <strong>Transcript:</strong> {voice.transcript}
+                        </p>
+                        {voice.createdAt && (
+                          <p className="text-sm text-gray-500">
+                            Created: {new Date(voice.createdAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                
+                {voiceDetails.length === 0 && (
+                  <p className="text-gray-500 text-center py-4">
+                    No custom voices uploaded yet. Click "Upload Voice" to add your first voice.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="pt-4 flex justify-end">
@@ -132,6 +365,87 @@ const VoiceSettings = () => {
         </button>
         {saveSuccess && <div className="text-green-600 text-sm ml-4">Saved!</div>}
       </div>
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">Upload New Voice</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Voice Name
+                </label>
+                <input
+                  type="text"
+                  className="w-full border rounded px-3 py-2"
+                  value={uploadData.voiceName}
+                  onChange={e => setUploadData(prev => ({ ...prev, voiceName: e.target.value }))}
+                  placeholder="Enter a unique voice name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Audio File
+                </label>
+                <input
+                  type="file"
+                  accept="audio/wav,audio/mp3,audio/mpeg"
+                  onChange={handleFileUpload}
+                  className="w-full border rounded px-3 py-2"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Supported formats: WAV, MP3. Max size: 50MB.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Transcript
+                </label>
+                <textarea
+                  className="w-full border rounded px-3 py-2 h-24"
+                  value={uploadData.transcript}
+                  onChange={e => setUploadData(prev => ({ ...prev, transcript: e.target.value }))}
+                  placeholder="Enter the text that matches the audio file"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This should match exactly what is spoken in the audio file.
+                </p>
+              </div>
+
+              {uploadError && (
+                <div className="text-red-600 text-sm bg-red-50 p-2 rounded">
+                  {uploadError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setUploadData({ voiceName: '', transcript: '', audioFile: null });
+                  setUploadError('');
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                disabled={uploadLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUploadVoice}
+                disabled={uploadLoading || !uploadData.audioFile || !uploadData.voiceName || !uploadData.transcript}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {uploadLoading ? 'Uploading...' : 'Upload Voice'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

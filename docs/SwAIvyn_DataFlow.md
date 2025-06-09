@@ -232,6 +232,7 @@ This document outlines the network port usage for various components and service
 | 11434 | Ollama API                            | Configurable                              |
 | 1234  | LM Studio API (default)               | Formerly used port 5000; customizable     |
 | 8080  | Weaviate vector database              | Also shown as example LM Studio port; configurable |
+| 8081  | Fish Speech TTS API                   | Configurable                              |
 | 7474  | Neo4j HTTP API                        | Configurable                              |
 | 7687  | Neo4j Bolt protocol                   | Configurable                              |
 | 3000, 5173, 5174 | Frontend dev servers (React/Vite) | Used only during development              |
