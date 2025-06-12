@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "3SisXKiW0Vs=",
+  "dgSpecHash": "S6HU8PWzwvE=",
   "success": true,
   "projectFilePath": "C:\\Users\\djay\\Desktop\\Project\\SwAIvyn\\backend\\SwAIvyn.csproj",
   "expectedPackageFiles": [
@@ -63,7 +63,6 @@
     "C:\\Users\\djay\\.nuget\\packages\\microsoft.extensions.options.configurationextensions\\9.0.0\\microsoft.extensions.options.configurationextensions.9.0.0.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\microsoft.extensions.primitives\\9.0.5\\microsoft.extensions.primitives.9.0.5.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\microsoft.net.http.headers\\2.2.0\\microsoft.net.http.headers.2.2.0.nupkg.sha512",
-    "C:\\Users\\djay\\.nuget\\packages\\microsoft.net.illink.tasks\\8.0.15\\microsoft.net.illink.tasks.8.0.15.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\microsoft.netcore.platforms\\2.0.0\\microsoft.netcore.platforms.2.0.0.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\microsoft.netcore.targets\\1.1.0\\microsoft.netcore.targets.1.1.0.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\microsoft.openapi\\1.2.3\\microsoft.openapi.1.2.3.nupkg.sha512",
@@ -111,10 +110,7 @@
     "C:\\Users\\djay\\.nuget\\packages\\system.text.json\\9.0.5\\system.text.json.9.0.5.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\system.threading.channels\\7.0.0\\system.threading.channels.7.0.0.nupkg.sha512",
     "C:\\Users\\djay\\.nuget\\packages\\system.threading.tasks\\4.3.0\\system.threading.tasks.4.3.0.nupkg.sha512",
-    "C:\\Users\\djay\\.nuget\\packages\\yamldotnet\\16.3.0\\yamldotnet.16.3.0.nupkg.sha512",
-    "C:\\Users\\djay\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\8.0.15\\microsoft.netcore.app.runtime.win-x64.8.0.15.nupkg.sha512",
-    "C:\\Users\\djay\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\8.0.15\\microsoft.windowsdesktop.app.runtime.win-x64.8.0.15.nupkg.sha512",
-    "C:\\Users\\djay\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\8.0.15\\microsoft.aspnetcore.app.runtime.win-x64.8.0.15.nupkg.sha512"
+    "C:\\Users\\djay\\.nuget\\packages\\yamldotnet\\16.3.0\\yamldotnet.16.3.0.nupkg.sha512"
   ],
   "logs": [
     {

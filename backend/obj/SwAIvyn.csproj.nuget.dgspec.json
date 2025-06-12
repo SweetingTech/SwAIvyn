@@ -77,12 +77,6 @@
               "target": "Package",
               "version": "[8.0.5, )"
             },
-            "Microsoft.NET.ILLink.Tasks": {
-              "suppressParent": "All",
-              "target": "Package",
-              "version": "[8.0.15, )",
-              "autoReferenced": true
-            },
             "SQLitePCLRaw.bundle_e_sqlite3": {
               "target": "Package",
               "version": "[2.1.10, )"
@@ -107,20 +101,6 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
-              "version": "[8.0.15, 8.0.15]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Runtime.win-x64",
-              "version": "[8.0.15, 8.0.15]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
-              "version": "[8.0.15, 8.0.15]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"
