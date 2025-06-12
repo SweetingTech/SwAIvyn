@@ -1,14 +1,18 @@
 import sys
+import sys
+import os
 import io
 from pathlib import Path
+from typing import Optional
 
 import torch
 import torchaudio
 import soundfile as sf
 
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Depends, Header
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # Ensure the bundled Fish Speech library is on the import path
 sys.path.append(str(Path(__file__).resolve().parent / "fish-speech"))
