@@ -42,6 +42,7 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
   - 🔍 Web browsing capabilities via Browsh
   - 💾 Automated backup to NAS or cloud
   - 🧩 Modular plugin architecture
+  - 🎙️ Fish Speech TTS with API token authentication
 
 ## 🖥️ Screenshots
 
@@ -121,9 +122,23 @@ Immersive, voice-focused interface:
 ### Module System
 
 - Add plugins to extend functionality
-- Configure TTS/STT engines
+- Configure TTS/STT engines (ElevenLabs, Fish Speech)
 - Select LLM backends
 - Install custom agents and workflows
+
+### TTS/Voice Configuration
+
+SwAIvyn supports multiple Text-to-Speech providers:
+
+- **ElevenLabs**: Premium cloud-based TTS with realistic voices
+  - Requires API key configuration in Settings
+  - Support for voice cloning and custom voices
+
+- **Fish Speech**: Open-source TTS with local and cloud options
+  - Local installation support for privacy
+  - API token authentication for cloud service
+  - Custom voice training and cloning capabilities
+  - Configure your Fish Speech API key in Settings for cloud access
 
 ### Federation
 

@@ -17,14 +17,13 @@ namespace SwAIvyn.Services
         Task<string> GetSettingAsync(Guid? userId, string key, string defaultValue = null);
         Task<Dictionary<string, string>> GetAllSettingsAsync(Guid? userId);
         Task<bool> SetSettingAsync(Guid? userId, string key, string value);
-        Task<bool> SetSettingsAsync(Guid? userId, Dictionary<string, string> settings);
-
-        Task<string> GetOllamaApiUrlAsync(Guid? userId);
+        Task<bool> SetSettingsAsync(Guid? userId, Dictionary<string, string> settings);        Task<string> GetOllamaApiUrlAsync(Guid? userId);
         Task<string> GetLmStudioApiUrlAsync(Guid? userId);
         Task<string> GetOpenAiApiUrlAsync(Guid? userId);
-        Task<string> GetOpenAiApiKeyAsync(Guid? userId);
-        Task<string> GetClaudeApiUrlAsync(Guid? userId);
+        Task<string> GetOpenAiApiKeyAsync(Guid? userId);        Task<string> GetClaudeApiUrlAsync(Guid? userId);
         Task<string> GetClaudeApiKeyAsync(Guid? userId);
+        Task<string> GetFishSpeechApiKeyAsync(Guid? userId);
+        Task<string> GetGoogleWorkspaceCredentialsAsync(Guid? userId);
         Task<bool> GetEnableStreamingAsync(Guid? userId);
         Task<string> GetNeo4jUriAsync(Guid? userId);
         Task<int> GetNeo4jBoltPortAsync(Guid? userId);
@@ -53,10 +52,11 @@ namespace SwAIvyn.Services
         // --------------------------
         private const string OLLAMA_API_URL_KEY        = "OllamaApiUrl";
         private const string LM_STUDIO_API_URL_KEY     = "LmStudioApiUrl";
-        private const string OPENAI_API_URL_KEY        = "OpenAiApiUrl";
-        private const string OPENAI_API_KEY_KEY        = "OpenAiApiKey";
+        private const string OPENAI_API_URL_KEY        = "OpenAiApiUrl";        private const string OPENAI_API_KEY_KEY        = "OpenAiApiKey";
         private const string CLAUDE_API_URL_KEY        = "ClaudeApiUrl";
         private const string CLAUDE_API_KEY_KEY        = "ClaudeApiKey";
+        private const string FISH_SPEECH_API_KEY_KEY   = "FishSpeechApiKey";
+        private const string GOOGLE_WORKSPACE_CREDS_KEY = "GoogleWorkspaceCredentials";
         private const string NEO4J_URI_KEY             = "Neo4jUri";
         private const string NEO4J_BOLT_PORT_KEY       = "Neo4jBoltPort";
         private const string NEO4J_HTTP_PORT_KEY       = "Neo4jHttpPort";
@@ -243,9 +243,7 @@ namespace SwAIvyn.Services
         }
 
         public async Task<string> GetClaudeApiUrlAsync(Guid? userId)
-            => await GetGlobalSettingAsync(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");
-
-        public async Task<string> GetClaudeApiKeyAsync(Guid? userId)
+            => await GetGlobalSettingAsync(CLAUDE_API_URL_KEY, "https://api.anthropic.com/v1");        public async Task<string> GetClaudeApiKeyAsync(Guid? userId)
         {
             var apiKey = await GetGlobalSettingAsync(CLAUDE_API_KEY_KEY, string.Empty);
             _logger.LogInfo($"Claude API key length: {apiKey?.Length ?? 0}, starts with: {apiKey?.Substring(0, Math.Min(15, apiKey?.Length ?? 0))}...");
@@ -258,6 +256,23 @@ namespace SwAIvyn.Services
 
             return apiKey ?? string.Empty;
         }
+
+        public async Task<string> GetFishSpeechApiKeyAsync(Guid? userId)
+        {
+            var apiKey = await GetGlobalSettingAsync(FISH_SPEECH_API_KEY_KEY, string.Empty);
+            _logger.LogInfo($"Fish Speech API key length: {apiKey?.Length ?? 0}, starts with: {apiKey?.Substring(0, Math.Min(15, apiKey?.Length ?? 0))}...");
+
+            // Check for non-ASCII characters
+            if (!string.IsNullOrEmpty(apiKey) && apiKey.Any(c => c > 127))
+            {
+                _logger.LogWarning("Fish Speech API key contains non-ASCII characters!");
+            }
+
+            return apiKey ?? string.Empty;
+        }
+
+        public async Task<string> GetGoogleWorkspaceCredentialsAsync(Guid? userId)
+            => await GetSettingAsync(userId, GOOGLE_WORKSPACE_CREDS_KEY, string.Empty);
 
         public async Task<bool> GetEnableStreamingAsync(Guid? userId)
         {
@@ -304,10 +319,10 @@ namespace SwAIvyn.Services
                     { DEFAULT_LLM_MODEL_KEY,     string.Empty },
                     { OLLAMA_API_URL_KEY,        "http://localhost:11434" },
                     { LM_STUDIO_API_URL_KEY,     "http://localhost:1234" },
-                    { OPENAI_API_URL_KEY,        "https://api.openai.com/v1" },
-                    { OPENAI_API_KEY_KEY,        string.Empty },
+                    { OPENAI_API_URL_KEY,        "https://api.openai.com/v1" },                    { OPENAI_API_KEY_KEY,        string.Empty },
                     { CLAUDE_API_URL_KEY,        "https://api.anthropic.com/v1" },
                     { CLAUDE_API_KEY_KEY,        string.Empty },
+                    { FISH_SPEECH_API_KEY_KEY,   string.Empty },
                     { NEO4J_URI_KEY,             "http://localhost:7474" },
                     { NEO4J_BOLT_PORT_KEY,       "7687" },
                     { NEO4J_HTTP_PORT_KEY,       "7474" },

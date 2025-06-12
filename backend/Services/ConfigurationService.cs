@@ -14,9 +14,9 @@ namespace SwAIvyn.Services
         Task<string> GetOllamaApiUrl();
         Task<string> GetLmStudioApiUrl();
         Task<string> GetOpenAiApiUrl(Guid? userId = null);
-        Task<string> GetOpenAiApiKey(Guid? userId = null);
-        Task<string> GetClaudeApiUrl(Guid? userId = null);
+        Task<string> GetOpenAiApiKey(Guid? userId = null);        Task<string> GetClaudeApiUrl(Guid? userId = null);
         Task<string> GetClaudeApiKey(Guid? userId = null);
+        Task<string> GetFishSpeechApiKey(Guid? userId = null);
         Task<string> GetNeo4jUri();
         Task<int> GetNeo4jBoltPort();
         Task<int> GetNeo4jHttpPort();
@@ -118,11 +118,14 @@ namespace SwAIvyn.Services
         public async Task<string> GetClaudeApiUrl(Guid? userId = null)
         {
             return await _settingsService.GetClaudeApiUrlAsync(userId);
-        }
-
-        public async Task<string> GetClaudeApiKey(Guid? userId = null)
+        }        public async Task<string> GetClaudeApiKey(Guid? userId = null)
         {
             return await _settingsService.GetClaudeApiKeyAsync(userId);
+        }
+
+        public async Task<string> GetFishSpeechApiKey(Guid? userId = null)
+        {
+            return await _settingsService.GetFishSpeechApiKeyAsync(userId);
         }
 
         public async Task<string> GetNeo4jUri()

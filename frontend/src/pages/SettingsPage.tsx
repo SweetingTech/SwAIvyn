@@ -58,6 +58,7 @@ const VoiceSettings = () => {
   const { user } = useInitialization();
   const [apiKey, setApiKey] = useState('');
   const [voiceId, setVoiceId] = useState('Rachel');
+  const [fishSpeechApiKey, setFishSpeechApiKey] = useState('');
   const [ttsProvider, setTtsProvider] = useState('elevenlabs');
   const [providers, setProviders] = useState<any[]>([]);
   const [availableVoices, setAvailableVoices] = useState<string[]>([]);
@@ -78,11 +79,11 @@ const VoiceSettings = () => {
 
   useEffect(() => {
     if (!user?.id) return;
-    setLoading(true);
-    ttsService.getSettings(user.id)
+    setLoading(true);    ttsService.getSettings(user.id)
       .then(result => {
         setApiKey(result.apiKey || '');
         setVoiceId(result.voiceId || 'Rachel');
+        setFishSpeechApiKey(result.fishSpeechApiKey || '');
         setTtsProvider(result.ttsProvider || 'elevenlabs');
         setProviders(result.providers || []);
         
@@ -191,7 +192,6 @@ const VoiceSettings = () => {
       alert(`Failed to delete voice: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
-
   const save = () => {
     if (!user?.id) return;
     setLoading(true);
@@ -200,6 +200,7 @@ const VoiceSettings = () => {
       userId: user.id,
       apiKey: apiKey || undefined,
       voiceId: voiceId || undefined,
+      fishSpeechApiKey: fishSpeechApiKey || undefined,
       ttsProvider: ttsProvider || undefined
     };
 
@@ -270,10 +271,25 @@ const VoiceSettings = () => {
               ))
             )}
           </select>
-        </div>
-
-        {ttsProvider === 'fishspeech' && (
+        </div>        {ttsProvider === 'fishspeech' && (
           <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fish Speech API Key
+              </label>
+              <input
+                type="password"
+                className="w-full border rounded px-3 py-2"
+                value={fishSpeechApiKey}
+                onChange={e => setFishSpeechApiKey(e.target.value)}
+                disabled={loading}
+                placeholder="Enter your Fish Speech API key (optional)"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Leave blank to use local Fish Speech service without authentication.
+              </p>
+            </div>
+
             <div className="bg-blue-50 p-3 rounded">
               <p className="text-sm text-blue-700">
                 Fish Speech TTS provides high-quality voice synthesis. You can upload custom voices or use existing ones.

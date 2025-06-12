@@ -258,6 +258,7 @@ builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 builder.Services.AddHostedService<SwAIvyn.HostedServices.BackupService>(); // Explicitly specify namespace
 builder.Services.AddHostedService<SearchServiceHostedService>();
 builder.Services.AddHostedService<FishSpeechHostedService>();
+builder.Services.AddHostedService<GoogleWorkspaceHostedService>();
 builder.Services.AddHostedService<ApplicationMonitorService>();
 
 // App services
@@ -286,6 +287,9 @@ builder.Services.AddHttpClient<IHybridSearchService, HybridSearchService>();
 // TTS
 builder.Services.AddHttpClient<ElevenLabsTtsService>();
 builder.Services.AddHttpClient<FishSpeechTtsService>();
+
+// Google Workspace
+builder.Services.AddHttpClient<IGoogleWorkspaceService, GoogleWorkspaceService>();
 
 // Graph & brain
 builder.Services.AddScoped<INeo4jService, Neo4jService>();

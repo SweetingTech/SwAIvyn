@@ -121,8 +121,7 @@ namespace SwAIvyn.Controllers
         public async Task<IActionResult> GetConnectionSettings([FromQuery] Guid? userId = null)
         {
             try
-            {
-                var settings = new ConnectionSettings
+            {                var settings = new ConnectionSettings
                 {
                     OllamaApiUrl     = await _settingsService.GetOllamaApiUrlAsync(userId),
                     LmStudioApiUrl   = await _settingsService.GetLmStudioApiUrlAsync(userId),
@@ -130,6 +129,7 @@ namespace SwAIvyn.Controllers
                     OpenAiApiKey     = await _settingsService.GetOpenAiApiKeyAsync(userId),
                     ClaudeApiUrl     = await _settingsService.GetClaudeApiUrlAsync(userId),
                     ClaudeApiKey     = await _settingsService.GetClaudeApiKeyAsync(userId),
+                    FishSpeechApiKey = await _settingsService.GetFishSpeechApiKeyAsync(userId),
                     Neo4jUri         = await _settingsService.GetNeo4jUriAsync(userId),
                     Neo4jBoltPort    = await _settingsService.GetNeo4jBoltPortAsync(userId),
                     Neo4jHttpPort    = await _settingsService.GetNeo4jHttpPortAsync(userId),
@@ -167,10 +167,11 @@ namespace SwAIvyn.Controllers
                     settings["OpenAiApiKey"] = request.OpenAiApiKey;
 
                 if (!string.IsNullOrEmpty(request.ClaudeApiUrl))
-                    settings["ClaudeApiUrl"] = request.ClaudeApiUrl;
-
-                if (!string.IsNullOrEmpty(request.ClaudeApiKey))
+                    settings["ClaudeApiUrl"] = request.ClaudeApiUrl;                if (!string.IsNullOrEmpty(request.ClaudeApiKey))
                     settings["ClaudeApiKey"] = request.ClaudeApiKey;
+
+                if (!string.IsNullOrEmpty(request.FishSpeechApiKey))
+                    settings["FishSpeechApiKey"] = request.FishSpeechApiKey;
 
                 if (!string.IsNullOrEmpty(request.Neo4jUri))
                     settings["Neo4jUri"] = request.Neo4jUri;
@@ -323,12 +324,15 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Claude API URL
         /// </summary>
-        public string ClaudeApiUrl { get; set; }
-
-        /// <summary>
+        public string ClaudeApiUrl { get; set; }        /// <summary>
         /// Claude API Key
         /// </summary>
         public string ClaudeApiKey { get; set; }
+
+        /// <summary>
+        /// Fish Speech API Key
+        /// </summary>
+        public string FishSpeechApiKey { get; set; }
 
         /// <summary>
         /// Neo4j URI
@@ -384,12 +388,15 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Claude API URL
         /// </summary>
-        public string? ClaudeApiUrl { get; set; }
-
-        /// <summary>
+        public string? ClaudeApiUrl { get; set; }        /// <summary>
         /// Claude API Key
         /// </summary>
         public string? ClaudeApiKey { get; set; }
+
+        /// <summary>
+        /// Fish Speech API Key
+        /// </summary>
+        public string? FishSpeechApiKey { get; set; }
 
         /// <summary>
         /// Neo4j URI

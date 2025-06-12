@@ -124,6 +124,56 @@ async def tts_with_embedding(text: str = Form(...), voice_name: str = Form(...))
     """TTS using saved speaker embedding (.pt) only."""
     if voice_name not in embedding_cache:
         raise HTTPException(status_code=404, detail=f"Embedding for '{voice_name}' not found.")
+    
+    speaker_embed = embedding_cache[voice_name]
+    
+    # Use the embedding with the model for inference
+    audio = infer_from_text(
+        text=text,
+        model=model,
+        tokenizer_path="tokenizer.tiktoken",
+        special_token_path="special_tokens.json",
+        device=device,
+        speaker_embedding=speaker_embed  # Pass the embedding if supported
+    )
+    
+    buffer = io.BytesIO()
+    sf.write(buffer, audio, 22050, format="WAV")
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="audio/wav")
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "device": device}
+
+if __name__ == "__main__":
+    import uvicorn
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Fish Speech TTS API Server")
+    parser.add_argument("--llama-checkpoint-path", type=str, default=".", help="Path to LLAMA checkpoint")
+    parser.add_argument("--decoder-checkpoint-path", type=str, default="codec.pth", help="Path to decoder checkpoint")
+    parser.add_argument("--device", type=str, default="cpu", help="Device to use (cpu/cuda)")
+    parser.add_argument("--listen", type=str, default="127.0.0.1:8081", help="Host:port to listen on")
+    
+    args = parser.parse_args()
+    
+    # Parse host and port from listen argument
+    if ":" in args.listen:
+        host, port = args.listen.split(":")
+        port = int(port)
+    else:
+        host = args.listen
+        port = 8081
+    
+    print(f"Starting Fish Speech API server on {host}:{port}")
+    print(f"Device: {args.device}")
+    print(f"LLAMA checkpoint path: {args.llama_checkpoint_path}")
+    print(f"Decoder checkpoint path: {args.decoder_checkpoint_path}")
+    
+    uvicorn.run(app, host=host, port=port)
+        raise HTTPException(status_code=404, detail=f"Embedding for '{voice_name}' not found.")
     speaker_embed = embedding_cache[voice_name]
     # Make sure your model has this method
     audio = model.infer_with_embedding(

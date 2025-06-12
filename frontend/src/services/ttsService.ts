@@ -9,6 +9,7 @@ interface TtsProvider {
 interface VoiceSettings {
   apiKey: string;
   voiceId: string;
+  fishSpeechApiKey: string;
   ttsProvider: string;
   providers: TtsProvider[];
 }
@@ -17,6 +18,7 @@ interface UpdateTtsSettingsRequest {
   userId?: string;
   apiKey?: string;
   voiceId?: string;
+  fishSpeechApiKey?: string;
   ttsProvider?: string;
 }
 

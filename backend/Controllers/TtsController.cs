@@ -47,10 +47,10 @@ namespace SwAIvyn.Controllers
         /// </summary>
         [HttpGet("settings")]
         public async Task<IActionResult> GetSettings([FromQuery] Guid? userId = null)
-        {
-            try            {
+        {            try            {
                 var apiKey = await _settingsService.GetElevenLabsApiKeyAsync(userId);
                 var voiceId = await _settingsService.GetElevenLabsVoiceIdAsync(userId);
+                var fishSpeechApiKey = await _settingsService.GetFishSpeechApiKeyAsync(userId);
                 var ttsProvider = await _settingsService.GetSettingAsync(userId, "TtsProvider") ?? "elevenlabs";
                 
                 // Check provider availability
@@ -74,6 +74,7 @@ namespace SwAIvyn.Controllers
                 return Ok(new { 
                     apiKey, 
                     voiceId, 
+                    fishSpeechApiKey,
                     ttsProvider,
                     providers 
                 });
@@ -83,9 +84,7 @@ namespace SwAIvyn.Controllers
                 _logger.LogError(ex, "Error getting TTS settings for user {UserId}", userId);
                 return StatusCode(500, "Failed to retrieve TTS settings");
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Updates the user's TTS settings (API key, voice, and provider).
         /// </summary>
         [HttpPost("settings")]
@@ -104,6 +103,8 @@ namespace SwAIvyn.Controllers
                     settings["ElevenLabsApiKey"] = request.ApiKey;
                 if (!string.IsNullOrEmpty(request.VoiceId))
                     settings["ElevenLabsVoiceId"] = request.VoiceId;
+                if (!string.IsNullOrEmpty(request.FishSpeechApiKey))
+                    settings["FishSpeechApiKey"] = request.FishSpeechApiKey;
                 if (!string.IsNullOrEmpty(request.TtsProvider))
                     settings["TtsProvider"] = request.TtsProvider;
 
@@ -136,13 +137,11 @@ namespace SwAIvyn.Controllers
                 var ttsProvider = await _settingsService.GetSettingAsync(request.UserId, "TtsProvider") ?? "elevenlabs";
                 
                 byte[] audioBytes;
-                string contentType;
-
-                if (ttsProvider == "fishspeech")
+                string contentType;                if (ttsProvider == "fishspeech")
                 {
                     // Use Fish Speech
                     var voiceId = request.VoiceId ?? "default";
-                    audioBytes = await _fishSpeechService.SynthesizeAsync(request.Text, voiceId);
+                    audioBytes = await _fishSpeechService.SynthesizeAsync(request.Text, voiceId, request.UserId);
                     contentType = "audio/wav";
                 }
                 else
@@ -327,9 +326,7 @@ namespace SwAIvyn.Controllers
             var sanitized = string.Join("_", fileName.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
             return sanitized.Trim();
         }
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// Request model for updating TTS settings.
     /// </summary>
     public class UpdateTtsSettingsRequest
@@ -350,10 +347,15 @@ namespace SwAIvyn.Controllers
         public string? VoiceId { get; set; }
 
         /// <summary>
+        /// New Fish Speech API key (leave null to keep existing).
+        /// </summary>
+        public string? FishSpeechApiKey { get; set; }
+
+        /// <summary>
         /// TTS provider preference ("elevenlabs" or "fishspeech").
         /// </summary>
         public string? TtsProvider { get; set; }
-    }    /// <summary>
+    }/// <summary>
     /// Request model for performing TTS synthesis.
     /// </summary>
     public class SynthesizeRequest

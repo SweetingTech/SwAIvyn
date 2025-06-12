@@ -1,0 +1,23 @@
+# Add credentials.json and token.json to .gitignore
+credentials.json
+token.json
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environment
+venv/
+env/
+.env
+
+# Temporary files
+temp_*
+*.tmp
+
+# Logs
+*.log
