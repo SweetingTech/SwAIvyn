@@ -13,12 +13,11 @@ namespace SwAIvyn.HostedServices
     /// Hosted service that starts and manages the FastAPI search service (search.py)
     /// </summary>
     public class SearchServiceHostedService : BackgroundService
-    {
-        private readonly ISimpleLoggerService _logger;
+    {        private readonly ISimpleLoggerService _logger;
         private readonly IConfiguration _configuration;
         private Process? _searchProcess;
         private readonly string _searchServicePath;
-        private readonly int _searchServicePort = 8001;
+        private readonly int _searchServicePort;
 
         public SearchServiceHostedService(ISimpleLoggerService logger, IConfiguration configuration)
         {
@@ -28,6 +27,10 @@ namespace SwAIvyn.HostedServices
             // Get the search service path relative to the application
             var currentDirectory = Directory.GetCurrentDirectory();
             _searchServicePath = Path.Combine(currentDirectory, "search", "search.py");
+            
+            // Use configurable port with fallback and randomization to avoid collisions
+            var basePort = _configuration.GetValue<int>("AppSettings:SearchServicePort", 8001);
+            _searchServicePort = basePort + new Random().Next(0, 100); // Add some randomization
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -75,18 +78,21 @@ namespace SwAIvyn.HostedServices
             {
                 _logger.LogError($"🔍 SearchServiceHostedService: Error in ExecuteAsync: {ex.Message}", ex);
             }
-        }
-
-        private async Task StartSearchServiceAsync(CancellationToken stoppingToken)
+        }        private async Task StartSearchServiceAsync(CancellationToken stoppingToken)
         {
             try
             {
+                // Check if port is already in use
+                if (await IsPortInUseAsync(_searchServicePort))
+                {
+                    _logger.LogInfo($"🔍 Port {_searchServicePort} is already in use. Search service may already be running.");
+                    return;
+                }
+
                 // Kill any existing search service processes
                 await KillExistingSearchProcessesAsync();
 
-                _logger.LogInfo("🔍 Starting FastAPI search service...");
-
-                var startInfo = new ProcessStartInfo
+                _logger.LogInfo("🔍 Starting FastAPI search service...");                var startInfo = new ProcessStartInfo
                 {
                     FileName = "python",
                     Arguments = _searchServicePath,
@@ -96,6 +102,9 @@ namespace SwAIvyn.HostedServices
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
+
+                // Set the port environment variable
+                startInfo.EnvironmentVariables["SEARCH_SERVICE_PORT"] = _searchServicePort.ToString();
 
                 _searchProcess = new Process { StartInfo = startInfo };
 
@@ -200,6 +209,21 @@ namespace SwAIvyn.HostedServices
             catch
             {
                 return null;
+            }
+        }
+
+        private async Task<bool> IsPortInUseAsync(int port)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(3);
+                var response = await httpClient.GetAsync($"http://localhost:{port}/health");
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
             }
         }
 

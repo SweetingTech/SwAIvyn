@@ -10,6 +10,7 @@ import os
 import urllib.parse
 
 # FastAPI + Uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -704,24 +705,17 @@ class HybridSearchEngine:
 
 # ---------- FastAPI setup ----------
 
-app = FastAPI()
 search_engine: Optional[HybridSearchEngine] = None
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     logger.info("FastAPI startup event triggered.")
-    global search_engine
-
-    current_dir = os.getcwd()
-    sql_db_path = os.path.join(current_dir, "..", "backend", "Sqldatabase", "swai-vyn.db")
+    global search_engine    # Use absolute path to the database to avoid path resolution issues
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sql_db_path = os.path.join(project_root, "Sqldatabase", "swai-vyn.db")
+    logger.info(f"Calculated SQL database path: {sql_db_path}")
+    logger.info(f"Database file exists: {os.path.exists(sql_db_path)}")
     sql_conn_str = f"file:{sql_db_path}?mode=rw"  # Use "?mode=rwc" if DB may not exist
 
     weaviate_url = "http://stabled:8080"
@@ -738,13 +732,25 @@ async def startup_event():
     )
     await search_engine.connect()
     logger.info("FastAPI startup event completed.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
+    
+    yield
+    
+    # Shutdown
     logger.info("FastAPI shutdown event triggered.")
     if search_engine:
         await search_engine.disconnect()
     logger.info("FastAPI shutdown event completed.")
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/search")
 async def perform_search(request: Request):
@@ -787,5 +793,7 @@ async def health_check():
         return {"status": "initializing", "databases": {}}
 
 if __name__ == "__main__":
-    logger.info("Running uvicorn...")
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    import os
+    port = int(os.environ.get("SEARCH_SERVICE_PORT", 8001))
+    logger.info(f"Running uvicorn on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port)

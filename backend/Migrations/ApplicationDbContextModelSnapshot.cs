@@ -17,6 +17,47 @@ namespace SwAIvyn.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.5");
 
+            modelBuilder.Entity("SwAIvyn.Data.Entities.Agent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastRun")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TasksCompleted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Name");
+
+                    b.ToTable("Agents");
+                });
+
             modelBuilder.Entity("SwAIvyn.Data.Entities.AppUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -283,6 +324,55 @@ namespace SwAIvyn.Migrations
                     b.ToTable("Conversations");
                 });
 
+            modelBuilder.Entity("SwAIvyn.Data.Entities.DocumentChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ChunkIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("EndPosition")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsStoredInWeaviate")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Length")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("StartPosition")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("StoredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UploadDocumentId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsStoredInWeaviate");
+
+                    b.HasIndex("UploadDocumentId", "ChunkIndex");
+
+                    b.ToTable("DocumentChunks");
+                });
+
             modelBuilder.Entity("SwAIvyn.Data.Entities.Folder", b =>
                 {
                     b.Property<Guid>("Id")
@@ -462,45 +552,88 @@ namespace SwAIvyn.Migrations
                     b.ToTable("Settings");
                 });
 
-            modelBuilder.Entity("SwAIvyn.Data.Entities.Agent", b =>
+            modelBuilder.Entity("SwAIvyn.Data.Entities.UploadDocument", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ChunkCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Description")
-                        .IsRequired()
+                        .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("Enabled")
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExtractedText")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileExtension")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("FileSizeBytes")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime?>("LastRun")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("TasksCompleted")
+                    b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("Type")
+                    b.Property<string>("MimeType")
                         .IsRequired()
+                        .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid>("UserId")
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UploadedAt")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "Name");
+                    b.HasIndex("Category");
 
-                    b.ToTable("Agents");
+                    b.HasIndex("ContentHash");
+
+                    b.HasIndex("Status", "UploadedAt");
+
+                    b.ToTable("UploadDocuments");
+                });
+
+            modelBuilder.Entity("SwAIvyn.Data.Entities.Agent", b =>
+                {
+                    b.HasOne("SwAIvyn.Data.Entities.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("SwAIvyn.Data.Entities.AvatarInfo", b =>
@@ -561,6 +694,17 @@ namespace SwAIvyn.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("SwAIvyn.Data.Entities.DocumentChunk", b =>
+                {
+                    b.HasOne("SwAIvyn.Data.Entities.UploadDocument", "UploadDocument")
+                        .WithMany()
+                        .HasForeignKey("UploadDocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("UploadDocument");
+                });
+
             modelBuilder.Entity("SwAIvyn.Data.Entities.Folder", b =>
                 {
                     b.HasOne("SwAIvyn.Data.Entities.Folder", "Parent")
@@ -607,17 +751,6 @@ namespace SwAIvyn.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade);
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("SwAIvyn.Data.Entities.Agent", b =>
-                {
-                    b.HasOne("SwAIvyn.Data.Entities.AppUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
 
                     b.Navigation("User");
                 });

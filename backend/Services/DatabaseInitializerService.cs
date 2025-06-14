@@ -84,8 +84,7 @@ namespace SwAIvyn.Services
                 // so the database will be created in the correct location.
                 // We just need to ensure _dataDirectory itself exists.                // Create database if it doesn't exist and run migrations
                 using (var context = await _dbContextFactory.CreateDbContextAsync())
-                {
-                    try
+                {                    try
                     {
                         _logger.LogInfo("Running database migrations...");
                         await context.Database.MigrateAsync();
@@ -93,18 +92,8 @@ namespace SwAIvyn.Services
                     }
                     catch (Exception migrationEx)
                     {
-                        _logger.LogWarning($"Database migration failed (this may be normal if tables already exist): {migrationEx.Message}");
-
-                        // Try to ensure database can connect even if migrations failed
-                        try
-                        {
-                            await context.Database.EnsureCreatedAsync();
-                            _logger.LogInfo("Database ensured to exist after migration failure");
-                        }
-                        catch (Exception ensureEx)
-                        {
-                            _logger.LogWarning($"Database ensure creation also failed: {ensureEx.Message}");
-                        }
+                        _logger.LogError($"Database migration failed: {migrationEx.Message}");
+                        throw; // Don't continue if migrations fail
                     }
 
                     // Enable WAL mode for better concurrency

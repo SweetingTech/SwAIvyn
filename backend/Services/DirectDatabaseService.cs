@@ -54,6 +54,7 @@ namespace SwAIvyn.Services
                             RecoveryPhrase TEXT NOT NULL,
                             CreatedAt TEXT NOT NULL,
                             LastLogin TEXT NOT NULL,
+                            LastSelectedCharacterId TEXT NULL,
                             CONSTRAINT PK_Users PRIMARY KEY (Id)
                         );";
 
@@ -85,8 +86,8 @@ namespace SwAIvyn.Services
 
                     // Insert default user named "user"
                     var insertUserSql = @"
-                        INSERT INTO Users (Id, Username, PasswordHash, PINCode, RecoveryPhrase, CreatedAt, LastLogin)
-                        VALUES (@Id, @Username, @PasswordHash, @PINCode, @RecoveryPhrase, @CreatedAt, @LastLogin);";
+                        INSERT INTO Users (Id, Username, PasswordHash, PINCode, RecoveryPhrase, CreatedAt, LastLogin, LastSelectedCharacterId)
+                        VALUES (@Id, @Username, @PasswordHash, @PINCode, @RecoveryPhrase, @CreatedAt, @LastLogin, @LastSelectedCharacterId);";
 
                     using var insertCommand = new SqliteCommand(insertUserSql, connection);
                     var userId = "00000000-0000-0000-0000-000000000001";
@@ -99,6 +100,7 @@ namespace SwAIvyn.Services
                     insertCommand.Parameters.AddWithValue("@RecoveryPhrase", "");
                     insertCommand.Parameters.AddWithValue("@CreatedAt", currentTime);
                     insertCommand.Parameters.AddWithValue("@LastLogin", currentTime);
+                    insertCommand.Parameters.AddWithValue("@LastSelectedCharacterId", DBNull.Value);
 
                     await insertCommand.ExecuteNonQueryAsync();
                     _logger.LogInfo($"Default user 'user' created successfully with ID: {userId}");

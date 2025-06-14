@@ -2,17 +2,20 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SwAIvyn.Data;
 
 #nullable disable
 
-namespace SwAIvyn.Migrations.MigrationsDb
+namespace SwAIvyn.Migrations
 {
-    [DbContext(typeof(MigrationsDbContext))]
-    partial class MigrationsDbContextModelSnapshot : ModelSnapshot
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20250613053511_PendingModelFix")]
+    partial class PendingModelFix
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.5");
@@ -91,7 +94,10 @@ namespace SwAIvyn.Migrations.MigrationsDb
 
                     b.HasKey("Id");
 
-                    b.ToTable("AppUser");
+                    b.HasIndex("Username")
+                        .IsUnique();
+
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("SwAIvyn.Data.Entities.AvatarInfo", b =>
@@ -187,7 +193,7 @@ namespace SwAIvyn.Migrations.MigrationsDb
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AvatarInfo");
+                    b.ToTable("Avatars");
                 });
 
             modelBuilder.Entity("SwAIvyn.Data.Entities.ChatHistory", b =>
@@ -363,7 +369,9 @@ namespace SwAIvyn.Migrations.MigrationsDb
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UploadDocumentId");
+                    b.HasIndex("IsStoredInWeaviate");
+
+                    b.HasIndex("UploadDocumentId", "ChunkIndex");
 
                     b.ToTable("DocumentChunks");
                 });
@@ -610,6 +618,12 @@ namespace SwAIvyn.Migrations.MigrationsDb
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Category");
+
+                    b.HasIndex("ContentHash");
+
+                    b.HasIndex("Status", "UploadedAt");
 
                     b.ToTable("UploadDocuments");
                 });

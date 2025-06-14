@@ -252,6 +252,7 @@ builder.Services.AddScoped<IDatabaseInitializer, DatabaseInitializerService>();
 builder.Services.AddScoped<IDirectDatabaseService, DirectDatabaseService>();
 builder.Services.AddSingleton<DirectoryInitializerService>();
 builder.Services.AddSingleton<ISimpleLoggerService, SimpleLoggerService>();
+builder.Services.AddSingleton<ITerminalLoggerService, TerminalLoggerService>();
 builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
 // Hosted services
@@ -267,12 +268,11 @@ builder.Services.AddScoped<IFolderService, FolderService>();
 
 // Settings
 builder.Services.Configure<FishSpeechOptions>(builder.Configuration.GetSection(FishSpeechOptions.SectionName));
-builder.Services.AddSingleton<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
-builder.Services.AddSingleton<IConfigurationService, ConfigurationService>();
+builder.Services.AddScoped<IConfigurationService, ConfigurationService>();
 
 // Embedding + Vector stores
-builder.Services.AddSingleton<IEmbeddingService, SimpleEmbeddingService>();
+builder.Services.AddScoped<IEmbeddingService, SimpleEmbeddingService>();
 builder.Services.AddScoped<Neo4jVectorStore>();
 builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();
@@ -343,16 +343,13 @@ builder.Services.AddCors(opts =>
 var app = builder.Build();
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
-// Force-check FishSpeechHostedService instantiation
-try
-{
-    _ = app.Services.GetRequiredService<FishSpeechHostedService>();
-    logger.LogInfo("Successfully got FishSpeechHostedService instance during startup.");
-}
-catch (Exception ex)
-{
-    logger.LogError("Failed to get FishSpeechHostedService instance during startup.", ex);
-}
+// Start terminal logging to mirror console output to log files
+var terminalLogger = app.Services.GetRequiredService<ITerminalLoggerService>();
+terminalLogger.StartLogging();
+logger.LogInfo($"Terminal logging started. Log file: {terminalLogger.GetLogFilePath()}");
+
+// FishSpeechHostedService will start automatically as a hosted service
+logger.LogInfo("FishSpeechHostedService registered and will start automatically.");
 
 // Health checks
 logger.LogInfo("Performing startup health checks...");
@@ -538,6 +535,8 @@ Let me show you around!" },
             {
                 Id = Guid.NewGuid(),
                 ConversationId = convo.Id,
+                Content = msg.Content,
+                Embedding = "", // Assuming Embedding might also be non-nullable
                 Role = msg.Role,
                 FilePath = $"welcome_{Guid.NewGuid()}.json",
                 CreatedUtc = DateTime.UtcNow
@@ -891,7 +890,7 @@ try
         if (frontendProcess != null)
         {
             logger.LogInfo("Frontend dev server started at http://localhost:5173");
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 string? outLine;
                 while ((outLine = await frontendProcess.StandardOutput.ReadLineAsync()) != null)
@@ -900,7 +899,7 @@ try
                         logger.LogInfo($"Frontend ⟶ {outLine}");
                 }
             });
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 string? errLine;
                 while ((errLine = await frontendProcess.StandardError.ReadLineAsync()) != null)
@@ -930,6 +929,11 @@ var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(() =>
 {
     logger.LogInfo("Application shutting down...");
+    
+    // Stop terminal logging
+    terminalLogger.StopLogging();
+    terminalLogger.Dispose();
+    
     if (frontendProcess != null && !frontendProcess.HasExited)
     {
         try

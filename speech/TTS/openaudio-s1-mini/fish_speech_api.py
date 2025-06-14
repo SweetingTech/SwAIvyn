@@ -1,5 +1,4 @@
 import sys
-import sys
 import os
 import io
 from pathlib import Path
@@ -174,24 +173,5 @@ if __name__ == "__main__":
     print(f"Starting Fish Speech API server on {host}:{port}")
     print(f"Device: {args.device}")
     print(f"LLAMA checkpoint path: {args.llama_checkpoint_path}")
-    print(f"Decoder checkpoint path: {args.decoder_checkpoint_path}")
-    
+    print(f"Decoder checkpoint path: {args.decoder_checkpoint_path}")    
     uvicorn.run(app, host=host, port=port)
-        raise HTTPException(status_code=404, detail=f"Embedding for '{voice_name}' not found.")
-    speaker_embed = embedding_cache[voice_name]
-    # Make sure your model has this method
-    audio = model.infer_with_embedding(
-        text=text,
-        speaker_embedding=speaker_embed,
-        tokenizer_path="tokenizer.tiktoken",
-        special_token_path="special_tokens.json",
-        device=device,
-    )
-    buffer = io.BytesIO()
-    sf.write(buffer, audio, 22050, format="WAV")
-    buffer.seek(0)
-    return StreamingResponse(buffer, media_type="audio/wav")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

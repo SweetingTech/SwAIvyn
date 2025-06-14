@@ -21,13 +21,13 @@ namespace SwAIvyn.HostedServices
             _logger = logger;
             _logger.LogInformation("FishSpeechHostedService constructor called.");
             
-            // Determine the path to the Fish Speech installation
+            // Determine the path to the Fish Speech installation (go up one level from backend)
             _fishSpeechPath = Path.Combine(
-                Directory.GetCurrentDirectory(),
+                Directory.GetParent(Directory.GetCurrentDirectory()).FullName,
                 "speech", "TTS", "openaudio-s1-mini"
             );
             
-            _pythonScript = Path.Combine(_fishSpeechPath, "fish_speech_api.py");
+            _pythonScript = Path.Combine(_fishSpeechPath, "fish_speech_lightweight_api.py");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -83,14 +83,77 @@ namespace SwAIvyn.HostedServices
             }
 
             return true;
-        }        private async Task StartFishSpeechAsync(CancellationToken cancellationToken)
+        }
+
+        private async Task<string> GetOptimalFishSpeechArgs()
         {
             try
             {
+                var autoConfigScript = Path.Combine(_fishSpeechPath, "auto_config.py");
+                
+                if (!File.Exists(autoConfigScript))
+                {
+                    _logger.LogWarning("Auto-config script not found, using default CPU settings");
+                    return "--device cpu --listen 127.0.0.1:8081 --llama-checkpoint-path \"../\" --decoder-checkpoint-path \"../codec.pth\"";
+                }
+
+                var processStartInfo = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = "auto_config.py",
+                    WorkingDirectory = _fishSpeechPath,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = new Process { StartInfo = processStartInfo };
+                process.Start();
+                
+                var output = await process.StandardOutput.ReadToEndAsync();
+                var error = await process.StandardError.ReadToEndAsync();
+                
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogWarning("Auto-config script failed with exit code {ExitCode}. Error: {Error}", 
+                        process.ExitCode, error);
+                    return "--device cpu --listen 127.0.0.1:8081 --llama-checkpoint-path \"../\" --decoder-checkpoint-path \"../codec.pth\"";
+                }
+
+                // Parse the output to get the Fish Speech arguments
+                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    if (line.StartsWith("Fish Speech Arguments:"))
+                    {
+                        var args = line.Substring("Fish Speech Arguments:".Length).Trim();
+                        _logger.LogInformation("Auto-detected Fish Speech configuration: {Args}", args);
+                        return args;
+                    }
+                }
+
+                _logger.LogWarning("Could not parse auto-config output, using default CPU settings");
+                return "--device cpu --listen 127.0.0.1:8081 --llama-checkpoint-path \"../\" --decoder-checkpoint-path \"../codec.pth\"";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error running auto-configuration, falling back to CPU");
+                return "--device cpu --listen 127.0.0.1:8081 --llama-checkpoint-path \"../\" --decoder-checkpoint-path \"../codec.pth\"";
+            }
+        }
+
+        private async Task StartFishSpeechAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Use our lightweight API directly (no additional arguments needed)
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "python",
-                    Arguments = "fish_speech_api.py --llama-checkpoint-path \".\" --decoder-checkpoint-path \"codec.pth\" --device cpu --listen 127.0.0.1:8081",
+                    Arguments = "fish_speech_lightweight_api.py",
                     WorkingDirectory = _fishSpeechPath,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

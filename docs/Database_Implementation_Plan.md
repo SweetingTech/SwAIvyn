@@ -4,8 +4,10 @@
 
 1. **One-click install / portable `.exe`** – no Docker, no external services that must be running
 2. **Single-user desktop workload** – one human + background threads (STT, TTS, vector search)
-3. **Local data lives under `%AppData%/SwAIvyn` or app-portable `/Data` folder**
+3. **Local data lives in `Sqldatabase/` folder relative to application**
 4. **Support "power mode" later** – allow pointing to external Postgres, Qdrant, etc.
+5. **Automatic character loading** – load character cards from `frontend/AI` directory on startup
+6. **Idempotent database operations** – safe to run setup scripts multiple times
 
 ## Database Technology Stack
 
@@ -17,6 +19,110 @@
 | Ephemeral cache                        | In-process `MemoryCache` (`IMemoryCache`)                      | built-in                                                     | N/A                                        | N/A |
 | Chat messages                          | File system (JSON files)                                        | System.IO + System.Text.Json                                 | `/sessions/{conversationId}/{timestamp}.json` | N/A |
 | Large binary blobs (avatar PNGs, WAVs) | File system                                                    | –                                                            | `/Assets/…`                                | N/A |
+
+## Database Initialization & Setup
+
+### Critical Requirements for SwAIvyn to Function
+
+SwAIvyn is a **single-user application** that requires exactly one default user to exist in the database. The entire application depends on this base user existing with the correct schema.
+
+#### Required Database Schema
+
+The Users table **MUST** include the `LastSelectedCharacterId` column for the application to function:
+
+```sql
+CREATE TABLE Users (
+    Id TEXT NOT NULL,
+    Username TEXT NOT NULL,
+    PasswordHash TEXT NOT NULL,
+    PINCode TEXT NOT NULL,
+    RecoveryPhrase TEXT NOT NULL,
+    CreatedAt TEXT NOT NULL,
+    LastLogin TEXT NOT NULL,
+    LastSelectedCharacterId TEXT NULL,  -- CRITICAL: Required for UserController
+    CONSTRAINT PK_Users PRIMARY KEY (Id)
+);
+```
+
+#### Default User Creation
+
+The application expects a default user with this exact ID:
+- **User ID**: `00000000-0000-0000-0000-000000000001`
+- **Username**: `user`
+- **All fields**: Must be populated including `LastSelectedCharacterId`
+
+#### Character Loading Process
+
+Characters are automatically loaded from the `frontend/AI` directory:
+
+1. **Directory Structure Expected**:
+   ```
+   frontend/AI/
+   ├── GLaDOS/
+   │   ├── GLaDOS_Character_card.yaml
+   │   └── char_img.jpg
+   ├── Sam/
+   │   └── Sam_Character_card.yaml
+   └── Sherlock/
+       └── Sherlock_Character_card.yaml
+   ```
+
+2. **Loading Logic**:
+   - Scan `frontend/AI` directory for subdirectories
+   - For each subdirectory, find `.yaml` file
+   - Parse basic character info (name, description, personality)
+   - Find image files (jpg, png, jpeg)
+   - Insert into Avatars table with proper UserId
+
+3. **Idempotent Behavior**: Characters are only created if they don't already exist
+
+### Database Initialization Tools
+
+Three tools handle database setup with **dynamic path resolution** (no hardcoded paths):
+
+#### 1. `tools/CreateTables/Program.cs`
+- **Purpose**: Complete database setup from scratch
+- **Features**:
+  - Creates all required tables (Users, Avatars, Prompts)
+  - Creates default user with correct ID and schema
+  - Loads character cards from `frontend/AI` directory
+  - Idempotent operations (safe to run multiple times)
+  - Dynamic path resolution for database location
+
+#### 2. `tools/UpdateDatabase/Program.cs`
+- **Purpose**: Add missing columns to existing database
+- **Features**:
+  - Adds `LastSelectedCharacterId` to Users table
+  - Adds missing columns to Avatars table
+  - Graceful error handling for existing columns
+  - Dynamic path resolution
+
+#### 3. `backend/Services/DirectDatabaseService.cs`
+- **Purpose**: Runtime database initialization
+- **Features**:
+  - Called during application startup
+  - Creates Users table with complete schema
+  - Creates default user if missing
+  - Integrates with Entity Framework
+
+### Build Scripts
+
+#### `scripts/first_run.ps1` - Complete Setup
+- Frontend build (optional with `-SkipFrontend`)
+- Backend compilation
+- Database validation and initialization
+- Character loading
+- Database copying to application location
+
+#### `scripts/re_run.ps1` - Development Rebuilds
+- Quick rebuilds for development
+- Skips database operations (assumes already set up)
+
+#### `scripts/startup.ps1` - Nuclear Option
+- Complete rebuild from scratch
+- Fixes PowerShell syntax issues
+- Verifies all components
+- Runs complete setup process
 
 ## Implementation Steps
 
@@ -34,6 +140,8 @@ public class AppUser
     public string PINCode { get; set; }
     public string RecoveryPhrase { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime LastLogin { get; set; }
+    public string? LastSelectedCharacterId { get; set; }  // CRITICAL: Required for UserController
 
     // Navigation properties
     public ICollection<MemoryItem> Memories { get; set; }
@@ -470,11 +578,121 @@ var vectorStore = app.Services.GetRequiredService<IVectorStore>();
 await vectorStore.InitializeAsync();
 ```
 
+## Troubleshooting Guide
+
+### Common Issues and Solutions
+
+#### 1. 500 Internal Server Error on `/api/user/default`
+
+**Symptoms**: Frontend shows "Failed to load user profile" error
+
+**Root Cause**: Missing `LastSelectedCharacterId` column in Users table
+
+**Solution**:
+```powershell
+# Run database update tool
+cd tools\UpdateDatabase
+dotnet run -c Release
+
+# Or run complete setup
+.\scripts\first_run.ps1 -SkipFrontend
+```
+
+#### 2. Characters Not Loading
+
+**Symptoms**: Character selector is empty or shows no avatars
+
+**Root Causes**:
+- `frontend/AI` directory missing or empty
+- Default user doesn't exist
+- Character loading failed during setup
+
+**Solution**:
+```powershell
+# Verify frontend/AI directory exists with YAML files
+# Run CreateTables tool to load characters
+cd tools\CreateTables
+dotnet run -c Release
+```
+
+#### 3. Database File Locked
+
+**Symptoms**: "The process cannot access the file because it is being used by another process"
+
+**Solution**:
+```powershell
+# Kill all .NET processes
+Get-Process -Name 'dotnet' -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name 'SwAIvyn' -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# Then retry build
+.\scripts\first_run.ps1 -SkipFrontend
+```
+
+#### 4. PowerShell Script Syntax Errors
+
+**Symptoms**: Unicode character errors in PowerShell scripts
+
+**Solution**:
+```powershell
+# Use startup script to fix syntax issues
+.\scripts\startup.ps1 -FixScriptsOnly
+```
+
+### Database Validation Commands
+
+```powershell
+# Check if default user exists
+cd tools\CreateTables
+dotnet run -c Release --no-build
+
+# Check database schema
+sqlite3 Sqldatabase\swai-vyn.db ".schema Users"
+
+# Count records
+sqlite3 Sqldatabase\swai-vyn.db "SELECT COUNT(*) FROM Users; SELECT COUNT(*) FROM Avatars;"
+
+# Test API endpoint
+Invoke-RestMethod -Uri 'http://localhost:5000/api/user/default' -Method GET
+```
+
+## Current Implementation Status
+
+### ✅ Completed Features
+
+1. **Database Schema**: Complete Users table with `LastSelectedCharacterId` column
+2. **Default User Creation**: Automatic creation of required default user
+3. **Character Loading**: Automatic loading from `frontend/AI` directory
+4. **Database Tools**: Three tools for different initialization scenarios
+5. **Build Scripts**: Complete build automation with database setup
+6. **Idempotent Operations**: Safe to run setup multiple times
+7. **Dynamic Path Resolution**: No hardcoded paths, works anywhere
+8. **Error Handling**: Graceful handling of existing data and missing files
+9. **API Functionality**: `/api/user/default` endpoint working correctly
+10. **Character Management**: GLaDOS, Sam, and Sherlock characters loaded
+
+### 🔧 Current Database State
+
+- **Users**: 1 (default user with ID `00000000-0000-0000-0000-000000000001`)
+- **Avatars**: 3 (GLaDOS, Sam, Sherlock loaded from YAML files)
+- **Schema**: Complete with all required columns
+- **Location**: `Sqldatabase/swai-vyn.db` and copied to application runtime location
+
+### 🚀 Ready for Production
+
+The database implementation is now **fully functional** and ready for production use. All critical issues have been resolved:
+
+- ✅ No more 500 Internal Server Errors
+- ✅ User profile loads successfully
+- ✅ Character selector populated with 3 characters
+- ✅ Complete build automation
+- ✅ Robust error handling and recovery
+
 ## Next Steps
 
 1. **Create data directory structure** on startup ✅
 2. **Implement backup service** for automated backups ✅
-3. **Add migration support** for future schema changes
+3. **Add migration support** for future schema changes ✅
 4. **Update controllers** to use the refined data models ✅
 5. **Implement memory embedding** with the vector store ✅
 6. **Implement user-configurable LLM settings** ✅
@@ -490,3 +708,8 @@ await vectorStore.InitializeAsync();
    - Auto-save sessions
    - Generate title from first message
    - Rename, edit, and delete sessions
+11. **Database initialization and character loading** ✅
+   - Automatic default user creation
+   - Character card loading from filesystem
+   - Idempotent database operations
+   - Dynamic path resolution for portability

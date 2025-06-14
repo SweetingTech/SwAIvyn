@@ -10,7 +10,7 @@ namespace SwAIvyn.Configuration
         /// <summary>
         /// Base URL for the Fish Speech API
         /// </summary>
-        public string BaseUrl { get; set; } = "http://localhost:8000";
+        public string BaseUrl { get; set; } = "http://localhost:8081";
 
         /// <summary>
         /// Whether to automatically start the Fish Speech API server
