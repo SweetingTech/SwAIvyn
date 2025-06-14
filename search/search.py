@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 import re
 import logging
@@ -15,6 +16,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+
+# HTTP client for inline LLM calls
+import httpx
 
 # Asynchronous SQLite
 import aiosqlite
@@ -55,10 +59,22 @@ class QueryFeatures:
     query_type: str  # factual, exploratory, relational
     keywords: List[str]
 
+def parse_triplets(text: str) -> List[Tuple[str, str, str]]:
+    """
+    Parse lines of 'subject|predicate|object' into triplet tuples.
+    """
+    triplets: List[Tuple[str, str, str]] = []
+    for line in text.splitlines():
+        parts = [p.strip() for p in line.split("|", 2)]
+        if len(parts) == 3:
+            triplets.append((parts[0], parts[1], parts[2]))
+    return triplets
+
 class HybridSearchEngine:
     """
     Hybrid search engine that focuses on Weaviate (vector) and Neo4j (graph) databases.
     SQLite is used minimally for lightweight metadata.
+    Includes inline memory ingest & gated recall.
     """
 
     def __init__(
@@ -67,7 +83,8 @@ class HybridSearchEngine:
         weaviate_url: str,
         neo4j_uri: str,
         neo4j_user: str,
-        neo4j_password: str
+        neo4j_password: str,
+        memory_threshold: float = 0.3
     ):
         logger.info("Initializing HybridSearchEngine...")
         self.sql_connection_string = sql_connection_string
@@ -75,6 +92,7 @@ class HybridSearchEngine:
         self.neo4j_uri = neo4j_uri
         self.neo4j_user = neo4j_user
         self.neo4j_password = neo4j_password
+        self.memory_threshold = memory_threshold
 
         self.sql: Optional[aiosqlite.Connection] = None
         self.weaviate: Optional[weaviate.Client] = None
@@ -101,7 +119,6 @@ class HybridSearchEngine:
 
         # ---------- Weaviate v4 Connection ----------
         try:
-            # Parse the weaviate_url to extract host and port
             parsed = urllib.parse.urlparse(self.weaviate_url)
             host = parsed.hostname or "localhost"
             port = parsed.port or 8080
@@ -111,7 +128,6 @@ class HybridSearchEngine:
                 port=port,
                 grpc_port=50051,
             )
-            # Verify connection
             self.weaviate.is_connected()
             logger.info(f"Connected to Weaviate: {self.weaviate_url}")
         except Exception as e:
@@ -148,6 +164,71 @@ class HybridSearchEngine:
             await self.neo4j.close()
             logger.info("Disconnected from Neo4j.")
         logger.info("All database connections closed.")
+
+    async def ingest_memory(self, text: str, metadata: Dict[str, Any]):
+        """
+        Inline memory ingestion:
+        1. Call configured LLM to extract triplets.
+        2. MERGE them into Neo4j with metadata.
+        """
+        llm_url = os.getenv("LLM_API_URL", "http://localhost:11434/v1/completions")
+        llm_model = os.getenv("LLM_MODEL")
+        llm_engine = os.getenv("LLM_ENGINE")
+
+        prompt = (
+            "Extract subject|predicate|object triplets from the following text:\n\n"
+            f"{text.strip()}\n\n"
+            "One triplet per line."
+        )
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                llm_url,
+                json={
+                    "model": llm_model,
+                    "engine": llm_engine,
+                    "prompt": prompt,
+                    "max_tokens": 512
+                },
+                timeout=30.0
+            )
+            resp.raise_for_status()
+            llm_output = resp.json()
+            content = llm_output.get("choices", [{}])[0].get("text", "")
+
+        triplets = parse_triplets(content)
+        if not triplets:
+            logger.warning("No triplets extracted.")
+            return
+
+        async with self.neo4j.session() as session:
+            for subj, pred, obj in triplets:
+                await session.run(
+                    """
+                    MERGE (s:Entity {name: $subj})
+                    MERGE (o:Entity {name: $obj})
+                    MERGE (s)-[r:RELATION {type: $pred}]->(o)
+                      ON CREATE SET r.source = $source, r.createdAt = datetime()
+                    """,
+                    subj=subj, pred=pred, obj=obj,
+                    source=metadata.get("source", "ingest")
+                )
+
+    async def recall_memory(self, query: str, top_k: int = 5) -> List[str]:
+        """
+        Gate and return up to top_k relevant memory snippets,
+        only if the top result clears memory_threshold.
+        """
+        features = self.analyze_query(query)
+        graph_results = await self.neo4j_search(query, features, filters=None)
+        if not graph_results:
+            return []
+
+        graph_results.sort(key=lambda r: r.score, reverse=True)
+        if graph_results[0].score < self.memory_threshold:
+            return []
+
+        return [r.content for r in graph_results[:top_k]]
 
     async def search(
         self,
@@ -198,7 +279,6 @@ class HybridSearchEngine:
             logger.info(f"Final results count after re‐ranking: {len(final_results)}")
 
             return final_results[:top_k]
-
         except Exception as e:
             self.logger.error(f"Search error: {e}", exc_info=True)
             raise
@@ -385,117 +465,96 @@ class HybridSearchEngine:
     ) -> List[SearchResult]:
         """
         Search for specific entities mentioned in Memory nodes.
-        For SwAIvyn: Search memories that mention specific entities (no userID filtering).
         """
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, returning mock data")
             return self._get_mock_neo4j_results(query, entities, 3)
 
         try:
-            # Call the backend's vector search API which we know is working
-            import urllib.request
-            import urllib.parse
-
-            try:
-                encoded_query = urllib.parse.quote(query)
-                url = f"http://localhost:5000/api/brain/search?query={encoded_query}"
-
-                with urllib.request.urlopen(url) as response:
-                    if response.status == 200:
-                        import json
-                        backend_results = json.loads(response.read().decode())
-
-                        results: List[SearchResult] = []
-                        for i, result in enumerate(backend_results):
-                            memory_id = result.get("id", f"memory_{i}")
-                            content = result.get("metadata", {}).get("content", "") or ""
-                            category = result.get("metadata", {}).get("category", "Personal") or "Personal"
-                            user_id = result.get("metadata", {}).get("userId", "") or ""
-                            score = float(result.get("score", 0.5))
-
-                            results.append(
-                                SearchResult(
-                                    id=memory_id,
-                                    title=f"Memory: {category} (Entity Match)",
-                                    content=content[:500] + "..." if len(content) > 500 else content,
-                                    score=score,
-                                    source="neo4j",
-                                    metadata={
-                                        "entity_type": "memory",
-                                        "category": category,
-                                        "user_id": user_id,
-                                        "search_type": "vector_memory_search",
-                                    },
-                                )
+            import urllib.request, urllib.parse
+            encoded_query = urllib.parse.quote(query)
+            url = f"http://localhost:5000/api/brain/search?query={encoded_query}"
+            with urllib.request.urlopen(url) as response:
+                if response.status == 200:
+                    backend_results = json.loads(response.read().decode())
+                    results: List[SearchResult] = []
+                    for i, result in enumerate(backend_results):
+                        memory_id = result.get("id", f"memory_{i}")
+                        content = result.get("metadata", {}).get("content", "") or ""
+                        category = result.get("metadata", {}).get("category", "Personal") or "Personal"
+                        user_id = result.get("metadata", {}).get("userId", "") or ""
+                        score = float(result.get("score", 0.5))
+                        results.append(
+                            SearchResult(
+                                id=memory_id,
+                                title=f"Memory: {category} (Entity Match)",
+                                content=content[:500] + "..." if len(content) > 500 else content,
+                                score=score,
+                                source="neo4j",
+                                metadata={
+                                    "entity_type": "memory",
+                                    "category": category,
+                                    "user_id": user_id,
+                                    "search_type": "vector_memory_search",
+                                },
                             )
+                        )
+                    self.logger.info(f"Neo4j vector search via backend API returned {len(results)} results")
+                    return results
+        except Exception as api_error:
+            self.logger.warning(f"Failed to call backend vector search API: {api_error}")
 
-                        self.logger.info(f"Neo4j vector search via backend API returned {len(results)} results")
-                        return results
-                    else:
-                        self.logger.warning(f"Backend vector search API returned {response.status}")
+        cypher = """
+        MATCH (m:Memory)
+        WHERE ANY(entity IN $entity_list WHERE toLower(m.text) CONTAINS toLower(entity))
+        RETURN m.id AS id,
+               m.text AS content,
+               m.category AS category,
+               m.userId AS userId,
+               m.createdAt AS createdAt,
+               m.isShared AS isShared
+        ORDER BY m.createdAt DESC
+        LIMIT 50
+        """
+        async with self.neo4j.session() as session:
+            result = await session.run(cypher, entity_list=entities)
+            records = await result.data()
 
-            except Exception as api_error:
-                self.logger.warning(f"Failed to call backend vector search API: {api_error}")
+        results: List[SearchResult] = []
+        for i, record in enumerate(records):
+            memory_id = record.get("id", f"memory_entity_{i}")
+            content = record.get("content", "") or ""
+            category = record.get("category", "Personal") or "Personal"
+            user_id = record.get("userId", "") or ""
+            created_at = record.get("createdAt", "") or ""
+            is_shared = record.get("isShared", "False") or "False"
 
-            # Fallback to text-based search if API call fails
-            cypher = """
-            MATCH (m:Memory)
-            WHERE ANY(entity IN $entity_list WHERE toLower(m.text) CONTAINS toLower(entity))
-            RETURN m.id AS id,
-                   m.text AS content,
-                   m.category AS category,
-                   m.userId AS userId,
-                   m.createdAt AS createdAt,
-                   m.isShared AS isShared
-            ORDER BY m.createdAt DESC
-            LIMIT 50
-            """
-            async with self.neo4j.session() as session:
-                result = await session.run(cypher, entity_list=entities)
-                records = await result.data()
+            entity_matches = sum(1 for entity in entities if entity.lower() in content.lower())
+            base_score = 0.8 + (entity_matches * 0.1)
+            score = min(1.0, base_score)
 
-            results: List[SearchResult] = []
-            for i, record in enumerate(records):
-                memory_id = record.get("id", f"memory_entity_{i}")
-                content = record.get("content", "") or ""
-                category = record.get("category", "Personal") or "Personal"
-                user_id = record.get("userId", "") or ""
-                created_at = record.get("createdAt", "") or ""
-                is_shared = record.get("isShared", "False") or "False"
-
-                # Calculate score based on entity matches
-                entity_matches = sum(
-                    1 for entity in entities if entity.lower() in content.lower()
+            results.append(
+                SearchResult(
+                    id=memory_id,
+                    title=f"Memory: {category} (Entity Match)",
+                    content=content[:500] + "..." if len(content) > 500 else content,
+                    score=score,
+                    source="neo4j",
+                    metadata={
+                        "entity_type": "memory",
+                        "category": category,
+                        "user_id": user_id,
+                        "created_at": created_at,
+                        "is_shared": is_shared,
+                        "entity_matches": entity_matches,
+                        "matched_entities": [e for e in entities if e.lower() in content.lower()],
+                        "search_type": "entity_memory_search",
+                    },
                 )
-                base_score = 0.8 + (entity_matches * 0.1)  # Higher base score for entity matches
-                score = min(1.0, base_score)
+            )
 
-                results.append(
-                    SearchResult(
-                        id=memory_id,
-                        title=f"Memory: {category} (Entity Match)",
-                        content=content[:500] + "..." if len(content) > 500 else content,
-                        score=score,
-                        source="neo4j",
-                        metadata={
-                            "entity_type": "memory",
-                            "category": category,
-                            "user_id": user_id,
-                            "created_at": created_at,
-                            "is_shared": is_shared,
-                            "entity_matches": entity_matches,
-                            "matched_entities": [e for e in entities if e.lower() in content.lower()],
-                            "search_type": "entity_memory_search",
-                        },
-                    )
-                )
-
-            self.logger.info(f"Neo4j entity search returned {len(results)} results")
-            return results
-
-        except Exception as e:
-            self.logger.error(f"Neo4j entity_graph_search error: {e}", exc_info=True)
-            return self._get_mock_neo4j_results(query, entities, 3)
+        self.logger.info(f"Neo4j entity search returned {len(results)} results")
+        return results
 
     async def general_graph_search(
         self,
@@ -505,119 +564,99 @@ class HybridSearchEngine:
     ) -> List[SearchResult]:
         """
         Vector-based memory search using Neo4j vector index.
-        For SwAIvyn: Memories are global (no userID filtering) since it's a single-user app.
         """
         if not self.neo4j:
             self.logger.warning("Neo4j driver not available, returning mock data")
             return self._get_mock_neo4j_results(query, [], 2)
 
         try:
-            # Call the backend's vector search API which we know is working
-            import urllib.request
-            import urllib.parse
-
-            try:
-                encoded_query = urllib.parse.quote(query)
-                url = f"http://localhost:5000/api/brain/search?query={encoded_query}"
-
-                with urllib.request.urlopen(url) as response:
-                    if response.status == 200:
-                        import json
-                        backend_results = json.loads(response.read().decode())
-
-                        results: List[SearchResult] = []
-                        for i, result in enumerate(backend_results):
-                            memory_id = result.get("id", f"memory_{i}")
-                            content = result.get("metadata", {}).get("content", "") or ""
-                            category = result.get("metadata", {}).get("category", "Personal") or "Personal"
-                            user_id = result.get("metadata", {}).get("userId", "") or ""
-                            score = float(result.get("score", 0.5))
-
-                            results.append(
-                                SearchResult(
-                                    id=memory_id,
-                                    title=f"Memory: {category}",
-                                    content=content[:500] + "..." if len(content) > 500 else content,
-                                    score=score,
-                                    source="neo4j",
-                                    metadata={
-                                        "entity_type": "memory",
-                                        "category": category,
-                                        "user_id": user_id,
-                                        "search_type": "vector_memory_search",
-                                    },
-                                )
+            import urllib.request, urllib.parse
+            encoded_query = urllib.parse.quote(query)
+            url = f"http://localhost:5000/api/brain/search?query={encoded_query}"
+            with urllib.request.urlopen(url) as response:
+                if response.status == 200:
+                    backend_results = json.loads(response.read().decode())
+                    results: List[SearchResult] = []
+                    for i, result in enumerate(backend_results):
+                        memory_id = result.get("id", f"memory_{i}")
+                        content = result.get("metadata", {}).get("content", "") or ""
+                        category = result.get("metadata", {}).get("category", "Personal") or "Personal"
+                        user_id = result.get("metadata", {}).get("userId", "") or ""
+                        score = float(result.get("score", 0.5))
+                        results.append(
+                            SearchResult(
+                                id=memory_id,
+                                title=f"Memory: {category}",
+                                content=content[:500] + "..." if len(content) > 500 else content,
+                                score=score,
+                                source="neo4j",
+                                metadata={
+                                    "entity_type": "memory",
+                                    "category": category,
+                                    "user_id": user_id,
+                                    "search_type": "vector_memory_search",
+                                },
                             )
+                        )
+                    self.logger.info(f"Neo4j vector search via backend API returned {len(results)} results")
+                    return results
+        except Exception as api_error:
+            self.logger.warning(f"Failed to call backend vector search API: {api_error}")
 
-                        self.logger.info(f"Neo4j vector search via backend API returned {len(results)} results")
-                        return results
-                    else:
-                        self.logger.warning(f"Backend vector search API returned {response.status}")
+        fallback_cypher = """
+        MATCH (m:Memory)
+        WHERE toLower(m.text) CONTAINS toLower($query)
+           OR ANY(k IN $keywords WHERE toLower(m.text) CONTAINS toLower(k))
+        RETURN m.id AS id,
+               m.text AS content,
+               m.category AS category,
+               m.userId AS userId,
+               m.createdAt AS createdAt,
+               m.isShared AS isShared
+        ORDER BY m.createdAt DESC
+        LIMIT 50
+        """
+        keywords = features.keywords or [query.lower()]
+        async with self.neo4j.session() as session:
+            result = await session.run(fallback_cypher, query=query, keywords=keywords)
+            records = await result.data()
 
-            except Exception as api_error:
-                self.logger.warning(f"Failed to call backend vector search API: {api_error}")
+        results: List[SearchResult] = []
+        for i, record in enumerate(records):
+            memory_id = record.get("id", f"memory_{i}")
+            content = record.get("content", "") or ""
+            category = record.get("category", "Personal") or "Personal"
+            user_id = record.get("userId", "") or ""
+            created_at = record.get("createdAt", "") or ""
+            is_shared = record.get("isShared", "False") or "False"
 
-            # Fallback to text-based search if API call fails
-            fallback_cypher = """
-            MATCH (m:Memory)
-            WHERE toLower(m.text) CONTAINS toLower($query)
-               OR ANY(k IN $keywords WHERE toLower(m.text) CONTAINS toLower(k))
-            RETURN m.id AS id,
-                   m.text AS content,
-                   m.category AS category,
-                   m.userId AS userId,
-                   m.createdAt AS createdAt,
-                   m.isShared AS isShared
-            ORDER BY m.createdAt DESC
-            LIMIT 50
-            """
+            keyword_matches = sum(1 for kw in keywords if kw.lower() in content.lower())
+            base_score = 0.7 + (keyword_matches * 0.1)
+            if query.lower() in content.lower():
+                base_score += 0.2
+            score = min(1.0, base_score)
 
-            keywords = features.keywords or [query.lower()]
-            async with self.neo4j.session() as session:
-                result = await session.run(fallback_cypher, query=query, keywords=keywords)
-                records = await result.data()
-
-            results: List[SearchResult] = []
-            for i, record in enumerate(records):
-                memory_id = record.get("id", f"memory_{i}")
-                content = record.get("content", "") or ""
-                category = record.get("category", "Personal") or "Personal"
-                user_id = record.get("userId", "") or ""
-                created_at = record.get("createdAt", "") or ""
-                is_shared = record.get("isShared", "False") or "False"
-
-                # Calculate score based on keyword matches
-                keyword_matches = sum(1 for kw in keywords if kw.lower() in content.lower())
-                base_score = 0.7 + (keyword_matches * 0.1)
-                if query.lower() in content.lower():
-                    base_score += 0.2  # Boost for exact query match
-                score = min(1.0, base_score)
-
-                results.append(
-                    SearchResult(
-                        id=memory_id,
-                        title=f"Memory: {category}",
-                        content=content[:500] + "..." if len(content) > 500 else content,
-                        score=score,
-                        source="neo4j",
-                        metadata={
-                            "entity_type": "memory",
-                            "category": category,
-                            "user_id": user_id,
-                            "created_at": created_at,
-                            "is_shared": is_shared,
-                            "keyword_matches": keyword_matches,
-                            "search_type": "memory_search",
-                        },
-                    )
+            results.append(
+                SearchResult(
+                    id=memory_id,
+                    title=f"Memory: {category}",
+                    content=content[:500] + "..." if len(content) > 500 else content,
+                    score=score,
+                    source="neo4j",
+                    metadata={
+                        "entity_type": "memory",
+                        "category": category,
+                        "user_id": user_id,
+                        "created_at": created_at,
+                        "is_shared": is_shared,
+                        "keyword_matches": keyword_matches,
+                        "search_type": "memory_search",
+                    },
                 )
+            )
 
-            self.logger.info(f"Neo4j general search returned {len(results)} results")
-            return results
-
-        except Exception as e:
-            self.logger.error(f"Neo4j general_graph_search error: {e}", exc_info=True)
-            return self._get_mock_neo4j_results(query, [], 2)
+        self.logger.info(f"Neo4j general search returned {len(results)} results")
+        return results
 
     def _get_mock_neo4j_results(self, query: str, entities: List[str], count: int) -> List[SearchResult]:
         """Fallback mock Neo4j results."""
@@ -668,11 +707,9 @@ class HybridSearchEngine:
         for r in results:
             db_grouped[r.source].append(r)
 
-        # Sort each group by normalized_score descending
         for source, group in db_grouped.items():
             group.sort(key=lambda x: x.normalized_score or 0, reverse=True)
 
-        # Compute RRF scores
         fused_scores: Dict[str, float] = {}
         fused_map: Dict[str, SearchResult] = {}
 
@@ -682,7 +719,6 @@ class HybridSearchEngine:
                 fused_scores[r.id] = fused_scores.get(r.id, 0.0) + rrf_score
                 fused_map[r.id] = r
 
-        # Sort final IDs by fused score descending
         sorted_ids = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
         final_list: List[SearchResult] = []
         for rid, score in sorted_ids:
@@ -711,30 +747,25 @@ search_engine: Optional[HybridSearchEngine] = None
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI startup event triggered.")
-    global search_engine    # Use absolute path to the database to avoid path resolution issues
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sql_db_path = os.path.join(project_root, "Sqldatabase", "swai-vyn.db")
     logger.info(f"Calculated SQL database path: {sql_db_path}")
     logger.info(f"Database file exists: {os.path.exists(sql_db_path)}")
     sql_conn_str = f"file:{sql_db_path}?mode=rw"  # Use "?mode=rwc" if DB may not exist
 
-    weaviate_url = "http://stabled:8080"
-    neo4j_uri = "bolt://localhost:7687"
-    neo4j_user = "neo4j"
-    neo4j_password = "password"  # Replace with real password or read from ENV
-
+    global search_engine
     search_engine = HybridSearchEngine(
         sql_conn_str,
-        weaviate_url,
-        neo4j_uri,
-        neo4j_user,
-        neo4j_password
+        weaviate_url="http://stabled:8080",
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password="password"
     )
     await search_engine.connect()
     logger.info("FastAPI startup event completed.")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("FastAPI shutdown event triggered.")
     if search_engine:
@@ -770,7 +801,7 @@ async def perform_search(request: Request):
 
         filters = {"userId": user_id} if user_id else None
         results = await search_engine.search(query, top_k, filters)
-        return JSONResponse(content=json.loads(json.dumps([r.__dict__ for r in results])))
+        return JSONResponse(content=[r.__dict__ for r in results])
 
     except Exception as e:
         logger.error(f"API /search error: {e}", exc_info=True)
@@ -793,7 +824,6 @@ async def health_check():
         return {"status": "initializing", "databases": {}}
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("SEARCH_SERVICE_PORT", 8001))
     logger.info(f"Running uvicorn on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)

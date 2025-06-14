@@ -27,7 +27,7 @@ namespace SwAIvyn.HostedServices
                 "speech", "TTS", "openaudio-s1-mini"
             );
             
-            _pythonScript = Path.Combine(_fishSpeechPath, "fish_speech_lightweight_api.py");
+            _pythonScript = Path.Combine(_fishSpeechPath, "fish_speech_api.py");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -148,12 +148,12 @@ namespace SwAIvyn.HostedServices
         private async Task StartFishSpeechAsync(CancellationToken cancellationToken)
         {
             try
-            {
-                // Use our lightweight API directly (no additional arguments needed)
+            {                // Use the working Fish Speech API with virtual environment Python
+                var pythonExe = Path.Combine(_fishSpeechPath, "fish_speech_env", "Scripts", "python.exe");
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = "python",
-                    Arguments = "fish_speech_lightweight_api.py",
+                    FileName = pythonExe,
+                    Arguments = "fish_speech_api.py --listen 127.0.0.1:8081",
                     WorkingDirectory = _fishSpeechPath,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

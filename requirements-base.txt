@@ -1,0 +1,40 @@
+# core plumbing
+protobuf==5.29.5              # last stable 5.x on PyPI
+grpcio==1.71.0
+grpcio-tools==1.71.0
+grpcio-health-checking==1.71.0
+googleapis-common-protos==1.70.0
+
+# web stack
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+
+# storage / search
+aiosqlite==0.21.0
+weaviate-client==4.14.4
+neo4j==5.28.1
+
+# models / utils
+pydantic==2.9.2
+typing_extensions>=4.10.0
+
+# AI API clients
+openai>=1.0.0                 # ChatGPT API client
+anthropic>=0.25.0             # Claude API client
+
+# HTTP clients
+httpx>=0.25.0                 # Modern async HTTP client
+requests>=2.31.0              # Traditional HTTP client (fallback)
+
+# audio processing (for TTS/STT)
+numpy>=1.24.0                 # Numerical computing
+soundfile>=0.12.0             # Audio file I/O
+librosa>=0.10.0               # Audio analysis
+
+# data formats
+pyyaml>=6.0                   # YAML parsing for character files
+python-multipart>=0.0.6      # File upload support for FastAPI
+
+# dev QoL
+black==25.1.0
+pipdeptree==2.26.1
