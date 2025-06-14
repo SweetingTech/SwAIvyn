@@ -28,8 +28,8 @@ artifacts/
 /*.staticwebassets.*.json
 /web.config
 /createdump.exe
-/WindowsBase.dll
-/YamlDotNet.dll
+/SwAIvyn.exe
+/SwAIvyn.pdb
 
 # Build output directories
 dll/
