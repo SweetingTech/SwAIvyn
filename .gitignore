@@ -92,6 +92,7 @@ speech/TTS/**
 # Allow the custom Fish Speech API scripts
 !speech/TTS/openaudio-s1-mini/fish_speech_api.py
 !speech/TTS/openaudio-s1-mini/fish_speech_api_enhanced.py
+!speech/TTS/openaudio-s1-mini/test_tts.py
 
 # Database exports (these are snapshots, not source)
 swai_database_export_*.json
