@@ -20,7 +20,7 @@ namespace SwAIvyn.Configuration
         /// <summary>
         /// Path to the Fish Speech model directory
         /// </summary>
-        public string ModelPath { get; set; } = "../speech/TTS/openaudio-s1-mini";
+        public string ModelPath { get; set; } = "speech/TTS/openaudio-s1-mini";
 
         /// <summary>
         /// Timeout for API requests in seconds

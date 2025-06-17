@@ -84,16 +84,32 @@ namespace SwAIvyn.Services
                 // so the database will be created in the correct location.
                 // We just need to ensure _dataDirectory itself exists.                // Create database if it doesn't exist and run migrations
                 using (var context = await _dbContextFactory.CreateDbContextAsync())
-                {                    try
+                {
+                    try
                     {
-                        _logger.LogInfo("Running database migrations...");
-                        await context.Database.MigrateAsync();
-                        _logger.LogInfo("Database migrations completed successfully");
+                        // Check if database already has tables (indicating it was created by DirectDatabaseService)
+                        using var connection = context.Database.GetDbConnection();
+                        await connection.OpenAsync();
+                        using var command = connection.CreateCommand();
+                        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Users'";
+                        var tableCount = Convert.ToInt32(await command.ExecuteScalarAsync());
+
+                        if (tableCount > 0)
+                        {
+                            _logger.LogInfo("Database already exists with Users table, skipping migrations");
+                        }
+                        else
+                        {
+                            _logger.LogInfo("Running database migrations...");
+                            await context.Database.MigrateAsync();
+                            _logger.LogInfo("Database migrations completed successfully");
+                        }
                     }
                     catch (Exception migrationEx)
                     {
                         _logger.LogError($"Database migration failed: {migrationEx.Message}");
-                        throw; // Don't continue if migrations fail
+                        _logger.LogWarning("Continuing startup despite database initialization failure");
+                        // Don't throw - let DirectDatabaseService handle it
                     }
 
                     // Enable WAL mode for better concurrency

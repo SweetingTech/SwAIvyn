@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  FormEvent
+} from 'react';
 import { motion } from 'framer-motion';
 import { Send, Paperclip, Camera, Mic, Plus } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -6,6 +12,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import CharacterSelector from '../components/chat/CharacterSelector';
+import VoiceSelector from '../components/chat/VoiceSelector';
 import BrainExplorer from '../components/BrainExplorer';
 import useEngineModels from '../hooks/useEngineModels';
 
@@ -14,483 +21,575 @@ import conversationService from '../services/conversationService';
 import apiService from '../services/apiService';
 import { Message } from '../types/chat';
 import { USER_NAME } from '../constants';
-import { parseChatUrl, generateChatUrl, createDefaultChatUrl } from '../utils/chatUrls';
+import {
+  parseChatUrl,
+  generateChatUrl,
+  createDefaultChatUrl
+} from '../utils/chatUrls';
 import { useInitialization } from '../contexts/InitializationContext';
 
-/**
- * ChatPage component manages the chat interface including message display,
- * input area, and integration with the AI chat service.
- */
-const ChatPage = () => {
-  // Get user from initialization context
-  const { user } = useInitialization();
+/* -------------------------------------------------------------------------- */
+/*  Helper types                                                              */
+/* -------------------------------------------------------------------------- */
 
-  // URL parameters and navigation
+interface Character {
+  id: string;
+  name: string;
+  systemPrompt?: string;
+  imagePath?: string;
+}
+
+interface LlmOption {
+  value: string;
+  label: string;
+  engine: string | null;
+  model: string | null;
+}
+
+interface ConversationMeta {
+  id: string;
+  title: string;
+}
+
+/* -------------------------------------------------------------------------- */
+
+const ChatPage: React.FC = () => {
+  /* --------------------------- context / routing ------------------------- */
+  const { user } = useInitialization();
   const { sessionCharacter } = useParams<{ sessionCharacter?: string }>();
   const navigate = useNavigate();
-
-  // Parse URL to get conversation and character info
   const urlInfo = parseChatUrl(sessionCharacter);
 
-  // Local state for the input text
-  const [inputText, setInputText] = useState<string>('');
-
-  // State for loading status
+  /* ------------------------------- state --------------------------------- */
+  const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // State for messages in the current conversation
   const [messages, setMessages] = useState<Message[]>([]);
+  const [currentConversation, setCurrentConversation] =
+    useState<ConversationMeta>({
+      id: urlInfo.conversationId || '',
+      title: 'New Chat'
+    });
 
-  // State for current conversation
-  const [currentConversation, setCurrentConversation] = useState<{
-    id: string;
-    title: string;
-  }>({
-    id: urlInfo.conversationId || '',
-    title: 'New Chat'
-  });
-
-  // State for selected character
-  const [selectedCharacter, setSelectedCharacter] = useState<any>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(
+    null
+  );
   const [showCharacterImages, setShowCharacterImages] = useState<boolean>(() => {
     const stored = localStorage.getItem('showCharacterImages');
     return stored ? stored === 'true' : true;
   });
 
-  // State for LLM overrides
-  const [chatEngineOverride, setChatEngineOverride] = useState<string | null>(null);
-  const [chatModelOverride, setChatModelOverride] = useState<string | null>(null);
-  const [availableLlms, setAvailableLlms] = useState<{ value: string; label: string; engine: string | null; model: string | null }[]>([]);
+  const [chatEngineOverride, setChatEngineOverride] =
+    useState<string | null>(null);
+  const [chatModelOverride, setChatModelOverride] =
+    useState<string | null>(null);
+  const [availableLlms, setAvailableLlms] = useState<LlmOption[]>([]);
 
-  // Persist image preference
-  useEffect(() => {
-    localStorage.setItem('showCharacterImages', showCharacterImages ? 'true' : 'false');
-  }, [showCharacterImages]);
-
-  // References for auto scrolling
+  /* ------------------------------ refs ----------------------------------- */
   const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  // Reference to track if this is the first message in a new conversation
   const isFirstMessage = useRef(urlInfo.isNewConversation);
 
-  // Auto-scroll to latest message
+  /* -------------------------- persist prefs ------------------------------ */
+  useEffect(() => {
+    localStorage.setItem(
+      'showCharacterImages',
+      showCharacterImages ? 'true' : 'false'
+    );
+  }, [showCharacterImages]);
+
+  /* ---------------------- SYNC FROM DASHBOARD LLM ------------------------ */
+  useEffect(() => {
+    const syncFromDashboard = async () => {
+      if (!user?.id) return;
+
+      try {
+        const s = await chatService.getLlmSettings(user.id);
+        console.log('🔄 Chat: Syncing from Dashboard LLM:', s);
+
+        // Always sync whatever is on dashboard
+        setChatEngineOverride(s?.engine || null);
+        setChatModelOverride(s?.model || null);
+
+        console.log('🔄 Chat: Chat now matches Dashboard →', s?.engine, s?.model);
+      } catch (err) {
+        console.error('Dashboard sync failed:', err);
+      }
+    };
+
+    syncFromDashboard();
+  }, [user?.id]); // Only run once when user loads
+
+  /* ----------------------- auto-scroll on change ------------------------- */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Load character based on URL parameter
+  /* ------------------ character bootstrap from URL ---------------------- */
   useEffect(() => {
-    const loadCharacterFromUrl = async () => {
+    const bootstrapCharacter = async () => {
+      if (!user?.id) return;
+
       try {
-        if (!user?.id) {
-          console.warn('No user available, cannot load characters');
-          return;
-        }
+        const characters: Character[] = await apiService.get(
+          `/api/character/user/${user.id}`
+        );
+        console.log('🔄 Chat: Loaded characters:', characters);
 
-        // Load all available characters
-        const characters = await apiService.get(`/api/character/user/${user.id}`);
+        let character: Character | null = null;
 
-        let character: any | null = null;
-
-        // Try URL parameter first
+        /* 1️⃣ URL param */
         if (urlInfo.characterName) {
-          character = characters.find(c => c.name.toLowerCase() === urlInfo.characterName!.toLowerCase());
+          character =
+            characters.find(
+              (c) =>
+                c.name.toLowerCase() === urlInfo.characterName!.toLowerCase()
+            ) || null;
         }
 
-        // If not found, check localStorage
+        /* 2️⃣ LocalStorage */
         if (!character) {
           const storedId = localStorage.getItem('selectedCharacterId');
           if (storedId) {
-            character = characters.find(c => c.id === storedId) || null;
+            character = characters.find((c) => c.id === storedId) || null;
           }
         }
 
-        // If still not found, check persisted default on server
+        /* 3️⃣ Persisted default */
         if (!character) {
           try {
-            const res = await fetch(`/api/settings/DefaultCharacterId?userId=${user.id}`);
+            const res = await fetch(
+              `/api/settings/DefaultCharacterId?userId=${user.id}`
+            );
             if (res.ok) {
-              const data = await res.json();
-              const savedId = data.value;
-              if (savedId) {
-                character = characters.find(c => c.id === savedId) || null;
-              }
+              const { value } = (await res.json()) as { value: string };
+              character = characters.find((c) => c.id === value) || null;
             }
           } catch {
-            // ignore errors
+            /* ignore */
           }
         }
+
+        /* 4️⃣ Fallback */
+        if (!character && characters.length) character = characters[0];
 
         if (character) {
           setSelectedCharacter(character);
-          // Update URL if needed
-          if (urlInfo.characterName !== character.name) {
-            const newUrl = generateChatUrl({
-              conversationId: urlInfo.conversationId || 'new',
-              characterName: character.name
-            });
-            navigate(newUrl, { replace: true });
-          }
-          return;
-        }
-
-        // Fallback: first available character
-        if (characters.length > 0) {
-          const defaultCharacter = characters[0];
-          setSelectedCharacter(defaultCharacter);
           const newUrl = generateChatUrl({
             conversationId: urlInfo.conversationId || 'new',
-            characterName: defaultCharacter.name
+            characterName: character.name
           });
           navigate(newUrl, { replace: true });
         } else {
-          // No characters available, redirect to default
           navigate(createDefaultChatUrl(), { replace: true });
         }
-      } catch (error) {
-        console.error('Error loading character:', error);
-        // Fallback to default URL
+      } catch (err) {
+        console.error('Character bootstrap error:', err);
         navigate(createDefaultChatUrl(), { replace: true });
       }
     };
 
-    if (user?.id) {
-      loadCharacterFromUrl();
-    }
-  }, [sessionCharacter, navigate, user?.id]);
+    bootstrapCharacter();
+  }, [
+    user?.id,
+    navigate,
+    urlInfo.characterName,
+    urlInfo.conversationId,
+    sessionCharacter
+  ]);
 
-  // Fetch Available LLMs
-  const { data: ollamaModelsApi } = useEngineModels('ollama');
-  const { data: lmStudioModelsApi } = useEngineModels('lmstudio');
-  const { data: openAiModelsApi } = useEngineModels('openai');
-  const { data: claudeModelsApi } = useEngineModels('claude');
+  /* ---------------------------- LLM discovery --------------------------- */
+  const { data: ollamaModelsApi, error: ollamaError } = useEngineModels('ollama');
+  const { data: lmStudioModelsApi, error: lmStudioError } = useEngineModels('lmstudio');
+  const { data: openAiModelsApi, error: openAiError } = useEngineModels('openai');
+  const { data: claudeModelsApi, error: claudeError } = useEngineModels('claude');
 
   useEffect(() => {
-    const llms = [{ value: 'default', label: 'Default LLM', engine: null, model: null }];
+    const llms: LlmOption[] = [
+      { value: 'default', label: 'Default LLM', engine: null, model: null }
+    ];
 
-    if (ollamaModelsApi && Array.isArray(ollamaModelsApi) && ollamaModelsApi.length > 0) {
-      ollamaModelsApi.forEach((model: string) => llms.push({ value: `ollama:${model}`, label: `Ollama: ${model}`, engine: 'ollama', model: model }));
+    /* Log API errors for debugging */
+    if (ollamaError) console.error('🔄 Chat: Ollama API error:', ollamaError);
+    if (lmStudioError) console.error('🔄 Chat: LM Studio API error:', lmStudioError);
+    if (openAiError) console.error('🔄 Chat: OpenAI API error:', openAiError);
+    if (claudeError) console.error('🔄 Chat: Claude API error:', claudeError);
+
+    /* Ollama */
+    if (Array.isArray(ollamaModelsApi) && ollamaModelsApi.length) {
+      ollamaModelsApi.forEach((m) =>
+        llms.push({
+          value: `ollama:${m}`,
+          label: `Ollama: ${m}`,
+          engine: 'ollama',
+          model: m
+        })
+      );
     } else {
-      llms.push({ value: `ollama:default`, label: `Ollama (Default Model)`, engine: 'ollama', model: null});
+      llms.push({
+        value: 'ollama:default',
+        label: 'Ollama (Default Model)',
+        engine: 'ollama',
+        model: null
+      });
     }
 
-    if (lmStudioModelsApi?.data && Array.isArray(lmStudioModelsApi.data) && lmStudioModelsApi.data.length > 0) {
-      lmStudioModelsApi.data.forEach((model: any) => llms.push({ value: `lmstudio:${model.id}`, label: `LM Studio: ${model.id}`, engine: 'lmstudio', model: model.id }));
+    /* LM Studio */
+    if (
+      Array.isArray(lmStudioModelsApi?.data) &&
+      lmStudioModelsApi.data.length
+    ) {
+      (lmStudioModelsApi.data as { id: string }[]).forEach(({ id }) =>
+        llms.push({
+          value: `lmstudio:${id}`,
+          label: `LM Studio: ${id}`,
+          engine: 'lmstudio',
+          model: id
+        })
+      );
     } else if (lmStudioModelsApi?.data?.id) {
-       llms.push({ value: `lmstudio:${lmStudioModelsApi.data.id}`, label: `LM Studio: ${lmStudioModelsApi.data.id}`, engine: 'lmstudio', model: lmStudioModelsApi.data.id});
+      const id = (lmStudioModelsApi.data as { id: string }).id;
+      llms.push({
+        value: `lmstudio:${id}`,
+        label: `LM Studio: ${id}`,
+        engine: 'lmstudio',
+        model: id
+      });
     } else {
-       llms.push({ value: `lmstudio:default`, label: `LM Studio (Loaded Model)`, engine: 'lmstudio', model: null });
+      llms.push({
+        value: 'lmstudio:default',
+        label: 'LM Studio (Loaded Model)',
+        engine: 'lmstudio',
+        model: null
+      });
     }
 
-    if (openAiModelsApi && Array.isArray(openAiModelsApi) && openAiModelsApi.length > 0) {
-      openAiModelsApi.forEach((model: string) => llms.push({ value: `openai:${model}`, label: `OpenAI: ${model}`, engine: 'openai', model: model }));
+    /* OpenAI */
+    if (Array.isArray(openAiModelsApi) && openAiModelsApi.length) {
+      openAiModelsApi.forEach((m) =>
+        llms.push({
+          value: `openai:${m}`,
+          label: `OpenAI: ${m}`,
+          engine: 'openai',
+          model: m
+        })
+      );
     } else {
-       llms.push({ value: `openai:default`, label: `OpenAI (Default)`, engine: 'openai', model: null });
+      llms.push({
+        value: 'openai:default',
+        label: 'OpenAI (Default)',
+        engine: 'openai',
+        model: null
+      });
     }
 
-    if (claudeModelsApi && Array.isArray(claudeModelsApi) && claudeModelsApi.length > 0) {
-      claudeModelsApi.forEach((model: string) => llms.push({ value: `claude:${model}`, label: `Claude: ${model}`, engine: 'claude', model: model }));
+    /* Claude */
+    if (Array.isArray(claudeModelsApi) && claudeModelsApi.length) {
+      claudeModelsApi.forEach((m) =>
+        llms.push({
+          value: `claude:${m}`,
+          label: `Claude: ${m}`,
+          engine: 'claude',
+          model: m
+        })
+      );
     } else {
-      llms.push({ value: `claude:default`, label: `Claude (Default)`, engine: 'claude', model: null });
+      llms.push({
+        value: 'claude:default',
+        label: 'Claude (Default)',
+        engine: 'claude',
+        model: null
+      });
     }
 
+    console.log('🔄 Chat: Available LLMs updated:', llms);
     setAvailableLlms(llms);
-  }, [ollamaModelsApi, lmStudioModelsApi, openAiModelsApi, claudeModelsApi]);
+  }, [ollamaModelsApi, lmStudioModelsApi, openAiModelsApi, claudeModelsApi, ollamaError, lmStudioError, openAiError, claudeError]);
 
-  // Load the most recent conversation or start a new one
+  /* 🕵️‍♂️ Debug: track dropdown value + available list */
+  useEffect(() => {
+    const current = chatEngineOverride
+      ? `${chatEngineOverride}:${chatModelOverride || 'default'}`
+      : 'default';
+    console.log(
+      '🔄 Chat: Dropdown should show →',
+      current,
+      '| engine:',
+      chatEngineOverride,
+      '| model:',
+      chatModelOverride
+    );
+    console.log(
+      '🔄 Chat: Available options →',
+      availableLlms.map((l) => l.value)
+    );
+  }, [chatEngineOverride, chatModelOverride, availableLlms]);
+
+  /* ---------------------- load / resume conversation -------------------- */
   useEffect(() => {
     const loadConversation = async () => {
+      if (!user?.id) return;
+
       try {
-        if (!user?.id) {
-          console.warn('No user available, cannot load conversation');
-          return;
-        }
+        const recent = await conversationService.getRecentConversation(
+          user.id
+        );
 
-        console.log('Using user from context:', user.id);
+        if (recent?.id) {
+          console.log('🔄 Chat: Resuming conversation', recent.id);
+          setCurrentConversation({ id: recent.id, title: recent.title });
+          const raw = await conversationService.getMessages(recent.id);
 
-        // Load recent conversation for this user
-        const recent = await conversationService.getRecentConversation(user.id);
+          const formatted = (Array.isArray(raw) ? raw : []).map(
+            (m): Message => ({
+              id: m.id,
+              sender:
+                m.role === 'user'
+                  ? 'user'
+                  : m.role === 'assistant'
+                  ? 'ai'
+                  : 'system',
+              text: m.content,
+              timestamp: m.timestamp
+            })
+          );
 
-        if (recent && recent.id) {
-          // Load existing conversation
-          setCurrentConversation({
-            id: recent.id as string,
-            title: recent.title
-          });
-
-          // Load messages for this conversation
-          const conversationMessages = await conversationService.getMessages(recent.id);
-
-          // Convert to the Message format used by the UI - ensure it's an array
-          const messagesArray = Array.isArray(conversationMessages) ? conversationMessages : [];
-          const formattedMessages = messagesArray.map(msg => ({
-            id: msg.id,
-            sender: msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'ai' : 'system') as 'user' | 'ai' | 'system',
-            text: msg.content,
-            timestamp: msg.timestamp
-          }));
-
-          // Remove duplicates
-          const unique: Message[] = [];
-          const seen = new Set<string>();
-          for (const m of formattedMessages) {
-            if (!seen.has(m.id)) {
-              seen.add(m.id);
-              unique.push(m);
-            }
-          }
-
-          setMessages(unique);
+          setMessages(
+            formatted.filter(
+              (m, i, arr) => arr.findIndex((x) => x.id === m.id) === i
+            )
+          );
           isFirstMessage.current = false;
         } else {
-          // Start with a new conversation
-          setMessages([{
-            id: '1',
-            sender: 'ai',
-            text: `Hello ${USER_NAME}! How can I help you today?`,
-            timestamp: new Date().toISOString()
-          }]);
+          console.log('🔄 Chat: No recent conversation, starting fresh');
+          setMessages([
+            {
+              id: 'welcome',
+              sender: 'ai',
+              text: `Hello ${USER_NAME}! How can I help you today?`,
+              timestamp: new Date().toISOString()
+            }
+          ]);
           isFirstMessage.current = true;
         }
-      } catch (error) {
-        console.error('Error loading conversation, starting fresh:', error);
-        // Start with a new conversation on error
-        setMessages([{
-          id: '1',
-          sender: 'ai',
-          text: `Hello ${USER_NAME}! How can I help you today?`,
-          timestamp: new Date().toISOString()
-        }]);
-        isFirstMessage.current = true;
+      } catch (err) {
+        console.error('Conversation load error:', err);
       }
     };
 
-    if (user?.id) {
-      loadConversation();
-    }
+    loadConversation();
   }, [user?.id]);
 
-  // Handle character selection
-  const handleCharacterSelect = useCallback(async (character: any) => {
-    setSelectedCharacter(character);
-    if (character) {
-      localStorage.setItem('selectedCharacterId', character.id);
-      if (user?.id) {
-        fetch('/api/settings/DefaultCharacterId', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.id, value: character.id })
-        }).catch(() => {});
+  /* ---------------------------------------------------------------------- */
+  /*  Character select handler                                               */
+  /* ---------------------------------------------------------------------- */
+
+  const handleCharacterSelect = useCallback(
+    async (character: Character | null) => {
+      console.log('🔄 Chat: Character selected:', character);
+      setSelectedCharacter(character);
+
+      if (character) {
+        localStorage.setItem('selectedCharacterId', character.id);
+        if (user?.id) {
+          fetch('/api/settings/DefaultCharacterId', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, value: character.id })
+          }).catch(() => {});
+        }
+      } else {
+        localStorage.removeItem('selectedCharacterId');
+        if (user?.id) {
+          fetch('/api/settings/DefaultCharacterId', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, value: '' })
+          }).catch(() => {});
+        }
       }
-      const newUrl = generateChatUrl({
-        conversationId: currentConversation.id || 'new',
-        characterName: character.name
-      });
-      navigate(newUrl, { replace: true });
-    } else {
-      localStorage.removeItem('selectedCharacterId');
-      if (user?.id) {
-        fetch('/api/settings/DefaultCharacterId', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.id, value: '' })
-        }).catch(() => {});
-      }
-      const newUrl = generateChatUrl({
-        conversationId: currentConversation.id || 'new'
-      });
-      navigate(newUrl, { replace: true });
-    }
-  }, [user?.id, currentConversation.id, navigate]);
-  /**
-   * Creates a new conversation
-   */
+
+      navigate(
+        generateChatUrl({
+          conversationId: currentConversation.id || 'new',
+          characterName: character?.name
+        }),
+        { replace: true }
+      );
+    },
+    [user?.id, currentConversation.id, navigate]
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /*  New conversation                                                      */
+  /* ---------------------------------------------------------------------- */
+
   const handleNewConversation = async () => {
-    try {
-      // Reset the current state
-      setMessages([{
-        id: '1',
+    console.log('🔄 Chat: Starting new conversation');
+    setMessages([
+      {
+        id: 'welcome',
         sender: 'ai',
         text: `Hello ${USER_NAME}! How can I help you today?`,
         timestamp: new Date().toISOString()
-      }]);
+      }
+    ]);
 
-      setCurrentConversation({
-        id: '',
-        title: 'New Chat'
-      });
+    setCurrentConversation({ id: '', title: 'New Chat' });
 
-      // Update URL for new conversation while keeping character
-      const newUrl = generateChatUrl({
+    navigate(
+      generateChatUrl({
         conversationId: 'new',
         characterName: selectedCharacter?.name
-      });
-      navigate(newUrl, { replace: true });
+      }),
+      { replace: true }
+    );
 
-      isFirstMessage.current = true;
-      setInputText('');
-    } catch (error) {
-      console.error('Error creating new conversation:', error);
-    }
+    isFirstMessage.current = true;
+    setInputText('');
   };
 
-  /**
-   * Selects an existing conversation
-   */
+  /* ---------------------------------------------------------------------- */
+  /*  Select existing conversation                                          */
+  /* ---------------------------------------------------------------------- */
+
   const handleSelectConversation = async (conversationId: string) => {
     try {
-      // Get conversation details
-      const conversation = await conversationService.getConversation(conversationId);
+      console.log('🔄 Chat: Selecting conversation', conversationId);
+      const convo = await conversationService.getConversation(conversationId);
 
-      setCurrentConversation({
-        id: conversation.id,
-        title: conversation.title
-      });
+      setCurrentConversation({ id: convo.id, title: convo.title });
 
-      // Load messages for this conversation
-      const conversationMessages = await conversationService.getMessages(conversationId);
-
-      // Convert to the Message format used by the UI - ensure it's an array
-      const messagesArray = Array.isArray(conversationMessages) ? conversationMessages : [];
-      const formattedMessages = messagesArray.map(msg => ({
-        id: msg.id,
-        sender: msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'ai' : 'system') as 'user' | 'ai' | 'system',
-        text: msg.content,
-        timestamp: msg.timestamp
+      const raw = await conversationService.getMessages(conversationId);
+      const formatted: Message[] = (Array.isArray(raw) ? raw : []).map((m) => ({
+        id: m.id,
+        sender:
+          m.role === 'user'
+            ? 'user'
+            : m.role === 'assistant'
+            ? 'ai'
+            : 'system',
+        text: m.content,
+        timestamp: m.timestamp
       }));
 
-      const unique: Message[] = [];
-      const seen = new Set<string>();
-      for (const m of formattedMessages) {
-        if (!seen.has(m.id)) {
-          seen.add(m.id);
-          unique.push(m);
-        }
-      }
-
-      setMessages(unique);
+      setMessages(
+        formatted.filter(
+          (m, i, arr) => arr.findIndex((x) => x.id === m.id) === i
+        )
+      );
       isFirstMessage.current = false;
 
-      // Update URL to reflect conversation selection
-      const newUrl = generateChatUrl({
-        conversationId: conversationId,
-        characterName: selectedCharacter?.name
-      });
-      navigate(newUrl, { replace: true });
+      navigate(
+        generateChatUrl({
+          conversationId,
+          characterName: selectedCharacter?.name
+        }),
+        { replace: true }
+      );
 
-      // Update last open time
       await conversationService.updateLastOpenTime(conversationId);
-    } catch (error) {
-      console.error(`Error selecting conversation ${conversationId}:`, error);
+    } catch (err) {
+      console.error('Select conversation error:', err);
     }
   };
 
-  /**
-   * Handles form submission to send a chat message.
-   * @param e Form event
-   */
-  const handleSubmit = async (e: React.FormEvent) => {
+  /* ---------------------------------------------------------------------- */
+  /*  Submit message                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || isLoading) return;
 
-    // Create a user message object
+    const textToSend = inputText.trim();
+
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: 'user',
-      text: inputText,
+      text: textToSend,
       timestamp: new Date().toISOString()
     };
 
-    // Add user message to messages
-    setMessages(prev => [...prev, userMessage]);
-
-    // Clear the input field
+    setMessages((prev) => [...prev, userMessage]);
     setInputText('');
-
-    // Set loading state
     setIsLoading(true);
 
     try {
-      // Always use a local variable for the conversation ID
       let conversationId = currentConversation.id;
 
-      // If this is the first message in a new conversation, create the conversation first
       if (isFirstMessage.current && !conversationId) {
-        // Generate a title from the first message (truncate if too long)
-        const title = userMessage.text.length > 30
-          ? `${userMessage.text.substring(0, 30)}...`
-          : userMessage.text;
+        const title =
+          textToSend.length > 30 ? `${textToSend.slice(0, 30)}…` : textToSend;
+        const newConvo = await conversationService.createConversation(title);
 
-        // Create a new conversation
-        const newConversation = await conversationService.createConversation(title);
+        console.log('🔄 Chat: Created conversation', newConvo.id);
 
-        conversationId = newConversation.id; // Use this right away
-        setCurrentConversation({
-          id: newConversation.id,
-          title: newConversation.title
-        });
+        conversationId = newConvo.id;
+        setCurrentConversation({ id: newConvo.id, title: newConvo.title });
 
-        // Update URL to reflect new conversation
-        const newUrl = generateChatUrl({
-          conversationId: newConversation.id,
-          characterName: selectedCharacter?.name
-        });
-        navigate(newUrl, { replace: true });
+        navigate(
+          generateChatUrl({
+            conversationId,
+            characterName: selectedCharacter?.name
+          }),
+          { replace: true }
+        );
 
-        // Set character context if we have a selected character
-        if (selectedCharacter && selectedCharacter.systemPrompt && user?.id) {
-          try {
-            await conversationService.setCharacterContext(
-              conversationId,
-              user.id,
-              selectedCharacter.id || null,
-              selectedCharacter.systemPrompt
-            );
-            console.log(`Set character context for conversation: ${selectedCharacter.name}`);
-          } catch (error) {
-            console.error('Error setting character context:', error);
-          }
+        if (selectedCharacter?.systemPrompt && user?.id) {
+          await conversationService.setCharacterContext(
+            conversationId,
+            user.id,
+            selectedCharacter.id,
+            selectedCharacter.systemPrompt
+          );
+          console.log(
+            `🔄 Chat: Set character context → ${selectedCharacter.name}`
+          );
         }
 
         isFirstMessage.current = false;
-      }
+      }      if (!conversationId) throw new Error('No conversation ID generated');
 
-      if (!conversationId) {
-        throw new Error('No conversation ID available');
-      }
+      console.log('🔍 Chat: About to append message', {
+        conversationId,
+        userId: user?.id,
+        messageType: 'user',
+        messageContent: textToSend
+      });
 
-      // Store the user message in the database
       if (user?.id) {
         await conversationService.appendMessage(
           conversationId,
           user.id,
           'user',
-          userMessage.text
+          textToSend
         );
       }
 
-      // Send message to API and get AI response (include character ID if selected)
-      console.log('ChatPage: Sending message with character ID:', selectedCharacter?.id, 'Character name:', selectedCharacter?.name);
+      /* ---------------- send to model ---------------- */
       const aiResponse = await chatService.sendMessage(
         conversationId,
-        inputText,
+        textToSend,
         selectedCharacter?.id || null,
         chatEngineOverride,
         chatModelOverride
       );
 
-      // Create AI message object
+      console.log('🔄 Chat: AI response received:', aiResponse);
+
       const aiMessage: Message = {
         id: Date.now().toString(),
         sender: 'ai',
         text: aiResponse,
         timestamp: new Date().toISOString()
-      };
+      };      setMessages((prev) => [...prev, aiMessage]);
 
-      // Add AI message to messages
-      setMessages(prev => [...prev, aiMessage]);
+      console.log('🔍 Chat: About to append AI message', {
+        conversationId,
+        userId: user?.id,
+        messageType: 'assistant',
+        messageContent: aiResponse
+      });
 
-      // Store the AI response in the database
       if (user?.id) {
         await conversationService.appendMessage(
           conversationId,
@@ -499,22 +598,25 @@ const ChatPage = () => {
           aiResponse
         );
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
-
-      // Add error message
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        sender: 'system',
-        text: 'Sorry, there was an error processing your message. Please try again.',
-        timestamp: new Date().toISOString()
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
+    } catch (err) {
+      console.error('Chat send error:', err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          sender: 'system',
+          text: 'Sorry, something went wrong. Please try again.',
+          timestamp: new Date().toISOString()
+        }
+      ]);
     } finally {
       setIsLoading(false);
     }
   };
+
+  /* ---------------------------------------------------------------------- */
+  /*  JSX                                                                   */
+  /* ---------------------------------------------------------------------- */
 
   return (
     <motion.div
@@ -523,8 +625,9 @@ const ChatPage = () => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
-    >      <div className="flex flex-grow overflow-hidden">
-        {/* Chat Sidebar */}
+    >
+      <div className="flex flex-grow overflow-hidden">
+        {/* --------------- LEFT SIDEBAR (sessions) ----------------------- */}
         <div className="w-64 border-r">
           <ChatSidebar
             userId={user?.id || ''}
@@ -534,34 +637,38 @@ const ChatPage = () => {
           />
         </div>
 
-        {/* Main Chat Area */}
+        {/* --------------- MAIN CHAT AREA -------------------------------- */}
         <div className="flex-grow flex flex-col overflow-hidden">
+          {/* header */}
           <div className="px-4 py-2 bg-white border-b">
             <div className="flex justify-between items-center mb-2">
-              <h1 className="text-xl font-semibold text-gray-800">{currentConversation.title}</h1>
+              <h1 className="text-xl font-semibold text-gray-800">
+                {currentConversation.title}
+              </h1>
               <button
                 onClick={handleNewConversation}
-                className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
+                className="p-2 text-gray-500 hover:text-primary-500"
                 title="New Chat"
               >
                 <Plus size={20} />
               </button>
             </div>
 
-            {/* Character Selector */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center gap-4">
+              {/* character */}
               <CharacterSelector
                 selectedCharacterId={selectedCharacter?.id || null}
                 onCharacterSelect={handleCharacterSelect}
-                disabled={false}
               />
               {selectedCharacter && (
-                <div className="text-sm text-blue-600 flex items-center">
-                  <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                <span className="flex items-center text-sm text-blue-600">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full mr-2" />
                   Active: {selectedCharacter.name}
-                </div>
+                </span>
               )}
-              <label className="ml-4 text-sm flex items-center space-x-1">
+
+              {/* toggle img */}
+              <label className="text-sm flex items-center gap-1">
                 <input
                   type="checkbox"
                   checked={showCharacterImages}
@@ -570,78 +677,117 @@ const ChatPage = () => {
                 <span>Use Image</span>
               </label>
 
-              {/* LLM Override Dropdown */}
-              <div className="ml-4">
-                <label htmlFor="llm-override-select" className="sr-only">Select LLM</label>
-                <select
-                  id="llm-override-select"
-                  value={chatEngineOverride ? `${chatEngineOverride}:${chatModelOverride || 'default'}` : 'default'}
-                  onChange={(e) => {
-                    const selected = availableLlms.find(llm => llm.value === e.target.value);
-                    if (selected) {
-                      setChatEngineOverride(selected.engine);
-                      setChatModelOverride(selected.model);
+              {/* voice selector */}
+              <VoiceSelector disabled={isLoading} />
+
+              {/* LLM dropdown */}
+              <select
+                id="llm-override-select"
+                value={
+                  chatEngineOverride
+                    ? `${chatEngineOverride}:${chatModelOverride || 'default'}`
+                    : 'default'
+                }
+                onChange={async (e) => {
+                  const sel = availableLlms.find(
+                    (l) => l.value === e.target.value
+                  );
+                  if (!sel) {
+                    console.warn('🔄 Chat: Selected LLM option not found:', e.target.value);
+                    return;
+                  }
+
+                  console.log('🔄 Chat: User changed LLM to:', sel);
+
+                  // Update local chat state
+                  setChatEngineOverride(sel.engine);
+                  setChatModelOverride(sel.model);
+
+                  // Update dashboard (database + sync event)
+                  if (user?.id && sel.engine) {
+                    try {
+                      console.log('🔄 Chat: Updating Dashboard LLM to:', sel.engine, sel.model);
+
+                      await chatService.updateLlmSettings(
+                        sel.engine,
+                        sel.model || '',
+                        user.id
+                      );
+
+                      // Tell dashboard to update its display
+                      window.dispatchEvent(
+                        new CustomEvent('llmSettingsChanged', {
+                          detail: { engine: sel.engine, model: sel.model }
+                        })
+                      );
+
+                      console.log('🔄 Chat: Dashboard sync complete!');
+                    } catch (err) {
+                      console.error('Dashboard sync failed:', err);
                     }
-                  }}
-                  className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  disabled={isLoading}
-                >
-                  {availableLlms.map(llm => (
-                    <option key={llm.value} value={llm.value}>
-                      {llm.label}
+                  }
+                }}
+                className="px-3 py-2 border rounded-lg text-sm disabled:opacity-50"
+                disabled={isLoading || availableLlms.length === 0}
+              >
+                {availableLlms.length === 0 ? (
+                  <option value="default">Loading models...</option>
+                ) : (
+                  availableLlms.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
                     </option>
-                  ))}
-                </select>
-              </div>
+                  ))
+                )}
+              </select>
             </div>
           </div>
 
+          {/* messages */}
           <div className="flex-grow overflow-y-auto p-4 space-y-4">
-            {messages.map((message: Message) => (
+            {messages.map((m) => (
               <ChatMessage
-                key={message.id}
-                message={message}
-                characterImage={showCharacterImages && message.sender === 'ai' ? selectedCharacter?.imagePath : undefined}
+                key={m.id}
+                message={m}
+                characterImage={
+                  showCharacterImages && m.sender === 'ai' && selectedCharacter?.imagePath
+                    ? selectedCharacter.imagePath.startsWith('http') || selectedCharacter.imagePath.startsWith('/')
+                      ? selectedCharacter.imagePath
+                      : `/${selectedCharacter.imagePath}`
+                    : undefined
+                }
               />
             ))}
             {isLoading && (
-              <div className="flex items-center justify-center p-2">
-                <div className="animate-pulse text-gray-500">AI is thinking...</div>
+              <div className="flex justify-center text-gray-500 animate-pulse">
+                AI is thinking…
               </div>
             )}
             <div ref={bottomRef} />
           </div>
 
+          {/* composer */}
           <form onSubmit={handleSubmit} className="p-4 border-t bg-white">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Type your message..."
+                placeholder="Type your message…"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="flex-grow px-4 py-2 border rounded-full focus:ring"
               />
-              <button
-                type="button"
-                className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-              >
+              <button type="button" className="p-2 text-gray-500">
                 <Paperclip size={20} />
               </button>
-              <button
-                type="button"
-                className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-              >
+              <button type="button" className="p-2 text-gray-500">
                 <Camera size={20} />
               </button>
-              <button
-                type="button"
-                className="p-2 text-gray-500 hover:text-primary-500 focus:outline-none"
-              >
+              <button type="button" className="p-2 text-gray-500">
                 <Mic size={20} />
               </button>
               <button
                 type="submit"
-                className="p-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                className="p-2 bg-primary-500 text-white rounded-full disabled:opacity-50"
                 disabled={!inputText.trim() || isLoading}
               >
                 <Send size={20} />
@@ -650,39 +796,39 @@ const ChatPage = () => {
           </form>
         </div>
 
-        {/* Tools Sidebar */}
+        {/* --------------- RIGHT SIDEBAR (tools) ------------------------- */}
         <div className="hidden lg:block w-80 border-l bg-white">
           <div className="p-4 border-b">
-            <h2 className="text-lg font-medium text-gray-800">Tools</h2>
+            <h2 className="text-lg font-medium">Tools</h2>
           </div>
-          {/* Brain explorer UI */}
+
           <BrainExplorer />
+
           <div className="p-4 space-y-4">
-            <div className="card">
-              <h3 className="text-sm font-medium text-gray-700">Files</h3>
-              <p className="text-sm text-gray-500 mt-1">
+            <div>
+              <h3 className="text-sm font-medium">Files</h3>
+              <p className="text-sm text-gray-500">
                 Drag and drop files here to upload
-              </p>              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300">
+              </p>
+              <button className="btn btn-ghost w-full mt-2 border-dashed">
                 <Paperclip size={16} className="mr-2" />
                 Upload Files
               </button>
             </div>
 
-            <div className="card">
-              <h3 className="text-sm font-medium text-gray-700">Voice</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Record a voice message
-              </p>              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300">
+            <div>
+              <h3 className="text-sm font-medium">Voice</h3>
+              <p className="text-sm text-gray-500">Record a voice message</p>
+              <button className="btn btn-ghost w-full mt-2 border-dashed">
                 <Mic size={16} className="mr-2" />
                 Start Recording
               </button>
             </div>
 
-            <div className="card">
-              <h3 className="text-sm font-medium text-gray-700">Camera</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Take a photo or video
-              </p>              <button className="btn btn-ghost text-sm w-full mt-2 border border-dashed border-gray-300">
+            <div>
+              <h3 className="text-sm font-medium">Camera</h3>
+              <p className="text-sm text-gray-500">Take a photo or video</p>
+              <button className="btn btn-ghost w-full mt-2 border-dashed">
                 <Camera size={16} className="mr-2" />
                 Open Camera
               </button>
@@ -693,6 +839,5 @@ const ChatPage = () => {
     </motion.div>
   );
 };
-
 
 export default ChatPage;

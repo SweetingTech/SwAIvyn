@@ -6,21 +6,26 @@ import {
   MessageSquare,
   Brain,
   Bot,
-  Wifi,
-  WifiOff,
   CheckCircle,
   XCircle,
   Clock,
   Users,
-  Zap
+  Mic,
+  Volume2,
+  Save,
+  Play
 } from 'lucide-react';
 import { useInitialization } from '../contexts/InitializationContext';
 import InlineSpinner from '../components/ui/InlineSpinner';
+import ttsService from '../services/ttsService';
 
 interface SystemStatus {
   llmEngine: string;
   llmModel: string;
   llmConnected: boolean;
+  ttsProvider: string;
+  ttsVoice: string;
+  ttsConnected: boolean;
   charactersLoaded: number;
   memoryItems: number;
   chatSessions: number;
@@ -34,6 +39,9 @@ const DashboardPage = () => {
     llmEngine: 'Loading...',
     llmModel: 'Loading...',
     llmConnected: false,
+    ttsProvider: 'Loading...',
+    ttsVoice: 'Loading...',
+    ttsConnected: false,
     charactersLoaded: 0,
     memoryItems: 0,
     chatSessions: 0,
@@ -46,7 +54,19 @@ const DashboardPage = () => {
     loadSystemStatus();
     // Refresh status every 30 seconds
     const interval = setInterval(loadSystemStatus, 30000);
-    return () => clearInterval(interval);
+
+    // Listen for LLM settings changes from chat page
+    const handleLlmSettingsChange = (event: CustomEvent) => {
+      console.log('🔍 Dashboard: LLM settings changed, refreshing status:', event.detail);
+      loadSystemStatus();
+    };
+
+    window.addEventListener('llmSettingsChanged', handleLlmSettingsChange as EventListener);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('llmSettingsChanged', handleLlmSettingsChange as EventListener);
+    };
   }, []);
 
   const loadSystemStatus = async () => {
@@ -64,6 +84,9 @@ const DashboardPage = () => {
           llmEngine: statusData.llm?.engine || 'Unknown',
           llmModel: statusData.llm?.model || 'Not selected',
           llmConnected: statusData.llm?.connected || false,
+          ttsProvider: statusData.tts?.provider || 'Unknown',
+          ttsVoice: statusData.tts?.voice || 'Not selected',
+          ttsConnected: statusData.tts?.connected || false,
           charactersLoaded: statusData.metrics?.characterCount || 0,
           memoryItems: statusData.metrics?.memoryCount || 0,
           chatSessions: statusData.metrics?.conversationCount || 0,
@@ -114,6 +137,9 @@ const DashboardPage = () => {
           llmEngine: llmData.engine,
           llmModel: llmData.model,
           llmConnected,
+          ttsProvider: 'Unknown', // Fallback when dashboard API fails
+          ttsVoice: 'Unknown',
+          ttsConnected: false,
           charactersLoaded,
           memoryItems: 0, // Will be available when dashboard API works
           chatSessions: 0, // Will be available when dashboard API works
@@ -129,6 +155,9 @@ const DashboardPage = () => {
         llmEngine: 'Error',
         llmModel: 'Error',
         llmConnected: false,
+        ttsProvider: 'Error',
+        ttsVoice: 'Error',
+        ttsConnected: false,
         charactersLoaded: 0,
         memoryItems: 0,
         chatSessions: 0,
@@ -189,6 +218,16 @@ const DashboardPage = () => {
               statusIcon={systemStatus.llmConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
             />
 
+            {/* TTS Status */}
+            <StatusCard
+              title="TTS Provider"
+              value={systemStatus.ttsProvider}
+              subtitle={systemStatus.ttsVoice}
+              icon={<Mic size={24} />}
+              status={systemStatus.ttsConnected ? 'connected' : 'disconnected'}
+              statusIcon={systemStatus.ttsConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
+            />
+
             {/* Characters */}
             <StatusCard
               title="Characters"
@@ -233,8 +272,13 @@ const DashboardPage = () => {
               icon={<Activity size={24} />}
               status="info"
             />
-          </div>
-        )}
+          </div>        )}
+
+        {/* Voice Settings Section */}
+        <div className="mt-8">
+          <h2 className="text-lg font-medium text-gray-800 mb-4">Voice Settings</h2>
+          <VoiceSettingsCard userId={user?.id} />
+        </div>
 
         {/* Quick Actions */}
         <div className="mt-8">
@@ -333,7 +377,211 @@ const QuickActionCard = ({ title, description, icon, href }: QuickActionCardProp
         <h3 className="font-medium text-gray-900">{title}</h3>
       </div>
       <p className="text-sm text-gray-600">{description}</p>
-    </a>
+    </a>  );
+};
+
+interface VoiceSettingsCardProps {
+  userId?: string;
+}
+
+const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
+  const [voiceSettings, setVoiceSettings] = useState({
+    provider: 'Loading...',
+    voice: 'Loading...',
+    apiKey: '',
+  });
+  const [availableVoices, setAvailableVoices] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    loadVoiceSettings();
+  }, [userId]);
+
+  const loadVoiceSettings = async () => {
+    if (!userId) return;
+    
+    try {
+      setLoading(true);
+      const settings = await ttsService.getSettings(userId);
+      
+      setVoiceSettings({
+        provider: settings.ttsProvider || 'elevenlabs',
+        voice: settings.voiceId || 'Rachel',
+        apiKey: settings.apiKey || '',
+      });
+
+      // Load available voices for the current provider
+      const voices = await ttsService.getVoices(settings.ttsProvider || 'elevenlabs', userId);
+      setAvailableVoices(voices);
+    } catch (error) {
+      console.error('Failed to load voice settings:', error);
+      // Set fallback values
+      setVoiceSettings({
+        provider: 'elevenlabs',
+        voice: 'Rachel',
+        apiKey: '',
+      });
+      setAvailableVoices(['Rachel', 'Domi', 'Bella', 'Antoni']);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProviderChange = async (newProvider: string) => {
+    setVoiceSettings(prev => ({ ...prev, provider: newProvider }));
+    
+    try {
+      const voices = await ttsService.getVoices(newProvider, userId);
+      setAvailableVoices(voices);
+      
+      // Reset to first available voice when switching providers
+      if (voices.length > 0) {
+        setVoiceSettings(prev => ({ ...prev, voice: voices[0] }));
+      }
+    } catch (error) {
+      console.error('Failed to load voices for provider:', error);
+      setAvailableVoices(['default']);
+      setVoiceSettings(prev => ({ ...prev, voice: 'default' }));
+    }
+  };
+
+  const handleVoiceChange = (newVoice: string) => {
+    setVoiceSettings(prev => ({ ...prev, voice: newVoice }));
+  };
+
+  const handleSave = async () => {
+    if (!userId) return;
+    
+    setSaving(true);
+    setSaveSuccess(false);
+    
+    try {
+      await ttsService.updateSettings({
+        userId,
+        ttsProvider: voiceSettings.provider,
+        voiceId: voiceSettings.voice,
+        apiKey: voiceSettings.apiKey,
+      });
+      
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      console.error('Failed to save voice settings:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formatVoiceName = (voice: string) => {
+    switch (voice.toLowerCase()) {
+      case 'glados':
+        return 'GLaDOS';
+      case 'jazzy':
+        return 'Jazzy';
+      case 'scarlet':
+        return 'Scarlet';
+      default:
+        return voice.charAt(0).toUpperCase() + voice.slice(1);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-center">
+          <InlineSpinner />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="flex items-center mb-4">
+        <Volume2 size={20} className="text-blue-600 mr-2" />
+        <h3 className="text-lg font-medium text-gray-900">Voice Configuration</h3>
+      </div>
+      
+      <div className="space-y-4">
+        {/* TTS Provider Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            TTS Provider
+          </label>
+          <select
+            value={voiceSettings.provider}
+            onChange={(e) => handleProviderChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="elevenlabs">ElevenLabs</option>
+            <option value="fishspeech">Fish Speech</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+
+        {/* Voice Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Voice
+          </label>
+          <select
+            value={voiceSettings.voice}
+            onChange={(e) => handleVoiceChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            {availableVoices.map(voice => (
+              <option key={voice} value={voice}>
+                {formatVoiceName(voice)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* API Key (if using ElevenLabs or OpenAI) */}
+        {(voiceSettings.provider === 'elevenlabs' || voiceSettings.provider === 'openai') && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              API Key
+            </label>
+            <input
+              type="password"
+              value={voiceSettings.apiKey}
+              onChange={(e) => setVoiceSettings(prev => ({ ...prev, apiKey: e.target.value }))}
+              placeholder={`Enter your ${voiceSettings.provider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI'} API key`}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        )}
+
+        {/* Save Button */}
+        <div className="flex items-center justify-between pt-4">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? (
+              <InlineSpinner />
+            ) : (
+              <>
+                <Save size={16} className="mr-2" />
+                Save Settings
+              </>
+            )}
+          </button>
+          
+          {saveSuccess && (
+            <div className="flex items-center text-green-600">
+              <CheckCircle size={16} className="mr-1" />
+              <span className="text-sm">Settings saved!</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 

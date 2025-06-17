@@ -16,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -87,12 +88,12 @@ static void KillProcessesUsingPorts(int[] ports)
     }
 }
 
-static void CleanupAllNeo4jProcesses()
+static void CleanupAllRequiredPorts()
 {
     try
     {
-        Console.WriteLine("[CLEANUP] Starting targeted Neo4j port cleanup...");
-        KillProcessesUsingPorts(new[] { 7474, 7687 });
+        Console.WriteLine("[CLEANUP] Starting targeted Neo4j and Fish Speech port cleanup...");
+        KillProcessesUsingPorts(new[] { 7474, 7687, 8081 });
 
         var neo4jProcesses = Process.GetProcesses()
             .Where(p => p.ProcessName.Contains("neo4j", StringComparison.OrdinalIgnoreCase))
@@ -121,11 +122,11 @@ static void CleanupAllNeo4jProcesses()
             Console.WriteLine("[CLEANUP] No Neo4j-named processes found");
         }
 
-        Console.WriteLine("[CLEANUP] Neo4j port cleanup completed");
+        Console.WriteLine("[CLEANUP] Port cleanup completed");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[CLEANUP] Error during Neo4j port cleanup: {ex.Message}");
+        Console.WriteLine($"[CLEANUP] Error during port cleanup: {ex.Message}");
     }
 }
 
@@ -162,8 +163,8 @@ try
         Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
     }
 
-    Console.WriteLine("[STARTUP] Performing aggressive Neo4j process cleanup...");
-    CleanupAllNeo4jProcesses();
+    Console.WriteLine("[STARTUP] Performing aggressive port cleanup (Neo4j, Fish Speech)...");
+    CleanupAllRequiredPorts();
 }
 catch (Exception ex)
 {
@@ -258,7 +259,11 @@ builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 // Hosted services
 builder.Services.AddHostedService<SwAIvyn.HostedServices.BackupService>(); // Explicitly specify namespace
 builder.Services.AddHostedService<SearchServiceHostedService>();
-builder.Services.AddHostedService<FishSpeechHostedService>();
+
+// Register FishSpeechHostedService as singleton first, then as hosted service
+builder.Services.AddSingleton<FishSpeechHostedService>();
+builder.Services.AddHostedService<FishSpeechHostedService>(provider => provider.GetRequiredService<FishSpeechHostedService>());
+
 builder.Services.AddHostedService<GoogleWorkspaceHostedService>();
 builder.Services.AddHostedService<ApplicationMonitorService>();
 
@@ -286,6 +291,7 @@ builder.Services.AddHttpClient<IHybridSearchService, HybridSearchService>();
 
 // TTS
 builder.Services.AddHttpClient<ElevenLabsTtsService>();
+builder.Services.AddScoped<FishSpeechTtsService>();
 builder.Services.AddHttpClient<FishSpeechTtsService>();
 
 // Google Workspace
@@ -622,6 +628,9 @@ catch (Exception ex)
 {
     logger.LogError($"Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
 }
+
+// Fish Speech API is managed by FishSpeechHostedService
+logger.LogInfo("Fish Speech TTS API will be started by FishSpeechHostedService");
 
 // Memory synchronization after Neo4j ready
 try

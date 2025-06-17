@@ -1,8 +1,11 @@
-import { Play, User } from 'lucide-react';
+import { Play, User, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Message } from '../../types/chat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useState } from 'react';
+import ttsService from '../../services/ttsService';
+import { useInitialization } from '../../contexts/InitializationContext';
 
 interface ChatMessageProps {
   message: Message;
@@ -11,6 +14,60 @@ interface ChatMessageProps {
 
 const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
   const isAI = message.sender === 'ai';
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const { user } = useInitialization();
+
+  const handleImageError = () => {
+    console.warn('Failed to load character image:', characterImage);
+    setImageError(true);
+  };
+
+  const handlePlayAudio = async () => {
+    if (!user || !user.id) {
+      console.error("User ID not available for TTS");
+      return;
+    }
+
+    setIsPlaying(true);
+    try {
+      // Fetch user's TTS settings to get the selected voiceId
+      const ttsSettings = await ttsService.getSettings(user.id);
+      if (!ttsSettings || !ttsSettings.voiceId) {
+        console.error("Could not retrieve TTS settings or voiceId for the user.");
+        setIsPlaying(false);
+        return;
+      }
+      const voiceIdToUse = ttsSettings.voiceId;
+
+      console.log(`Requesting TTS for text: "${message.text}" with user ID: ${user.id} and voice ID: ${voiceIdToUse}`);
+      
+      const audioBlob = await ttsService.synthesize(message.text, user.id, voiceIdToUse);
+      
+      if (audioBlob && audioBlob.size > 0) {
+        const audio = new Audio(URL.createObjectURL(audioBlob));
+        audio.play();
+        audio.onended = () => {
+          setIsPlaying(false);
+          URL.revokeObjectURL(audio.src);
+          console.log("Audio playback ended.");
+        };
+        audio.onerror = (e) => {
+          console.error("Error during audio playback:", e);
+          setIsPlaying(false);
+          URL.revokeObjectURL(audio.src);
+        };
+      } else {
+        console.error("Received empty or invalid audio blob.");
+        setIsPlaying(false);
+      }
+    } catch (error) {
+      console.error("Error synthesizing or playing audio:", error);
+      setIsPlaying(false);
+    }
+    // Note: setIsPlaying(false) is primarily handled by audio.onended or onerror
+    // to ensure it's set after playback finishes or fails.
+  };
 
   const formatTime = (ts: string) => {
     const d = new Date(ts);
@@ -28,11 +85,12 @@ const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
       <div className={`flex max-w-[80%] ${isAI ? 'flex-row' : 'flex-row-reverse'}`}>
         <div className={`flex-shrink-0 ${isAI ? 'mr-3' : 'ml-3'}`}>
           {isAI ? (
-            characterImage ? (
+            characterImage && !imageError ? (
               <img
                 src={characterImage}
                 alt="Character"
                 className="w-8 h-8 rounded-full object-cover"
+                onError={handleImageError}
               />
             ) : (
               <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center text-primary-600">
@@ -66,9 +124,22 @@ const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
             <span>{formatTime(message.timestamp)}</span>
             
             {isAI && (
-              <button className="ml-2 flex items-center text-xs text-primary-600 hover:text-primary-700">
-                <Play size={12} className="mr-1" />
-                Play
+              <button 
+                onClick={handlePlayAudio}
+                disabled={isPlaying}
+                className="ml-2 flex items-center text-xs text-primary-600 hover:text-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isPlaying ? (
+                  <>
+                    <Loader2 size={12} className="mr-1 animate-spin" />
+                    Playing...
+                  </>
+                ) : (
+                  <>
+                    <Play size={12} className="mr-1" />
+                    Play
+                  </>
+                )}
               </button>
             )}
           </div>

@@ -289,7 +289,7 @@ namespace SwAIvyn.Controllers
         /// <summary>
         /// Gets details about a specific voice.
         /// </summary>
-        [HttpGet("voices/{voiceName}")]
+        [HttpGet("voices/{voiceName}/details")]
         public async Task<IActionResult> GetVoiceDetails(string voiceName)
         {
             if (string.IsNullOrWhiteSpace(voiceName))

@@ -431,8 +431,9 @@ namespace SwAIvyn.Controllers
                     }
                     else
                     {
-                        _logger.LogError($"[CHARACTER_LOAD] ❌ No characters found in database");
-                        throw new ArgumentException("No characters available");
+                        _logger.LogWarning($"[CHARACTER_LOAD] ⚠️ No characters found in database, continuing without character context");
+                        // Don't throw exception - just continue without character context
+                        return;
                     }
                 }
                 else
@@ -463,14 +464,16 @@ namespace SwAIvyn.Controllers
                         }
                         else
                         {
-                            _logger.LogError($"[CHARACTER_LOAD] ❌ No character found in database with GUID: {characterGuid}");
-                            throw new ArgumentException($"Character with ID {characterId} not found");
+                            _logger.LogWarning($"[CHARACTER_LOAD] ⚠️ No character found in database with GUID: {characterGuid}, continuing without character context");
+                            // Don't throw exception - just continue without character context
+                            return;
                         }
                     }
                     else
                     {
-                        _logger.LogError($"[CHARACTER_LOAD] ❌ Invalid character GUID format: '{characterId}'");
-                        throw new ArgumentException($"Invalid character ID format: {characterId}");
+                        _logger.LogWarning($"[CHARACTER_LOAD] ⚠️ Invalid character GUID format: '{characterId}', continuing without character context");
+                        // Don't throw exception - just continue without character context
+                        return;
                     }
                 }
 

@@ -67,7 +67,10 @@ namespace SwAIvyn.Controllers
                     
                     // LLM status
                     llm = await GetLlmStatus(),
-                    
+
+                    // TTS status
+                    tts = await GetTtsStatus(),
+
                     // System info
                     system = new
                     {
@@ -290,6 +293,36 @@ namespace SwAIvyn.Controllers
                 {
                     engine = "unknown",
                     model = "unknown",
+                    connected = false,
+                    error = ex.Message
+                };
+            }
+        }
+
+        private async Task<object> GetTtsStatus()
+        {
+            try
+            {
+                // Get TTS settings for default user
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+                // Get TTS settings
+                var provider = await _settingsService.GetSettingAsync(defaultUserId, "TtsProvider", "fish_speech");
+                var voice = await _settingsService.GetSettingAsync(defaultUserId, "TtsVoice", "jazzy");
+
+                return new
+                {
+                    provider = provider,
+                    voice = voice,
+                    connected = true // We'll implement actual connection testing later
+                };
+            }
+            catch (Exception ex)
+            {
+                return new
+                {
+                    provider = "unknown",
+                    voice = "unknown",
                     connected = false,
                     error = ex.Message
                 };

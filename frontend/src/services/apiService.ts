@@ -58,7 +58,7 @@ const apiService = {
    * @param config Optional axios config
    * @returns The response data
    */
-  async post(url: string, data = {}, config = {}) {
+  async post(url: string, data: any = {}, config = {}) {
     // Skip actual API call for demo-user-id requests
     if (isDemoUserRequest(url) || (data && typeof data === 'object' && 'userId' in data && data.userId === 'demo-user-id')) {
       console.warn(`DEMO MODE: Skipping POST request to ${url}`);
@@ -66,10 +66,9 @@ const apiService = {
       // For conversation creation, return a mock conversation
       if (url === '/api/conversation') {
         return {
-          id: `temp-${Date.now()}`,
-          userId: data.userId || 'demo-user-id',
-          title: data.title || 'Demo Chat',
-          folderId: data.folderId || null,
+          id: `temp-${Date.now()}`,          userId: data?.userId || 'demo-user-id',
+          title: data?.title || 'Demo Chat',
+          folderId: data?.folderId || null,
           createdAt: new Date().toISOString(),
           lastUpdated: new Date().toISOString()
         };
@@ -78,37 +77,41 @@ const apiService = {
       // For chat messages, return a mock response
       if (url === '/api/conversation/chat') {
         return {
-          response: `I'm in demo mode and can't process your request: "${data.message}". Please ensure you have a valid user account.`
+          response: `I'm in demo mode and can't process your request: "${data?.message || 'unknown'}". Please ensure you have a valid user account.`
         };
       }
 
       // For message append, return a mock message
       if (url === '/api/conversation/message') {
         return {
-          id: `temp-${Date.now()}`,
-          conversationId: data.conversationId || 'temp-id',
-          role: data.role || 'user',
-          content: data.content || '',
+          id: `temp-${Date.now()}`,          conversationId: data?.conversationId || 'temp-id',
+          role: data?.role || 'user',
+          content: data?.content || '',
           timestamp: new Date().toISOString()
         };
       }
 
       return createMockResponse().data;
-    }
-
-    try {
+    }    try {
       const response = await axios.post(url, data, config);
       return response.data;
     } catch (error) {
       console.error(`POST request failed for ${url}:`, error);
+        // Log additional details for debugging
+      if (axios.isAxiosError && axios.isAxiosError(error)) {
+        console.error('Response status:', error.response?.status);
+        console.error('Response data:', error.response?.data);
+        console.error('Request data:', data);
+      } else {
+        console.error('Non-axios error:', error);
+      }
 
       // Return mock response on error instead of throwing
       if (url === '/api/conversation') {
         return {
-          id: `temp-${Date.now()}`,
-          userId: data.userId || 'demo-user-id',
-          title: data.title || 'Error Chat',
-          folderId: data.folderId || null,
+          id: `temp-${Date.now()}`,          userId: data?.userId || 'demo-user-id',
+          title: data?.title || 'Error Chat',
+          folderId: data?.folderId || null,
           createdAt: new Date().toISOString(),
           lastUpdated: new Date().toISOString()
         };

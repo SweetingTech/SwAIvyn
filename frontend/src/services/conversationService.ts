@@ -54,7 +54,6 @@ const conversationService = {
       throw error;
     }
   },
-
   /**
    * Creates a new conversation
    * @param title Conversation title
@@ -63,11 +62,18 @@ const conversationService = {
    */
   async createConversation(title: string, folderId?: string): Promise<Conversation> {
     try {
-      const response = await apiService.post('/api/conversation', {
+      const requestData = {
         title,
         folderId
         // Note: userID removed - backend will use default user automatically
-      });
+      };
+      
+      console.log('🔍 CreateConversation Request:', requestData);
+      
+      const response = await apiService.post('/api/conversation', requestData);
+      
+      console.log('🔍 CreateConversation Response:', response);
+      
       return response;
     } catch (error) {
       console.error('Error creating conversation:', error);
@@ -215,9 +221,7 @@ const conversationService = {
       console.error('Error setting character context:', error);
       throw error;
     }
-  },
-
-  /**
+  },  /**
    * Appends a message to a conversation
    * @param conversationId Conversation ID
    * @param userId User ID
@@ -228,7 +232,14 @@ const conversationService = {
     try {
       // Skip API call if userId or conversationId is not valid
       if (!userId || userId === 'demo-user-id' || !conversationId || conversationId.startsWith('temp-')) {
-        console.warn('Invalid IDs for message append, returning mock message');
+        console.warn('Invalid IDs for message append, returning mock message', {
+          userId,
+          conversationId,
+          skippingBecause: !userId ? 'no userId' : 
+                         userId === 'demo-user-id' ? 'demo user' :
+                         !conversationId ? 'no conversationId' :
+                         conversationId.startsWith('temp-') ? 'temp conversationId' : 'unknown'
+        });
         // Return a mock message
         return {
           id: `temp-${Date.now()}`,
@@ -239,15 +250,37 @@ const conversationService = {
         };
       }
 
-      const response = await apiService.post('/api/conversation/message', {
-        conversationId: conversationId, // Keep as string, the backend will convert
-        userId: userId, // Keep as string, the backend will convert
+      // Validate that the IDs look like valid GUIDs
+      const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!guidRegex.test(conversationId)) {
+        console.error('Invalid conversationId format:', conversationId);
+        throw new Error(`Invalid conversation ID format: ${conversationId}`);
+      }
+      if (!guidRegex.test(userId)) {
+        console.error('Invalid userId format:', userId);
+        throw new Error(`Invalid user ID format: ${userId}`);
+      }
+
+      const requestData = {
+        conversationId: conversationId,
+        userId: userId,
         role,
         content
+      };
+
+      console.log('🔍 AppendMessage Request Data:', {
+        conversationId,
+        userId,
+        role,
+        content,
+        requestData
       });
+
+      const response = await apiService.post('/api/conversation/message', requestData);
       return response;
     } catch (error) {
       console.error(`Error appending message to conversation ${conversationId}:`, error);
+      console.error('Request data was:', { conversationId, userId, role, content });
       // Return a mock message on error
       return {
         id: `temp-${Date.now()}`,

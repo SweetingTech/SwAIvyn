@@ -1,14 +1,18 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SwAIvyn.Configuration;
 using SwAIvyn.Controllers;
+using SwAIvyn.HostedServices; // Added for FishSpeechHostedService
 
 namespace SwAIvyn.Services
 {
@@ -22,30 +26,39 @@ namespace SwAIvyn.Services
         private readonly FishSpeechOptions _options;
         private readonly string _fishSpeechBaseUrl;
         private readonly IConfigurationService _configurationService;
+        private readonly IServiceProvider _serviceProvider; // For lazy access to hosted service
 
         public FishSpeechTtsService(
             HttpClient httpClient,
             ILogger<FishSpeechTtsService> logger,
             IOptions<FishSpeechOptions> options,
-            IConfigurationService configurationService)
+            IConfigurationService configurationService,
+            IServiceProvider serviceProvider)
         {
             _httpClient = httpClient;
             _logger = logger;
             _options = options.Value;
             _fishSpeechBaseUrl = _options.BaseUrl;
             _configurationService = configurationService;
+            _serviceProvider = serviceProvider;
             
             // Configure HTTP client timeout
             _httpClient.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Add authorization header if Fish Speech API key is available
         /// </summary>
         private async Task AddAuthenticationAsync(HttpRequestMessage request, Guid? userId = null)
         {
             try
             {
+                // For local Fish Speech development, skip authentication
+                // The local Fish Speech API runs with "Authentication: disabled"
+                if (_fishSpeechBaseUrl.Contains("localhost") || _fishSpeechBaseUrl.Contains("127.0.0.1"))
+                {
+                    _logger.LogDebug("Skipping authentication for local Fish Speech API at {BaseUrl}", _fishSpeechBaseUrl);
+                    return;
+                }
+
                 var apiKey = await _configurationService.GetFishSpeechApiKey(userId);
                 if (!string.IsNullOrEmpty(apiKey))
                 {
@@ -137,32 +150,43 @@ namespace SwAIvyn.Services
         }
 
         /// <summary>
-        /// Get available voices from Fish Speech API
+        /// Get available voices from voices.json configuration file
         /// </summary>
         public async Task<string[]> GetAvailableVoicesAsync(Guid? userId = null)
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_fishSpeechBaseUrl}/voices");
-                await AddAuthenticationAsync(request, userId);
-                
-                var response = await _httpClient.SendAsync(request);
-                
-                if (!response.IsSuccessStatusCode)
+                var voicesConfigPath = Path.Combine(GetVoicesDirectory(), "voices.json");
+
+                if (!File.Exists(voicesConfigPath))
                 {
-                    _logger.LogWarning($"Failed to get Fish Speech voices: {response.StatusCode}");
-                    return new[] { "default" };
+                    _logger.LogWarning("voices.json not found at {Path}, returning default voices", voicesConfigPath);
+                    return new[] { "jazzy", "glados", "scarlet" };
                 }
 
-                var jsonContent = await response.Content.ReadAsStringAsync();
-                var voicesResponse = JsonSerializer.Deserialize<VoicesResponse>(jsonContent);
-                
-                return voicesResponse?.voices ?? new[] { "default" };
+                var jsonContent = await File.ReadAllTextAsync(voicesConfigPath);
+                var voicesConfig = JsonSerializer.Deserialize<VoicesConfig>(jsonContent);
+
+                if (voicesConfig?.voices == null)
+                {
+                    _logger.LogWarning("Invalid voices.json format, returning default voices");
+                    return new[] { "jazzy", "glados", "scarlet" };
+                }
+
+                var enabledVoices = voicesConfig.voices
+                    .Where(v => v.enabled)
+                    .Select(v => v.name)
+                    .ToArray();
+
+                _logger.LogInformation("Loaded {Count} voices from voices.json: {Voices}",
+                    enabledVoices.Length, string.Join(", ", enabledVoices));
+
+                return enabledVoices;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting Fish Speech voices");
-                return new[] { "default" };
+                _logger.LogError(ex, "Error reading voices configuration");
+                return new[] { "jazzy", "glados", "scarlet" };
             }
         }
 
@@ -173,14 +197,28 @@ namespace SwAIvyn.Services
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_fishSpeechBaseUrl}/voices");
+                // First check if the hosted service has completed startup
+                var hostedServices = _serviceProvider.GetServices<IHostedService>();
+                var fishSpeechHostedService = hostedServices.OfType<FishSpeechHostedService>().FirstOrDefault();
+
+                if (fishSpeechHostedService != null && !fishSpeechHostedService.IsStartupComplete())
+                {
+                    _logger.LogDebug("Fish Speech startup not yet complete, returning false");
+                    return false;
+                }
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_fishSpeechBaseUrl}/health");
                 await AddAuthenticationAsync(request, userId);
-                
+
                 var response = await _httpClient.SendAsync(request);
-                return response.IsSuccessStatusCode;
+                bool isHealthy = response.IsSuccessStatusCode;
+
+                _logger.LogDebug("FishSpeechTtsService.IsAvailableAsync called, API health check result: {IsHealthy}", isHealthy);
+                return isHealthy;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Fish Speech API health check failed");
                 return false;
             }
         }
@@ -273,36 +311,47 @@ namespace SwAIvyn.Services
         }
 
         /// <summary>
-        /// Get details about a specific voice
+        /// Get details about a specific voice from voices.json configuration
         /// </summary>
         public async Task<VoiceDetailsResponse?> GetVoiceDetailsAsync(string voiceName)
         {
             try
             {
                 var voicesDirectory = GetVoicesDirectory();
-                var audioFilePath = Path.Combine(voicesDirectory, $"{voiceName}.wav");
-                var transcriptFilePath = Path.Combine(voicesDirectory, $"{voiceName}.txt");
-                var embeddingFilePath = Path.Combine(voicesDirectory, $"{voiceName}.pt");
+                var voicesConfigPath = Path.Combine(voicesDirectory, "voices.json");
+
+                if (!File.Exists(voicesConfigPath))
+                {
+                    _logger.LogWarning("voices.json not found at {Path}", voicesConfigPath);
+                    return null;
+                }
+
+                var jsonContent = await File.ReadAllTextAsync(voicesConfigPath);
+                var voicesConfig = JsonSerializer.Deserialize<VoicesConfig>(jsonContent);
+
+                var voiceConfig = voicesConfig?.voices?.FirstOrDefault(v => v.name == voiceName);
+                if (voiceConfig == null)
+                {
+                    _logger.LogWarning("Voice '{VoiceName}' not found in voices.json", voiceName);
+                    return null;
+                }
+
+                var audioFilePath = Path.Combine(voicesDirectory, voiceConfig.audioFile);
+                var transcriptFilePath = Path.Combine(voicesDirectory, voiceConfig.textFile);
 
                 var hasAudioFile = File.Exists(audioFilePath);
                 var hasTranscriptFile = File.Exists(transcriptFilePath);
-                var hasEmbedding = File.Exists(embeddingFilePath);
 
-                if (!hasAudioFile && !hasTranscriptFile)
-                {
-                    return null; // Voice doesn't exist
-                }
-
-                var transcript = hasTranscriptFile ? await File.ReadAllTextAsync(transcriptFilePath) : "";
+                var transcript = hasTranscriptFile ? await File.ReadAllTextAsync(transcriptFilePath) : voiceConfig.description;
                 var audioFileSize = hasAudioFile ? new FileInfo(audioFilePath).Length : (long?)null;
                 var createdAt = hasAudioFile ? File.GetCreationTime(audioFilePath) : (DateTime?)null;
 
                 return new VoiceDetailsResponse
                 {
-                    Name = voiceName,
+                    Name = voiceConfig.displayName,
                     Transcript = transcript,
                     HasAudioFile = hasAudioFile,
-                    HasEmbedding = hasEmbedding,
+                    HasEmbedding = false, // We don't use embeddings for our hardcoded voices
                     CreatedAt = createdAt,
                     AudioFileSize = audioFileSize
                 };
@@ -320,16 +369,31 @@ namespace SwAIvyn.Services
         private string GetVoicesDirectory()
         {
             // Use the model path from options, fallback to relative path
-            var basePath = !string.IsNullOrEmpty(_options.ModelPath) 
-                ? _options.ModelPath 
-                : Path.Combine(Directory.GetCurrentDirectory(), "..", "speech", "TTS", "openaudio-s1-mini");
-                
+            var basePath = !string.IsNullOrEmpty(_options.ModelPath)
+                ? _options.ModelPath
+                : Path.Combine(Directory.GetCurrentDirectory(), "speech", "TTS", "openaudio-s1-mini");
+
             return Path.Combine(basePath, "voices");
         }
 
         private class VoicesResponse
         {
             public string[] voices { get; set; } = new string[0];
+        }
+
+        private class VoicesConfig
+        {
+            public VoiceConfig[] voices { get; set; } = Array.Empty<VoiceConfig>();
+        }
+
+        private class VoiceConfig
+        {
+            public string name { get; set; } = string.Empty;
+            public string displayName { get; set; } = string.Empty;
+            public string description { get; set; } = string.Empty;
+            public string audioFile { get; set; } = string.Empty;
+            public string textFile { get; set; } = string.Empty;
+            public bool enabled { get; set; } = true;
         }
     }
 }

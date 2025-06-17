@@ -330,7 +330,8 @@ namespace SwAIvyn.Services
                     { ELEVENLABS_VOICE_ID_KEY,   string.Empty },
                     { ENABLE_STREAMING_KEY,      "true" },
                     { TTS_API_KEY,               string.Empty },
-                    { TTS_VOICE_KEY,             "Rachel" }
+                    { TTS_VOICE_KEY,             "Rachel" },
+                    { "TtsProvider",             "fishspeech" }
                 };
 
                 foreach (var kv in defaultSettings)
