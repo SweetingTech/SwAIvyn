@@ -1,5 +1,9 @@
 # PowerShell script to build sqlite-vss on Windows
 
+Param(
+    [switch]$UseRootBlas = $false
+)
+
 # Set SQLite version
 $SQLITE_VERSION = "3.41.2"
 $SQLITE_VERSION_NUMBER = "3410200"
@@ -24,6 +28,9 @@ if (-not (Test-Path "sqlite-vss")) {
     git clone --recurse-submodules https://github.com/asg017/sqlite-vss.git
 }
 Set-Location sqlite-vss
+
+# Determine the script's actual directory for reliable path construction
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 # Patch CMakeLists.txt files for CMake version compatibility
 Write-Host "Patching CMakeLists.txt files..."
@@ -111,12 +118,40 @@ Set-Location "build"
 
 # Configure and build
 Write-Host "Configuring with CMake..."
-cmake .. `
-    -DCMAKE_BUILD_TYPE=Release `
-    -DBUILD_SHARED_LIBS=ON `
-    -DBLAS_LIBRARIES="$($PSScriptRoot.Replace('\', '/') + '/windows-libs/OpenBLAS/lib/libopenblas.dll.a')" `
-    -DBLAS_INCLUDE_DIR="$($PSScriptRoot.Replace('\', '/') + '/windows-libs/OpenBLAS/include')" `
-    -DCMAKE_POLICY_VERSION_MINIMUM="3.5"
+
+$cmakeArgs = @(
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DBUILD_SHARED_LIBS=ON",
+    "-DSQLITE_SOURCE_DIR=../sqlite-source", # Relative to the 'build' directory
+    "-DCMAKE_POLICY_VERSION_MINIMUM=""3.5"""
+)
+
+if ($UseRootBlas) {
+    $projectRootBlasPath = Join-Path $scriptDir "../windows-libs" # $scriptDir is 'scripts/', so this becomes 'project_root/windows-libs'
+    if (Test-Path $projectRootBlasPath) {
+        Write-Host "Using BLAS libraries from project root: $projectRootBlasPath"
+        $env:BLAS_LIBRARIES = $projectRootBlasPath # Set environment variable for USE_SYSTEM_BLAS
+        $cmakeArgs += "-DUSE_SYSTEM_BLAS=ON"
+    } else {
+        Write-Warning "Parameter -UseRootBlas specified, but directory '$projectRootBlasPath' not found. Falling back to default BLAS configuration."
+        # Fallback to default BLAS config
+        $defaultBlasBase = Join-Path $scriptDir "windows-libs" # $scriptDir is 'scripts/', so this becomes 'scripts/windows-libs'
+        $blasLibPath = "$($defaultBlasBase.Replace('\', '/'))/OpenBLAS/lib/libopenblas.dll.a"
+        $blasIncludePath = "$($defaultBlasBase.Replace('\', '/'))/OpenBLAS/include"
+        $cmakeArgs += "-DBLAS_LIBRARIES=""$blasLibPath"""
+        $cmakeArgs += "-DBLAS_INCLUDE_DIR=""$blasIncludePath"""
+        Write-Host "Using default BLAS libraries from script-relative path: $defaultBlasBase"
+    }
+} else {
+    $defaultBlasBase = Join-Path $scriptDir "windows-libs" # $scriptDir is 'scripts/', so this becomes 'scripts/windows-libs'
+    $blasLibPath = "$($defaultBlasBase.Replace('\', '/'))/OpenBLAS/lib/libopenblas.dll.a"
+    $blasIncludePath = "$($defaultBlasBase.Replace('\', '/'))/OpenBLAS/include"
+    $cmakeArgs += "-DBLAS_LIBRARIES=""$blasLibPath"""
+    $cmakeArgs += "-DBLAS_INCLUDE_DIR=""$blasIncludePath"""
+    Write-Host "Using default BLAS libraries from script-relative path: $defaultBlasBase"
+}
+
+cmake .. $cmakeArgs
 
 # Build the loadable extension
 Write-Host "Building with CMake..."
