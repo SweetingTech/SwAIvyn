@@ -123,6 +123,50 @@ sequenceDiagram
     UI->>User: Display message
 ```
 
+### LLM Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant ConversationController
+    participant AiChatService
+    participant LlmConnectorService
+    participant SettingsService
+    participant ConversationService
+    participant OllamaAPI
+    participant LMStudioAPI
+
+    User->>UI: Send message
+    UI->>ConversationController: POST /api/conversation/chat
+    ConversationController->>AiChatService: GenerateAndStoreResponseAsync()
+
+    AiChatService->>ConversationService: AppendMessageAsync(userId, conversationId, "user", message)
+    ConversationService->>AiChatService: Success
+
+    AiChatService->>SettingsService: GetCurrentLlmSettingsAsync(userId)
+    SettingsService-->>AiChatService: {engine, model}
+
+    AiChatService->>LlmConnectorService: GenerateResponseAsync(message, engine, model, userId)
+
+    alt Using Ollama
+        LlmConnectorService->>OllamaAPI: POST {ollamaApiUrl}/v1/completions
+        OllamaAPI-->>LlmConnectorService: AI response
+    else Using LM Studio
+        LlmConnectorService->>LMStudioAPI: POST {lmStudioApiUrl}/generate
+        LMStudioAPI-->>LlmConnectorService: AI response
+    end
+
+    LlmConnectorService-->>AiChatService: AI response
+
+    AiChatService->>ConversationService: AppendMessageAsync(userId, conversationId, "assistant", aiResponse)
+    ConversationService->>AiChatService: Success
+
+    AiChatService-->>ConversationController: AI response
+    ConversationController-->>UI: Update chat
+    UI->>User: Display message
+```
+
 ### Brain Search Flow
 
 ```mermaid
@@ -144,6 +188,39 @@ sequenceDiagram
     BrainService-->>BrainController: Combined results
     BrainController-->>UI: Search results
     UI->>User: Display results
+```
+
+### Neo4j Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant BrainService
+    participant Neo4jService
+    participant ConfigService
+    participant Neo4jRuntimeService
+    participant Neo4jProcess
+    participant Neo4jHTTP
+    participant Neo4jBolt
+
+    BrainService->>Neo4jService: StoreMemoryNode()
+    Neo4jService->>ConfigService: Get Neo4j configuration from user settings
+    ConfigService-->>Neo4jService: Neo4j URLs and credentials
+    Neo4jService->>Neo4jRuntimeService: IsAvailableAsync()
+    Neo4jRuntimeService->>Neo4jHTTP: GET {neo4jHttpUrl}/
+    Neo4jHTTP-->>Neo4jRuntimeService: Status
+
+    alt Neo4j Available
+        Neo4jService->>Neo4jBolt: {neo4jBoltUrl} with credentials
+        Neo4jBolt-->>Neo4jService: Connection
+        Neo4jService->>Neo4jBolt: CREATE (n:Memory {id: $id, text: $text})
+        Neo4jBolt-->>Neo4jService: Result
+    else Neo4j Not Available
+        Neo4jRuntimeService->>Neo4jProcess: Start Neo4j with user configuration
+        Neo4jProcess-->>Neo4jRuntimeService: Started
+        Neo4jService->>Neo4jBolt: Retry connection
+    end
+
+    Neo4jService-->>BrainService: Operation result
 ```
 
 ## Database Interactions
