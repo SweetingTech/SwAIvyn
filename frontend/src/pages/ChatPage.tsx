@@ -82,6 +82,8 @@ const ChatPage: React.FC = () => {
     useState<string | null>(null);
   const [chatModelOverride, setChatModelOverride] =
     useState<string | null>(null);
+  const [ttsProvider, setTtsProvider] = useState<string | null>(null);
+  const [ttsVoiceId, setTtsVoiceId] = useState<string | null>(null);
   const [availableLlms, setAvailableLlms] = useState<LlmOption[]>([]);
 
   /* ------------------------------ refs ----------------------------------- */
@@ -98,24 +100,30 @@ const ChatPage: React.FC = () => {
 
   /* ---------------------- SYNC FROM DASHBOARD LLM ------------------------ */
   useEffect(() => {
-    const syncFromDashboard = async () => {
+    const syncAllChatSettings = async () => {
       if (!user?.id) return;
 
       try {
-        const s = await chatService.getLlmSettings(user.id);
-        console.log('🔄 Chat: Syncing from Dashboard LLM:', s);
+        const settings = await chatService.getChatSettings(user.id);
+        console.log('🔄 Chat: Syncing all chat settings from backend:', settings);
 
-        // Always sync whatever is on dashboard
-        setChatEngineOverride(s?.engine || null);
-        setChatModelOverride(s?.model || null);
+        setChatEngineOverride(settings.llmEngine || null);
+        setChatModelOverride(settings.llmModel || null);
+        setTtsProvider(settings.ttsProvider || null);
+        setTtsVoiceId(settings.ttsVoiceId || null);
 
-        console.log('🔄 Chat: Chat now matches Dashboard →', s?.engine, s?.model);
+        console.log('🔄 Chat: Chat settings synced → LLM:', settings.llmEngine, settings.llmModel, 'TTS:', settings.ttsProvider, settings.ttsVoiceId);
       } catch (err) {
-        console.error('Dashboard sync failed:', err);
+        console.error('Chat settings sync failed:', err);
+        // Fallback or default settings if preferred
+        setChatEngineOverride(null); // Default LLM
+        setChatModelOverride(null);
+        setTtsProvider('fishspeech'); // Default TTS
+        setTtsVoiceId('glados');
       }
     };
 
-    syncFromDashboard();
+    syncAllChatSettings();
   }, [user?.id]); // Only run once when user loads
 
   /* ----------------------- auto-scroll on change ------------------------- */
@@ -678,7 +686,28 @@ const ChatPage: React.FC = () => {
               </label>
 
               {/* voice selector */}
-              <VoiceSelector disabled={isLoading} />
+              <VoiceSelector
+                disabled={isLoading}
+                provider={ttsProvider}
+                voiceId={ttsVoiceId}
+                onSettingsChange={async (newProvider, newVoiceId) => {
+                  if (!user?.id) return;
+                  console.log('🔄 Chat: VoiceSelector changed TTS to Provider:', newProvider, 'VoiceID:', newVoiceId);
+                  setTtsProvider(newProvider);
+                  setTtsVoiceId(newVoiceId);
+                  try {
+                    await chatService.updateChatSettings(user.id, {
+                      llmEngine: chatEngineOverride || '', // Pass current LLM engine or default
+                      llmModel: chatModelOverride || '',   // Pass current LLM model or default
+                      ttsProvider: newProvider,
+                      ttsVoiceId: newVoiceId,
+                    });
+                    console.log('🔄 Chat: TTS settings updated successfully via chatService.');
+                  } catch (error) {
+                    console.error('Failed to update TTS settings via chatService:', error);
+                  }
+                }}
+              />
 
               {/* LLM dropdown */}
               <select
@@ -692,39 +721,36 @@ const ChatPage: React.FC = () => {
                   const sel = availableLlms.find(
                     (l) => l.value === e.target.value
                   );
-                  if (!sel) {
-                    console.warn('🔄 Chat: Selected LLM option not found:', e.target.value);
+                  if (!sel || !user?.id) {
+                    console.warn('🔄 Chat: Selected LLM option not found or user ID missing:', e.target.value, user?.id);
                     return;
                   }
 
                   console.log('🔄 Chat: User changed LLM to:', sel);
+                  const newEngine = sel.engine;
+                  const newModel = sel.model;
 
-                  // Update local chat state
-                  setChatEngineOverride(sel.engine);
-                  setChatModelOverride(sel.model);
+                  setChatEngineOverride(newEngine);
+                  setChatModelOverride(newModel);
 
-                  // Update dashboard (database + sync event)
-                  if (user?.id && sel.engine) {
-                    try {
-                      console.log('🔄 Chat: Updating Dashboard LLM to:', sel.engine, sel.model);
+                  try {
+                    console.log('🔄 Chat: Updating all chat settings. New LLM:', newEngine, newModel, 'Current TTS:', ttsProvider, ttsVoiceId);
+                    await chatService.updateChatSettings(user.id, {
+                      llmEngine: newEngine || '', // Ensure empty string if null
+                      llmModel: newModel || '',   // Ensure empty string if null
+                      ttsProvider: ttsProvider || 'fishspeech', // Default if null
+                      ttsVoiceId: ttsVoiceId || 'glados',     // Default if null
+                    });
 
-                      await chatService.updateLlmSettings(
-                        sel.engine,
-                        sel.model || '',
-                        user.id
-                      );
-
-                      // Tell dashboard to update its display
-                      window.dispatchEvent(
-                        new CustomEvent('llmSettingsChanged', {
-                          detail: { engine: sel.engine, model: sel.model }
-                        })
-                      );
-
-                      console.log('🔄 Chat: Dashboard sync complete!');
-                    } catch (err) {
-                      console.error('Dashboard sync failed:', err);
-                    }
+                    // Notify dashboard about LLM part of the change
+                    window.dispatchEvent(
+                      new CustomEvent('llmSettingsChanged', {
+                        detail: { engine: newEngine, model: newModel }
+                      })
+                    );
+                    console.log('🔄 Chat: Chat settings (including LLM) updated and Dashboard notified.');
+                  } catch (err) {
+                    console.error('Failed to update chat settings:', err);
                   }
                 }}
                 className="px-3 py-2 border rounded-lg text-sm disabled:opacity-50"

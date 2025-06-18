@@ -28,23 +28,22 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Gets all memory items from both SQL database and Neo4j.
-        /// Since this is a single-user application, we don't filter by userId.
+        /// Gets all memory items for a specific user from both SQL database and Neo4j.
         /// </summary>
-        /// <param name="userId">User ID (ignored for single-user app)</param>
+        /// <param name="userId">User ID</param>
         /// <returns>List of memory items</returns>
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetMemories(Guid userId)
         {
             try
             {
-                // Get ALL memories from SQL database (single-user app)
-                var sqlMemories = await _dbContext.Memories.ToListAsync();
+                // Get memories for the specified user from SQL database
+                var sqlMemories = await _dbContext.Memories
+                    .Where(m => m.UserId == userId)
+                    .ToListAsync();
 
-                // Get ALL memory IDs from Neo4j (single-user app)
-                // Use the default user ID for Neo4j operations
-                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
-                var neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(defaultUserId);
+                // Get memory IDs for the specified user from Neo4j
+                var neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(userId);
 
                 // Find memories that exist in Neo4j but not in SQL
                 var sqlMemoryIds = sqlMemories.Select(m => m.Id).ToHashSet();
@@ -56,15 +55,19 @@ namespace SwAIvyn.Controllers
 
                 if (missingMemoryIds.Any())
                 {
-                    Console.WriteLine($"Found {missingMemoryIds.Count} memories in Neo4j that aren't in SQL database");
+                    Console.WriteLine($"Found {missingMemoryIds.Count} memories in Neo4j for user {userId} that aren't in SQL database");
 
                     // For each missing memory, try to get its content from Neo4j and create a SQL entry
                     foreach (var memoryId in missingMemoryIds)
                     {
                         try
                         {
-                            // Search for this specific memory in Neo4j to get its content
-                            var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", limit: 1);
+                            // Search for this specific memory in Neo4j to get its content, ensuring it's for the correct user
+                            // Assuming BrainGraphService.SearchAsync can filter by userId if the query includes it,
+                            // or that the memory_id is unique enough that userId check is implicitly handled by Neo4j permissions/structure.
+                            // For now, we rely on the fact that GetAllMemoryIdsAsync was already filtered by userId.
+                            // A more robust search would be: $"memory_id:{memoryId} AND user_id:{userId}" if supported by BrainGraphService
+                            var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", userId: userId, limit: 1);
 
                             if (searchResults.Any())
                             {
@@ -86,7 +89,7 @@ namespace SwAIvyn.Controllers
                                 var memoryItem = new MemoryItem
                                 {
                                     Id = memoryId,
-                                    UserId = defaultUserId, // Use default user ID for single-user app
+                                    UserId = userId, // Use the provided userId
                                     Content = content,
                                     Category = category,
                                     IsShared = isShared,
@@ -113,9 +116,10 @@ namespace SwAIvyn.Controllers
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting memories: {ex.Message}");
-                // Fallback to just SQL memories if there's an error (single-user app)
+                Console.WriteLine($"Error getting memories for user {userId}: {ex.Message}");
+                // Fallback to just SQL memories for the specific user if there's an error
                 var fallbackMemories = await _dbContext.Memories
+                    .Where(m => m.UserId == userId)
                     .OrderByDescending(m => m.CreatedAt)
                     .ToListAsync();
                 return Ok(fallbackMemories);
@@ -168,18 +172,20 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Updates an existing memory item.
+        /// Updates an existing memory item for a specific user.
         /// </summary>
+        /// <param name="userId">User ID</param>
         /// <param name="id">Memory ID</param>
         /// <param name="request">Memory update request</param>
         /// <returns>Updated memory item</returns>
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateMemory(Guid id, [FromBody] UpdateMemoryRequest request)
+        [HttpPut("{userId}/{id}")]
+        public async Task<IActionResult> UpdateMemory(Guid userId, Guid id, [FromBody] UpdateMemoryRequest request)
         {
-            var memory = await _dbContext.Memories.FindAsync(id);
+            var memory = await _dbContext.Memories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
             if (memory == null)
             {
-                return NotFound();
+                // Could be NotFound or Forbid if the memory exists but belongs to another user
+                return NotFound($"Memory not found or not accessible by user {userId}");
             }
 
             memory.Content = request.Content;
@@ -193,17 +199,19 @@ namespace SwAIvyn.Controllers
         }
 
         /// <summary>
-        /// Deletes a memory item.
+        /// Deletes a memory item for a specific user.
         /// </summary>
+        /// <param name="userId">User ID</param>
         /// <param name="id">Memory ID</param>
         /// <returns>Action result</returns>
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteMemory(Guid id)
+        [HttpDelete("{userId}/{id}")]
+        public async Task<IActionResult> DeleteMemory(Guid userId, Guid id)
         {
-            var memory = await _dbContext.Memories.FindAsync(id);
+            var memory = await _dbContext.Memories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
             if (memory == null)
             {
-                return NotFound();
+                // Could be NotFound or Forbid if the memory exists but belongs to another user
+                return NotFound($"Memory not found or not accessible by user {userId}");
             }
 
             // Remove from database

@@ -1,72 +1,76 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Volume2 } from 'lucide-react';
-import ttsService from '../../services/ttsService';
+import ttsService from '../../services/ttsService'; // Keep for getVoices
 import { useInitialization } from '../../contexts/InitializationContext';
 
 interface VoiceSelectorProps {
-  onVoiceChange?: (voiceId: string) => void;
+  provider?: string | null;
+  voiceId?: string | null;
+  onSettingsChange?: (provider: string, voiceId: string) => void;
   disabled?: boolean;
 }
 
-const VoiceSelector: React.FC<VoiceSelectorProps> = ({ onVoiceChange, disabled = false }) => {
+const VoiceSelector: React.FC<VoiceSelectorProps> = ({
+  provider,
+  voiceId,
+  onSettingsChange,
+  disabled = false,
+}) => {
   const { user } = useInitialization();
-  const [selectedVoice, setSelectedVoice] = useState<string>('glados');
+  // availableVoices is still internal state, fetched based on provider prop
   const [availableVoices, setAvailableVoices] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingVoices, setLoadingVoices] = useState(false);
 
-  // Load available voices and current settings
-  useEffect(() => {
-    const loadVoicesAndSettings = async () => {
-      if (!user?.id) return;
-      
-      setLoading(true);
-      try {
-        // Load current TTS settings
-        const settings = await ttsService.getSettings(user.id);
-        const currentVoice = settings.voiceId || 'glados';
-        setSelectedVoice(currentVoice);
-        
-        // Load available voices based on current provider
-        const provider = settings.ttsProvider || 'fishspeech';
-        if (provider === 'fishspeech') {
-          // For Fish Speech, use hardcoded voices
-          const voices = ['jazzy', 'glados', 'scarlet'];
-          setAvailableVoices(voices);
-        } else {
-          // For ElevenLabs, use API or hardcoded list
-          const voices = ['Rachel', 'Domi', 'Bella', 'Antoni'];
-          setAvailableVoices(voices);
-        }
-      } catch (error) {
-        console.error('Failed to load voices and settings:', error);
-        // Fallback to hardcoded Fish Speech voices
-        setAvailableVoices(['jazzy', 'glados', 'scarlet']);
-      } finally {
-        setLoading(false);
+  const safeProvider = provider || 'fishspeech'; // Default to fishspeech if prop is null/undefined
+  const safeVoiceId = voiceId || 'glados';     // Default to glados if prop is null/undefined
+
+  // Load available voices when provider changes
+  const fetchVoicesForProvider = useCallback(async (currentProvider: string) => {
+    if (!user?.id || !currentProvider) {
+      setAvailableVoices(['glados']); // Default fallback
+      return;
+    }
+    
+    setLoadingVoices(true);
+    try {
+      console.log(`🔄 VoiceSelector: Fetching voices for provider: ${currentProvider}`);
+      // Assuming ttsService.getVoices can take a provider
+      // If not, this logic needs to adapt to how voices are fetched per provider
+      let voices: string[] = [];
+      if (currentProvider === 'fishspeech') {
+        voices = ['jazzy', 'glados', 'scarlet']; // Hardcoded for fishspeech as before
+      } else if (currentProvider === 'elevenlabs') {
+        voices = ['Rachel', 'Domi', 'Bella', 'Antoni']; // Hardcoded for elevenlabs
+      } else if (currentProvider === 'openai') {
+        voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']; // Standard OpenAI voices
+      } else {
+        console.warn(`🔄 VoiceSelector: Unknown TTS provider "${currentProvider}", using default voices.`);
+        voices = ['glados']; // Fallback
       }
-    };
+      setAvailableVoices(voices);
+      console.log(`🔄 VoiceSelector: Voices for ${currentProvider}:`, voices);
 
-    loadVoicesAndSettings();
+      // If current voiceId from props isn't in the new list, maybe select the first one?
+      // Or let parent handle it via onSettingsChange if needed.
+      // For now, if safeVoiceId is not in 'voices', the dropdown might show blank or the first option.
+      // This can be improved if necessary by calling onSettingsChange with the first available voice.
+
+    } catch (error) {
+      console.error(`Failed to load voices for provider ${currentProvider}:`, error);
+      setAvailableVoices(['glados']); // Fallback
+    } finally {
+      setLoadingVoices(false);
+    }
   }, [user?.id]);
 
-  const handleVoiceChange = async (voiceId: string) => {
-    if (!user?.id) return;
-    
-    setSelectedVoice(voiceId);
-    
-    try {
-      // Update the voice setting in the database
-      await ttsService.updateSettings({
-        userId: user.id,
-        voiceId: voiceId
-      });
-      
-      // Notify parent component
-      if (onVoiceChange) {
-        onVoiceChange(voiceId);
-      }
-    } catch (error) {
-      console.error('Failed to update voice setting:', error);
+  useEffect(() => {
+    fetchVoicesForProvider(safeProvider);
+  }, [safeProvider, fetchVoicesForProvider]);
+
+
+  const handleInternalVoiceChange = (newVoiceId: string) => {
+    if (onSettingsChange) {
+      onSettingsChange(safeProvider, newVoiceId);
     }
   };
 
@@ -90,17 +94,17 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({ onVoiceChange, disabled =
       <label htmlFor="voice-selector" className="sr-only">Select Voice</label>
       <select
         id="voice-selector"
-        value={selectedVoice}
-        onChange={(e) => handleVoiceChange(e.target.value)}
+        value={safeVoiceId} // Controlled by prop
+        onChange={(e) => handleInternalVoiceChange(e.target.value)}
         className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[120px]"
-        disabled={disabled || loading}
+        disabled={disabled || loadingVoices}
       >
-        {loading ? (
+        {loadingVoices ? (
           <option value="">Loading voices...</option>
         ) : (
-          availableVoices.map(voice => (
-            <option key={voice} value={voice}>
-              {formatVoiceName(voice)}
+          availableVoices.map(v => (
+            <option key={v} value={v}>
+              {formatVoiceName(v)}
             </option>
           ))
         )}

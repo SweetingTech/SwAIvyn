@@ -214,13 +214,15 @@ class HybridSearchEngine:
                     source=metadata.get("source", "ingest")
                 )
 
-    async def recall_memory(self, query: str, top_k: int = 5) -> List[str]:
+    async def recall_memory(self, query: str, userId: Optional[str] = None, top_k: int = 5) -> List[str]:
         """
         Gate and return up to top_k relevant memory snippets,
         only if the top result clears memory_threshold.
+        Filters by userId if provided.
         """
         features = self.analyze_query(query)
-        graph_results = await self.neo4j_search(query, features, filters=None)
+        filters = {"userId": userId} if userId else None
+        graph_results = await self.neo4j_search(query, features, filters=filters)
         if not graph_results:
             return []
 
@@ -470,10 +472,16 @@ class HybridSearchEngine:
             self.logger.warning("Neo4j driver not available, returning mock data")
             return self._get_mock_neo4j_results(query, entities, 3)
 
+        user_id_filter = filters.get("userId") if filters else None
+
         try:
             import urllib.request, urllib.parse
             encoded_query = urllib.parse.quote(query)
             url = f"http://localhost:5000/api/brain/search?query={encoded_query}"
+            if user_id_filter:
+                url += f"&userId={urllib.parse.quote(str(user_id_filter))}"
+
+            self.logger.info(f"Calling backend Neo4j search: {url}")
             with urllib.request.urlopen(url) as response:
                 if response.status == 200:
                     backend_results = json.loads(response.read().decode())
@@ -502,11 +510,18 @@ class HybridSearchEngine:
                     self.logger.info(f"Neo4j vector search via backend API returned {len(results)} results")
                     return results
         except Exception as api_error:
-            self.logger.warning(f"Failed to call backend vector search API: {api_error}")
+            self.logger.warning(f"Failed to call backend vector search API: {api_error}. Falling back to Cypher.")
 
-        cypher = """
+        cypher_params = {"entity_list": entities}
+        cypher_where_clauses = ["ANY(entity IN $entity_list WHERE toLower(m.text) CONTAINS toLower(entity))"]
+
+        if user_id_filter:
+            cypher_where_clauses.append("m.userId = $userId")
+            cypher_params["userId"] = str(user_id_filter)
+
+        cypher = f"""
         MATCH (m:Memory)
-        WHERE ANY(entity IN $entity_list WHERE toLower(m.text) CONTAINS toLower(entity))
+        WHERE {" AND ".join(cypher_where_clauses)}
         RETURN m.id AS id,
                m.text AS content,
                m.category AS category,
@@ -516,8 +531,9 @@ class HybridSearchEngine:
         ORDER BY m.createdAt DESC
         LIMIT 50
         """
+        self.logger.info(f"Executing Cypher (entity_graph_search): {cypher} with params: {cypher_params}")
         async with self.neo4j.session() as session:
-            result = await session.run(cypher, entity_list=entities)
+            result = await session.run(cypher, **cypher_params)
             records = await result.data()
 
         results: List[SearchResult] = []
@@ -569,10 +585,16 @@ class HybridSearchEngine:
             self.logger.warning("Neo4j driver not available, returning mock data")
             return self._get_mock_neo4j_results(query, [], 2)
 
+        user_id_filter = filters.get("userId") if filters else None
+
         try:
             import urllib.request, urllib.parse
             encoded_query = urllib.parse.quote(query)
             url = f"http://localhost:5000/api/brain/search?query={encoded_query}"
+            if user_id_filter:
+                url += f"&userId={urllib.parse.quote(str(user_id_filter))}"
+
+            self.logger.info(f"Calling backend Neo4j search: {url}")
             with urllib.request.urlopen(url) as response:
                 if response.status == 200:
                     backend_results = json.loads(response.read().decode())
@@ -601,12 +623,18 @@ class HybridSearchEngine:
                     self.logger.info(f"Neo4j vector search via backend API returned {len(results)} results")
                     return results
         except Exception as api_error:
-            self.logger.warning(f"Failed to call backend vector search API: {api_error}")
+            self.logger.warning(f"Failed to call backend vector search API: {api_error}. Falling back to Cypher.")
 
-        fallback_cypher = """
+        cypher_params = {"query": query, "keywords": features.keywords or [query.lower()]}
+        cypher_where_clauses = ["(toLower(m.text) CONTAINS toLower($query) OR ANY(k IN $keywords WHERE toLower(m.text) CONTAINS toLower(k)))"]
+
+        if user_id_filter:
+            cypher_where_clauses.append("m.userId = $userId")
+            cypher_params["userId"] = str(user_id_filter)
+
+        fallback_cypher = f"""
         MATCH (m:Memory)
-        WHERE toLower(m.text) CONTAINS toLower($query)
-           OR ANY(k IN $keywords WHERE toLower(m.text) CONTAINS toLower(k))
+        WHERE {" AND ".join(cypher_where_clauses)}
         RETURN m.id AS id,
                m.text AS content,
                m.category AS category,
@@ -616,9 +644,9 @@ class HybridSearchEngine:
         ORDER BY m.createdAt DESC
         LIMIT 50
         """
-        keywords = features.keywords or [query.lower()]
+        self.logger.info(f"Executing Cypher (general_graph_search): {fallback_cypher} with params: {cypher_params}")
         async with self.neo4j.session() as session:
-            result = await session.run(fallback_cypher, query=query, keywords=keywords)
+            result = await session.run(fallback_cypher, **cypher_params)
             records = await result.data()
 
         results: List[SearchResult] = []
