@@ -1,5 +1,20 @@
 import apiService from './apiService';
 
+// Matches backend DTOs
+export interface ChatSettings {
+  llmEngine: string;
+  llmModel: string;
+  ttsProvider: string;
+  ttsVoiceId: string;
+}
+
+export interface UpdateChatSettingsPayload {
+  llmEngine: string;
+  llmModel: string;
+  ttsProvider?: string; // Optional as per backend UpdateChatSettingsRequest
+  ttsVoiceId?: string;  // Optional as per backend UpdateChatSettingsRequest
+}
+
 /**
  * Service for chat-related API calls
  */
@@ -51,6 +66,47 @@ const chatService = {
   },
 
   /**
+   * Gets the consolidated chat settings for a user.
+   * @param userId The ID of the user.
+   * @returns The chat settings (LLM engine/model, TTS provider/voice).
+   */
+  async getChatSettings(userId: string): Promise<ChatSettings> {
+    try {
+      const url = `/api/chat/settings/${userId}`;
+      console.log('🔄 ChatService: Getting chat settings from:', url);
+      const response = await apiService.get(url);
+      console.log('🔄 ChatService: Chat settings API response:', response);
+      return response as ChatSettings;
+    } catch (error) {
+      console.error('Error getting chat settings:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Updates the consolidated chat settings for a user.
+   * @param userId The ID of the user.
+   * @param settings The settings payload.
+   * @returns True if successful, otherwise throws error.
+   */
+  async updateChatSettings(userId: string, settings: UpdateChatSettingsPayload): Promise<boolean> {
+    try {
+      const url = `/api/chat/settings/${userId}`;
+      console.log('🔄 ChatService: Updating chat settings at:', url, 'with payload:', settings);
+      // The backend returns { message: "Chat settings updated successfully." } which apiService should handle.
+      // We'll assume success if no error is thrown by apiService.post
+      await apiService.put(url, settings);
+      console.log('🔄 ChatService: Chat settings updated successfully.');
+      return true;
+    } catch (error) {
+      console.error('Error updating chat settings:', error);
+      throw error;
+    }
+  },
+
+  // Old methods - can be marked @deprecated or removed later if no longer used.
+  /**
+   * @deprecated Use getChatSettings instead.
    * Gets the current LLM settings
    * @param userId Optional user ID for user-specific settings
    * @returns The current LLM settings (engine and model)
@@ -71,6 +127,7 @@ const chatService = {
   },
 
   /**
+   * @deprecated Use updateChatSettings instead.
    * Updates the LLM settings
    * @param engine The LLM engine (ollama, lmstudio, openai or claude)
    * @param model The LLM model (for Ollama)
