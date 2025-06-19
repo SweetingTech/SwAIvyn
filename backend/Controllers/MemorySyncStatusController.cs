@@ -432,5 +432,135 @@ namespace SwAIvyn.Controllers
                 return StatusCode(500, new { error = ex.Message });
             }
         }
+
+        /// <summary>
+        /// Repairs missing memories by syncing them from Neo4j to SQLite.
+        /// This is the reverse of the regular repair - it adds memories that exist in Neo4j but not in SQLite.
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>Reverse repair results</returns>
+        [HttpPost("repair-reverse/{userId}")]
+        public async Task<IActionResult> RepairMemoriesReverse(Guid userId)
+        {
+            try
+            {
+                _logger.LogInfo($"🔧 Starting reverse memory repair (Neo4j → SQLite) for user {userId}");
+
+                // Get ALL memories from SQLite (single-user app)
+                var sqliteMemories = await _dbContext.Memories.ToListAsync();
+
+                // Get ALL memories from Neo4j
+                var defaultUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+                var neo4jMemoryIds = new List<Guid>();
+                try
+                {
+                    neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(defaultUserId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"⚠️ Failed to get Neo4j memories during reverse repair: {ex.Message}");
+                    return StatusCode(500, new { error = "Failed to get memories from Neo4j", details = ex.Message });
+                }
+
+                var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
+                var neo4jIds = neo4jMemoryIds.ToHashSet();
+                var missingInSqlite = neo4jIds.Except(sqliteIds).ToList();
+
+                var repairResults = new List<object>();
+                int successCount = 0;
+                int failureCount = 0;
+
+                _logger.LogInfo($"📊 Found {missingInSqlite.Count} memories to sync from Neo4j to SQLite");
+
+                foreach (var memoryId in missingInSqlite)
+                {
+                    try
+                    {
+                        // Get memory content from Neo4j
+                        var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", limit: 1);
+                        
+                        if (!searchResults.Any())
+                        {
+                            failureCount++;
+                            repairResults.Add(new
+                            {
+                                MemoryId = memoryId,
+                                Status = "Failed",
+                                Error = "Memory not found in Neo4j search results"
+                            });
+                            _logger.LogWarning($"❌ Memory {memoryId} not found in Neo4j search");
+                            continue;
+                        }
+
+                        var result = searchResults.First();
+                        var hit = result.Hit;
+
+                        // Extract content and metadata from Neo4j
+                        var content = hit.Metadata?.TryGetValue("content", out var contentValue) == true ? contentValue : "Memory content not available";
+                        var category = hit.Metadata?.TryGetValue("category", out var cat) == true ? cat : "Chat Memory";
+                        var createdAtStr = hit.Metadata?.TryGetValue("createdAt", out var created) == true ? created : DateTime.UtcNow.ToString("O");
+                        var isSharedStr = hit.Metadata?.TryGetValue("isShared", out var shared) == true ? shared : "false";
+
+                        DateTime.TryParse(createdAtStr, out var createdAt);
+                        bool.TryParse(isSharedStr, out var isShared);
+
+                        // Create new memory item for SQLite
+                        var memory = new MemoryItem
+                        {
+                            Id = memoryId,
+                            UserId = defaultUserId, // Use default user ID for single-user app
+                            Content = content,
+                            Category = category,
+                            IsShared = isShared,
+                            CreatedAt = createdAt == default ? DateTime.UtcNow : createdAt,
+                            LastAccessed = DateTime.UtcNow
+                        };
+
+                        // Save to SQLite
+                        _dbContext.Memories.Add(memory);
+                        await _dbContext.SaveChangesAsync();
+
+                        successCount++;
+                        repairResults.Add(new
+                        {
+                            MemoryId = memory.Id,
+                            Status = "Success",
+                            Preview = memory.Content.Length > 50 ? memory.Content.Substring(0, 50) + "..." : memory.Content,
+                            Category = memory.Category
+                        });
+                        _logger.LogInfo($"✅ Synced memory from Neo4j to SQLite: {memory.Id} - {memory.Content.Substring(0, Math.Min(30, memory.Content.Length))}...");
+                    }
+                    catch (Exception ex)
+                    {
+                        failureCount++;
+                        repairResults.Add(new
+                        {
+                            MemoryId = memoryId,
+                            Status = "Error",
+                            Error = ex.Message
+                        });
+                        _logger.LogError($"❌ Failed to sync memory {memoryId} from Neo4j to SQLite: {ex.Message}");
+                    }
+                }                var repairResult = new
+                {
+                    UserId = userId,
+                    TotalMissingMemories = missingInSqlite.Count,
+                    SuccessfulRepairs = successCount,
+                    FailedRepairs = failureCount,
+                    RepairDetails = repairResults,
+                    Timestamp = DateTime.UtcNow
+                };
+
+                _logger.LogInfo($"🎉 Reverse repair completed - Success: {successCount}, Failed: {failureCount}");
+
+                return Ok(repairResult);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"🚨 Error during reverse memory repair: {ex.Message}");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
     }
 }

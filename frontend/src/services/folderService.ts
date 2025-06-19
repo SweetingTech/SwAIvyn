@@ -12,21 +12,13 @@ export interface Folder {
 /**
  * Service for folder-related API calls
  */
-const folderService = {
-  /**
-   * Gets all folders for a user
-   * @param userId User ID
+const folderService = {  /**
+   * Gets all folders (general purpose, no user ID needed)
    * @returns List of folders
    */
-  async getFolders(userId: string): Promise<Folder[]> {
+  async getFolders(): Promise<Folder[]> {
     try {
-      // Skip API call if userId is not a valid GUID
-      if (!userId || userId === 'demo-user-id') {
-        console.warn('Invalid user ID for folder fetch, returning empty array');
-        return [];
-      }
-
-      const response = await apiService.get(`/api/folder/user/${userId}`);
+      const response = await apiService.get(`/api/folder`);
       return response;
     } catch (error) {
       console.error('Error getting folders:', error);
@@ -121,18 +113,16 @@ const folderService = {
       throw error;
     }
   },
-
   /**
-   * Gets or creates the root folder for a user
-   * @param userId User ID
+   * Gets or creates the root folder (general purpose, no user ID needed)
    * @returns The root folder
    */
-  async getRootFolder(userId: string): Promise<Folder> {
+  async getRootFolder(): Promise<Folder> {
     try {
-      const response = await apiService.get(`/api/folder/root/${userId}`);
+      const response = await apiService.get(`/api/folder/root`);
       return response;
     } catch (error) {
-      console.error(`Error getting root folder for user ${userId}:`, error);
+      console.error(`Error getting root folder:`, error);
       throw error;
     }
   }

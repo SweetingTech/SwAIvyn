@@ -61,13 +61,12 @@ namespace SwAIvyn.Controllers
                     foreach (var memoryId in missingMemoryIds)
                     {
                         try
-                        {
-                            // Search for this specific memory in Neo4j to get its content, ensuring it's for the correct user
+                        {                            // Search for this specific memory in Neo4j to get its content, ensuring it's for the correct user
                             // Assuming BrainGraphService.SearchAsync can filter by userId if the query includes it,
                             // or that the memory_id is unique enough that userId check is implicitly handled by Neo4j permissions/structure.
                             // For now, we rely on the fact that GetAllMemoryIdsAsync was already filtered by userId.
                             // A more robust search would be: $"memory_id:{memoryId} AND user_id:{userId}" if supported by BrainGraphService
-                            var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", userId: userId, limit: 1);
+                            var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", limit: 1);
 
                             if (searchResults.Any())
                             {
@@ -169,10 +168,9 @@ namespace SwAIvyn.Controllers
             }
 
             return Ok(memory);
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Updates an existing memory item for a specific user.
+        /// This implements bidirectional sync: updates both SQLite and Neo4j.
         /// </summary>
         /// <param name="userId">User ID</param>
         /// <param name="id">Memory ID</param>
@@ -188,6 +186,7 @@ namespace SwAIvyn.Controllers
                 return NotFound($"Memory not found or not accessible by user {userId}");
             }
 
+            // Update SQLite
             memory.Content = request.Content;
             memory.Category = request.Category;
             memory.IsShared = request.IsShared;
@@ -195,11 +194,35 @@ namespace SwAIvyn.Controllers
 
             await _dbContext.SaveChangesAsync();
 
-            return Ok(memory);
-        }
+            // Update Neo4j (bidirectional sync)
+            try
+            {
+                // Delete and re-add to Neo4j to ensure full update
+                await _brainGraphService.DeleteMemoryAsync(id);
+                
+                var metadata = new Dictionary<string, string>
+                {
+                    { "category", memory.Category },
+                    { "userId", memory.UserId.ToString() },
+                    { "isShared", memory.IsShared.ToString() },
+                    { "createdAt", memory.CreatedAt.ToString("O") },
+                    { "lastAccessed", memory.LastAccessed.ToString("O") }
+                };
 
-        /// <summary>
+                await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                Console.WriteLine($"Successfully updated memory {id} in both SQLite and Neo4j");
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't fail the request - memory is updated in SQLite
+                Console.WriteLine($"Warning: Failed to update memory in Neo4j during bidirectional sync: {ex.Message}");
+            }
+
+            return Ok(memory);
+        }        /// <summary>
         /// Deletes a memory item for a specific user.
+        /// Implements safe deletion: removes from both SQLite and Neo4j.
+        /// Note: For safety, deleting from Neo4j alone (via graph operations) won't auto-delete from SQLite.
         /// </summary>
         /// <param name="userId">User ID</param>
         /// <param name="id">Memory ID</param>
@@ -214,25 +237,55 @@ namespace SwAIvyn.Controllers
                 return NotFound($"Memory not found or not accessible by user {userId}");
             }
 
-            // Remove from database
+            // Remove from SQLite database
             _dbContext.Memories.Remove(memory);
             await _dbContext.SaveChangesAsync();
 
-            // Remove from graph database
+            // Remove from Neo4j graph database
             try
             {
                 await _brainGraphService.DeleteMemoryAsync(id);
+                Console.WriteLine($"Successfully deleted memory {id} from both SQLite and Neo4j");
             }
             catch (Exception ex)
             {
-                // Log error but don't fail the request - memory is already deleted from database
-                Console.WriteLine($"Warning: Failed to delete memory from graph database: {ex.Message}");
+                // Log error but don't fail the request - memory is already deleted from SQLite
+                Console.WriteLine($"Warning: Failed to delete memory from Neo4j during bidirectional sync: {ex.Message}");
             }
 
             return NoContent();
         }
 
         /// <summary>
+        /// Safely deletes a memory only from Neo4j (keeps SQLite backup).
+        /// This implements the safety mechanism where deleting from Neo4j doesn't auto-delete from SQLite.
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <param name="id">Memory ID</param>
+        /// <returns>Action result</returns>
+        [HttpDelete("neo4j-only/{userId}/{id}")]
+        public async Task<IActionResult> DeleteMemoryFromNeo4jOnly(Guid userId, Guid id)
+        {
+            // Verify the memory exists and belongs to the user
+            var memory = await _dbContext.Memories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
+            if (memory == null)
+            {
+                return NotFound($"Memory not found or not accessible by user {userId}");
+            }
+
+            // Remove only from Neo4j graph database (SQLite backup remains)
+            try
+            {
+                await _brainGraphService.DeleteMemoryAsync(id);
+                Console.WriteLine($"Successfully deleted memory {id} from Neo4j only (SQLite backup preserved)");
+                return Ok(new { message = "Memory removed from Neo4j, SQLite backup preserved" });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to delete memory from Neo4j: {ex.Message}");
+                return StatusCode(500, $"Failed to delete memory from Neo4j: {ex.Message}");
+            }
+        }        /// <summary>
         /// Rebuilds the graph database by adding all existing memories to it.
         /// This is useful for migrating existing memories to the graph database.
         /// </summary>
@@ -277,6 +330,163 @@ namespace SwAIvyn.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, $"Error rebuilding graph: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Restores a specific memory from SQLite backup to Neo4j.
+        /// Useful when memories exist in SQLite but are missing from Neo4j.
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <param name="id">Memory ID to restore</param>
+        /// <returns>Restore result</returns>
+        [HttpPost("restore-to-neo4j/{userId}/{id}")]
+        public async Task<IActionResult> RestoreMemoryToNeo4j(Guid userId, Guid id)
+        {
+            try
+            {
+                var memory = await _dbContext.Memories.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
+                if (memory == null)
+                {
+                    return NotFound($"Memory not found in SQLite backup for user {userId}");
+                }
+
+                var metadata = new Dictionary<string, string>
+                {
+                    { "category", memory.Category },
+                    { "userId", memory.UserId.ToString() },
+                    { "isShared", memory.IsShared.ToString() },
+                    { "createdAt", memory.CreatedAt.ToString("O") },
+                    { "lastAccessed", memory.LastAccessed.ToString("O") },
+                    { "source", "sqlite-restore" }
+                };
+
+                var success = await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata);
+                
+                if (success)
+                {
+                    Console.WriteLine($"Successfully restored memory {id} from SQLite to Neo4j");
+                    return Ok(new { message = "Memory restored to Neo4j from SQLite backup", memoryId = id });
+                }
+                else
+                {
+                    return StatusCode(500, "Failed to restore memory to Neo4j");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error restoring memory {id}: {ex.Message}");
+                return StatusCode(500, $"Error restoring memory: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Synchronizes memories bidirectionally between SQLite and Neo4j.
+        /// Handles missing memories in either direction.
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>Synchronization results</returns>
+        [HttpPost("sync-bidirectional/{userId}")]
+        public async Task<IActionResult> SyncBidirectional(Guid userId)
+        {
+            try
+            {
+                var sqliteMemories = await _dbContext.Memories
+                    .Where(m => m.UserId == userId)
+                    .ToListAsync();
+
+                var neo4jMemoryIds = await _brainGraphService.GetAllMemoryIdsAsync(userId);
+
+                var sqliteIds = sqliteMemories.Select(m => m.Id).ToHashSet();
+                var neo4jIds = neo4jMemoryIds.ToHashSet();
+
+                var missingInNeo4j = sqliteIds.Except(neo4jIds).ToList();
+                var missingInSqlite = neo4jIds.Except(sqliteIds).ToList();
+
+                int restoredToNeo4j = 0;
+                int restoredToSqlite = 0;
+                var errors = new List<string>();
+
+                // Restore missing memories to Neo4j
+                foreach (var memoryId in missingInNeo4j)
+                {
+                    try
+                    {
+                        var memory = sqliteMemories.First(m => m.Id == memoryId);
+                        var metadata = new Dictionary<string, string>
+                        {
+                            { "category", memory.Category },
+                            { "userId", memory.UserId.ToString() },
+                            { "isShared", memory.IsShared.ToString() },
+                            { "createdAt", memory.CreatedAt.ToString("O") },
+                            { "source", "bidirectional-sync" }
+                        };
+
+                        if (await _brainGraphService.AddMemoryAsync(memory.Id, memory.Content, metadata))
+                        {
+                            restoredToNeo4j++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"Failed to restore memory {memoryId} to Neo4j: {ex.Message}");
+                    }
+                }
+
+                // For memories missing in SQLite, we create placeholder entries (per your requirement)
+                foreach (var memoryId in missingInSqlite)
+                {
+                    try
+                    {
+                        var searchResults = await _brainGraphService.SearchAsync($"memory_id:{memoryId}", limit: 1);
+                        if (searchResults.Any())
+                        {
+                            var result = searchResults.First();
+                            var hit = result.Hit;
+
+                            var content = hit.Metadata?.TryGetValue("content", out var contentValue) == true ? contentValue : "Memory content from Neo4j";
+                            var category = hit.Metadata?.TryGetValue("category", out var cat) == true ? cat : "Neo4j Memory";
+                            var createdAtStr = hit.Metadata?.TryGetValue("createdAt", out var created) == true ? created : DateTime.UtcNow.ToString("O");
+                            var isSharedStr = hit.Metadata?.TryGetValue("isShared", out var shared) == true ? shared : "false";
+
+                            DateTime.TryParse(createdAtStr, out var createdAt);
+                            bool.TryParse(isSharedStr, out var isShared);
+
+                            var memory = new MemoryItem
+                            {
+                                Id = memoryId,
+                                UserId = userId,
+                                Content = content,
+                                Category = category,
+                                IsShared = isShared,
+                                CreatedAt = createdAt == default ? DateTime.UtcNow : createdAt,
+                                LastAccessed = DateTime.UtcNow
+                            };
+
+                            _dbContext.Memories.Add(memory);
+                            await _dbContext.SaveChangesAsync();
+                            restoredToSqlite++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"Failed to restore memory {memoryId} to SQLite: {ex.Message}");
+                    }
+                }
+
+                return Ok(new 
+                { 
+                    message = "Bidirectional sync completed",
+                    restoredToNeo4j,
+                    restoredToSqlite,
+                    totalSqlite = sqliteMemories.Count + restoredToSqlite,
+                    totalNeo4j = neo4jMemoryIds.Count + restoredToNeo4j,
+                    errors = errors.Count > 0 ? errors : null
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error during bidirectional sync: {ex.Message}");
             }
         }
     }
