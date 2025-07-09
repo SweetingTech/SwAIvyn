@@ -403,7 +403,9 @@ namespace SwAIvyn.Controllers
                 }
 
                 dynamic finalStatus = finalStatusResult.Value;
-                int remainingMissing = finalStatus.MissingInNeo4j.Count;                var result = new
+                int remainingMissing = finalStatus.MissingInNeo4j.Count;
+                
+                var result = new
                 {
                     message = $"Full sync completed: {missingCount} → {remainingMissing} missing rows",
                     userId = userId,
@@ -492,8 +494,8 @@ namespace SwAIvyn.Controllers
                             continue;
                         }
 
-                        var result = searchResults.First();
-                        var hit = result.Hit;
+                        var searchResult = searchResults.First();
+                        var hit = searchResult.Hit;
 
                         // Extract content and metadata from Neo4j
                         var content = hit.Metadata?.TryGetValue("content", out var contentValue) == true ? contentValue : "Memory content not available";
@@ -541,7 +543,9 @@ namespace SwAIvyn.Controllers
                         });
                         _logger.LogError($"❌ Failed to sync memory {memoryId} from Neo4j to SQLite: {ex.Message}");
                     }
-                }                var repairResult = new
+                }
+
+                var result = new
                 {
                     UserId = userId,
                     TotalMissingMemories = missingInSqlite.Count,
@@ -553,7 +557,7 @@ namespace SwAIvyn.Controllers
 
                 _logger.LogInfo($"🎉 Reverse repair completed - Success: {successCount}, Failed: {failureCount}");
 
-                return Ok(repairResult);
+                return Ok(result);
             }
             catch (Exception ex)
             {

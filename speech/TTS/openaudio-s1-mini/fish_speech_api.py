@@ -59,31 +59,29 @@ tts_engine: Optional[TTSInferenceEngine] = None
 voice_cache: Dict[str, Any] = {}
 device_info: str = ""
 
-# Configuration - Fish Speech expects model directory structure
+# Configuration - Fish Speech model files are in the current directory
 VOICES_DIR = Path(__file__).parent / "voices"
-MODEL_DIR = Path(__file__).parent / "fish_speech_model"  # Point to model directory
+MODEL_PATH = Path(__file__).parent / "model.pth"  # Direct path to model.pth
 CODEC_PATH = Path(__file__).parent / "codec.pth"
 
 def setup_device():
     """Setup the best available device for processing."""
     global device_info
     
-    # Auto-detect best device (GPU preferred)
-    device = "cpu"  # Default fallback
+    # Use torch.device everywhere, not bare strings
+    device = torch.device("cpu")  # Default fallback
     device_info = "cpu"
     
     if torch.cuda.is_available():
-        gpu_name = torch.cuda.get_device_name(0)
-        compute_capability = torch.cuda.get_device_capability(0)
+        # pick the first GPU and set it as default
+        device = torch.device("cuda:0")
+        torch.cuda.set_device(device)
+        gpu_name = torch.cuda.get_device_name(device)
+        compute_capability = torch.cuda.get_device_capability(device)
         
-        # Check if GPU is compatible (RTX 5060 Ti should be SM_89)
-        if compute_capability[0] >= 6:  # SM_60 and above (includes RTX 5060 Ti)
-            device = "cuda"
-            device_info = f"gpu ({gpu_name})"
-            logger.info(f"[GPU] Using GPU: {gpu_name} (SM_{compute_capability[0]}.{compute_capability[1]})")
-        else:
-            logger.warning(f"[WARNING] GPU {gpu_name} (SM_{compute_capability[0]}.{compute_capability[1]}) not compatible, using CPU")
-            device_info = f"cpu (GPU {gpu_name} incompatible)"
+        # We know Blackwell cards have SM>=8.x – assume OK
+        device_info = f"gpu ({gpu_name}, SM_{compute_capability[0]}.{compute_capability[1]})"
+        logger.info(f"[GPU] Using GPU: {device_info}")
     
     logger.info(f"Device: {device_info}")
     return device
@@ -94,44 +92,53 @@ def load_fish_speech_models():
     
     logger.info("[LOADING] Loading Fish Speech models...")
 
+    # setup_device now returns a torch.device object
     device = setup_device()
-    # Use half precision on GPU for better performance, float32 on CPU
-    precision = torch.float16 if device == "cuda" else torch.float32
+    # Use half-precision on GPU, full on CPU
+    precision = torch.float16 if device.type == "cuda" else torch.float32
+
+    # enable cudnn autotuner for best convolution performance
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
 
     try:
         # Check if model files exist
-        model_pth = MODEL_DIR / "model.pth"
+        model_pth = MODEL_PATH
         if not model_pth.exists():
             raise FileNotFoundError(f"Model file not found: {model_pth}")
         if not CODEC_PATH.exists():
             raise FileNotFoundError(f"Codec file not found: {CODEC_PATH}")
 
-        logger.info(f"[MODEL] Loading LLAMA model from: {MODEL_DIR}")
+        logger.info(f"[MODEL] Loading LLAMA model from: {MODEL_PATH}")
 
-        # Load LLAMA model (text2semantic)
+        # Launch LLAMA text2semantic on the GPU
         llama_queue = launch_thread_safe_queue(
-            checkpoint_path=str(MODEL_DIR),  # Pass directory path, not file path
+            checkpoint_path=str(MODEL_PATH.parent),
             device=device,
             precision=precision,
-            compile=False  # Disable compilation for compatibility
+            compile=False
         )
 
         logger.info(f"[CODEC] Loading Decoder model from: {CODEC_PATH}")
 
-        # Load decoder model (DAC)
+        # Load the vocoder/decoder onto the same device
         decoder_model = load_decoder_model(
-            config_name="modded_dac_vq",  # Correct config for openaudio-s1-mini
+            config_name="modded_dac_vq",
             checkpoint_path=str(CODEC_PATH),
             device=device
         )
 
-        # Create TTS inference engine
+        # Tell the engine explicitly which device to use
         tts_engine = TTSInferenceEngine(
             llama_queue=llama_queue,
             decoder_model=decoder_model,
             precision=precision,
             compile=False
         )
+
+        # free any stray CPU memory
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
 
         logger.info("[WARMUP] Warming up models...")
 
@@ -239,18 +246,18 @@ def synthesize_with_fish_speech(text: str, voice_name: str = None) -> bytes:
             logger.error(f"Failed to read voice file {voice_data['audio_path']}: {e}")
             references = []
     
-    # Create TTS request
-    request = ServeTTSRequest(
-        text=text,
-        references=references,
-        reference_id=None,
-        max_new_tokens=2048 if device_info.startswith("gpu") else 1024,  # Higher for GPU
-        chunk_length=200 if device_info.startswith("gpu") else 100,     # Larger chunks for GPU
-        top_p=0.8,
-        repetition_penalty=1.1,
-        temperature=0.8,
-        format="wav",
-    )
+        # Create TTS request
+        request = ServeTTSRequest(
+            text=text,
+            references=references,
+            reference_id=None,
+            max_new_tokens=2048 if device_info.startswith("gpu") else 1024,  # Higher for GPU
+            chunk_length=200 if device_info.startswith("gpu") else 100,     # Larger chunks for GPU
+            top_p=0.8,
+            repetition_penalty=1.1,
+            temperature=0.8,
+            format="wav",
+        )
     
     # Generate audio
     audio_chunks = []
@@ -413,7 +420,7 @@ def main():
     port = int(port)
     
     print(f"[API] Starting Fish Speech TTS API on {host}:{port}")
-    print(f"[MODELS] Models: {MODEL_DIR / 'model.pth'}")
+    print(f"[MODELS] Models: {MODEL_PATH}")
     print(f"[VOICES] Voices: {VOICES_DIR}")
     
     import uvicorn

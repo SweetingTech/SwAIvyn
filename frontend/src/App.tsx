@@ -16,6 +16,8 @@ import MemoryBrowser from './pages/MemoryBrowser';
 import ConversationManagement from './pages/ConversationManagement';
 import KnowledgeUploadPage from './pages/KnowledgeUploadPage';
 import { InitializationProvider, useInitialization } from './contexts/InitializationContext';
+import { StagewiseToolbar } from '@stagewise/toolbar-react';
+import { ReactPlugin } from '@stagewise-plugins/react';
 
 // Initialize i18n
 import './i18n';
@@ -63,6 +65,7 @@ function App() {
   return (
     <InitializationProvider>
       <AppContent />
+      <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
     </InitializationProvider>
   );
 }
