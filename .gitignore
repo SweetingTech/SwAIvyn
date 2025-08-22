@@ -89,10 +89,15 @@ speech/TTS/**
 # But keep the .gitkeep files to preserve folder structure
 !speech/STT/.gitkeep
 !speech/TTS/.gitkeep
-# Allow the custom Fish Speech API scripts
-!speech/TTS/openaudio-s1-mini/fish_speech_api.py
-!speech/TTS/openaudio-s1-mini/fish_speech_api_enhanced.py
-!speech/TTS/openaudio-s1-mini/test_tts.py
+# Unignore TTS directories to allow custom voices
+!speech/TTS/
+!speech/TTS/openaudio-s1-mini/
+!speech/TTS/openaudio-s1-mini/**
+# Re-ignore large model checkpoints
+speech/TTS/openaudio-s1-mini/*.pth
+speech/TTS/openaudio-s1-mini/*.pt
+# Ignore voice audio samples (binary)
+speech/TTS/openaudio-s1-mini/voices/*.wav
 
 # Database exports (these are snapshots, not source)
 swai_database_export_*.json
@@ -103,6 +108,7 @@ swai_database_export_*.json
 
 # Log files
 *.log
+*.log.*
 logs/
 crash_*.txt
 [Ll]og/

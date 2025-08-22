@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - swai-network
+
+  backend:
+    build: ./backend
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=swai-db;Port=5432;Database=swai;Username=postgres;Password=secret
+    ports:
+      - "5000:80"
+    depends_on:
+      - swai-db
+      - neo4j
+      - weaviate
+      - tts
+      - stt
+    networks:
+      - swai-network
+
+  swai-db:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=swai
+    volumes:
+      - swai_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - swai-network
+
+  neo4j:
+    image: neo4j:5
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    networks:
+      - swai-network
+
+  weaviate:
+    image: semitechnologies/weaviate:1.27.0
+    environment:
+      QUERY_DEFAULTS_LIMIT: '25'
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+    ports:
+      - "8080:8080"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    networks:
+      - swai-network
+
+  tts:
+    build:
+      context: .
+      dockerfile: speech/TTS/openaudio-s1-mini/Dockerfile
+    ports:
+      - "8081:8081"
+    networks:
+      - swai-network
+
+  stt:
+    image: ghcr.io/ggerganov/whisper.cpp:main
+    command: ["--model", "tiny", "--host", "0.0.0.0", "--port", "9000"]
+    ports:
+      - "9000:9000"
+    networks:
+      - swai-network
+
+networks:
+  swai-network:
+    driver: bridge
+
+volumes:
+  swai_data:
+    driver: local
+  weaviate_data:
+    driver: local
