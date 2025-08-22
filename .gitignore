@@ -181,6 +181,7 @@ frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local
 frontend/.env.production.local
+.env
 
 # =============================================================================
 # OS AND SYSTEM FILES (IGNORE - system generated)

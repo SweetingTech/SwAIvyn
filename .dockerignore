@@ -1,0 +1,31 @@
+# Ignore Git repository
+.git
+.gitignore
+
+# Node and frontend artifacts
+node_modules
+frontend/node_modules
+frontend/dist
+frontend/build
+frontend/.cache
+frontend/coverage
+frontend/logs
+frontend/.env*
+
+# Python caches and compiled files
+**/__pycache__
+**/*.pyc
+
+# .NET build outputs
+backend/bin
+backend/obj
+
+# Environment files
+.env
+
+# Logs
+*.log
+logs
+
+# Speech assets not needed for build
+speech/TTS/openaudio-s1-mini/voices/*.wav

@@ -16,23 +16,33 @@ services:
     build: ./backend
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Host=swai-db;Port=5432;Database=swai;Username=postgres;Password=secret
+      - ConnectionStrings__DefaultConnection=Host=swai-db;Port=5432;Database=swai;Username=postgres;Password=${POSTGRES_PASSWORD}
     ports:
       - "5000:80"
     depends_on:
-      - swai-db
-      - neo4j
-      - weaviate
-      - tts
-      - stt
+      swai-db:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+      weaviate:
+        condition: service_started
+      tts:
+        condition: service_started
+      stt:
+        condition: service_started
     networks:
       - swai-network
 
   swai-db:
     image: postgres:16
     environment:
-      - POSTGRES_PASSWORD=secret
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=swai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - swai_data:/var/lib/postgresql/data
     ports:
@@ -43,7 +53,7 @@ services:
   neo4j:
     image: neo4j:5
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -54,7 +64,7 @@ services:
     image: semitechnologies/weaviate:1.27.0
     environment:
       QUERY_DEFAULTS_LIMIT: '25'
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'false'
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
     ports:
       - "8080:8080"

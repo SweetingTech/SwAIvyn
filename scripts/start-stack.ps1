@@ -4,4 +4,4 @@ param (
 )
 
 Write-Host "Starting SwAIvyn stack via Docker Compose..." -ForegroundColor Cyan
-docker compose -f $ComposeFile up --build
+docker compose -f $ComposeFile up --build -d --remove-orphans

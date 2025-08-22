@@ -347,6 +347,14 @@ builder.Services.AddCors(opts =>
 });
 
 var app = builder.Build();
+
+// Apply any pending Entity Framework Core migrations at startup
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    db.Database.Migrate();
+}
+
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
 // Start terminal logging to mirror console output to log files
