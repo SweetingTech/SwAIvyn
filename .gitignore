@@ -219,3 +219,14 @@ SwAIvyn.lnk
 
 # Keep essential configuration files (these are templates/source)
 # Note: Runtime configs are ignored above, but source configs are kept
+
+# Weaviate runtime data and vector index segments
+weaviate_data/
+weaviate/
+segments/
+**/segments/
+**/data/segments/
+
+# Docker ignore (mirrors .dockerignore)
+.dockerignore
+
