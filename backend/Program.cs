@@ -163,8 +163,18 @@ try
         Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
     }
 
-    Console.WriteLine("[STARTUP] Performing aggressive port cleanup (Neo4j, Fish Speech)...");
-    CleanupAllRequiredPorts();
+    // Only perform port cleanup when using embedded Neo4j to avoid killing Docker port proxies
+    var cfgTmp = new ConfigurationBuilder().AddJsonFile("appsettings.json", optional: true).AddEnvironmentVariables().Build();
+    var embeddedTmp = cfgTmp.GetValue<bool>("AppSettings:Neo4jEmbedded", true);
+    if (embeddedTmp)
+    {
+        Console.WriteLine("[STARTUP] Performing aggressive port cleanup (Neo4j, Fish Speech)...");
+        CleanupAllRequiredPorts();
+    }
+    else
+    {
+        Console.WriteLine("[STARTUP] Skipping port cleanup because Neo4jEmbedded=false (external Neo4j expected)");
+    }
 }
 catch (Exception ex)
 {
@@ -201,14 +211,17 @@ builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
     var conn = cfg.GetConnectionString("DefaultConnection");
     var dataDir = cfg["AppSettings:DataDirectory"] ?? "../data";
 
+    var env = sp.GetRequiredService<IHostEnvironment>();
+    var baseDir = env.ContentRootPath;
+
     var resolvedDir = Path.IsPathRooted(dataDir)
         ? dataDir
-        : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, dataDir));
+        : Path.GetFullPath(Path.Combine(baseDir, dataDir));
 
     var csb = new SqliteConnectionStringBuilder(conn);
     if (!string.IsNullOrEmpty(csb.DataSource) && !Path.IsPathRooted(csb.DataSource))
     {
-        csb.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csb.DataSource));
+        csb.DataSource = Path.GetFullPath(Path.Combine(baseDir, csb.DataSource));
     }
     conn = csb.ToString();
 
@@ -226,14 +239,17 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, options) =>
     var conn = cfg.GetConnectionString("DefaultConnection");
     var dataDir = cfg["AppSettings:DataDirectory"] ?? "../data";
 
+    var env = sp.GetRequiredService<IHostEnvironment>();
+    var baseDir = env.ContentRootPath;
+
     var resolvedDir = Path.IsPathRooted(dataDir)
         ? dataDir
-        : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, dataDir));
+        : Path.GetFullPath(Path.Combine(baseDir, dataDir));
 
     var csb = new SqliteConnectionStringBuilder(conn);
     if (!string.IsNullOrEmpty(csb.DataSource) && !Path.IsPathRooted(csb.DataSource))
     {
-        csb.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, csb.DataSource));
+        csb.DataSource = Path.GetFullPath(Path.Combine(baseDir, csb.DataSource));
     }
     conn = csb.ToString();
 
@@ -281,6 +297,8 @@ builder.Services.AddScoped<IEmbeddingService, SimpleEmbeddingService>();
 builder.Services.AddScoped<Neo4jVectorStore>();
 builder.Services.AddHttpClient<WeaviateVectorStore>();
 builder.Services.AddSingleton<WeaviateVectorStore>();
+// Satisfy IVectorStore for health checks using Weaviate as default implementation
+builder.Services.AddSingleton<IVectorStore>(sp => sp.GetRequiredService<WeaviateVectorStore>());
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("WorkerApi");
 builder.Services.AddScoped<IVectorRouter, VectorRouter>();
@@ -734,6 +752,71 @@ app.UseAuthorization();
 logger.LogInfo("[ROUTING] Mapping controllers...");
 app.MapControllers();
 logger.LogInfo("[ROUTING] Controllers mapped successfully");
+
+// Aggregated health endpoint
+app.MapGet("/api/health", async (
+    IDatabaseInitializer db,
+    INeo4jService neo,
+    WeaviateVectorStore weav,
+    IHttpClientFactory httpFactory,
+    IConfiguration config
+) =>
+{
+    var client = httpFactory.CreateClient();
+    async Task<string> CheckHttp(string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl)) return "unknown";
+        try
+        {
+            var resp = await client.GetAsync(baseUrl.TrimEnd('/') + "/health");
+            if (!resp.IsSuccessStatusCode)
+                resp = await client.GetAsync(baseUrl);
+            return resp.IsSuccessStatusCode ? "online" : "offline";
+        }
+        catch { return "offline"; }
+    }
+
+    var redisConn = config["AppSettings:Redis:ConnectionString"] ?? "localhost:6379";
+    var redisStatus = "unknown";
+    try
+    {
+        var parts = redisConn.Split(":");
+        var host = parts[0];
+        var port = parts.Length > 1 && int.TryParse(parts[1], out var p) ? p : 6379;
+        using var tcp = new System.Net.Sockets.TcpClient();
+        var ctask = tcp.ConnectAsync(host, port);
+        var timeout = Task.Delay(TimeSpan.FromSeconds(2));
+        var done = await Task.WhenAny(ctask, timeout);
+        redisStatus = (done != timeout && tcp.Connected) ? "online" : "offline";
+    }
+    catch { redisStatus = "offline"; }
+
+    var graphragUrl = config["AppSettings:GraphRag:BaseUrl"] ?? "http://localhost:8001";
+    var sttUrl = config["AppSettings:SttUrl"] ?? "http://localhost:8002";
+    var ttsUrl = config["FishSpeech:BaseUrl"] ?? "http://localhost:5002";
+
+    var sqliteOk = await db.CanConnectAsync();
+    var neoOk = await neo.PingAsync();
+    var weavOk = await weav.HealthCheckAsync();
+
+    return Results.Ok(new
+    {
+        sqlite = sqliteOk ? "online" : "offline",
+        weaviate = weavOk ? "online" : "offline",
+        neo4j = neoOk ? "online" : "offline",
+        redis = redisStatus,
+        graphrag = await CheckHttp(graphragUrl),
+        stt = await CheckHttp(sttUrl),
+        tts = await CheckHttp(ttsUrl),
+        llm = new
+        {
+            ollama = await CheckHttp(config["AppSettings:OllamaApiUrl"]),
+            lmstudio = await CheckHttp(config["AppSettings:LmStudioApiUrl"]),
+            openai = await CheckHttp(config["AppSettings:OpenAiApiUrl"]),
+            claude = await CheckHttp(config["AppSettings:ClaudeApiUrl"])
+        }
+    });
+}).RequireCors("CorsPolicy");
 
 app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
 app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");

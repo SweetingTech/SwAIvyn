@@ -11,12 +11,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/hubs': {
-        target: 'http://localhost:5000',
+        target: 'http://host.docker.internal:5000',
         changeOrigin: true,
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://host.docker.internal:5000',
         changeOrigin: true,
       }
     }

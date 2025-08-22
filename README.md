@@ -61,24 +61,25 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Installation
 
-#### Single-Executable Release (Recommended)
+#### Hybrid (Recommended)
 
-1. Download the latest release from the [Releases page](https://github.com/SweetingTech/SwAIvyn/releases)
-2. Run the executable
-3. Follow the on-screen setup instructions
+1.  **Prerequisites:**
+    *   [Docker Desktop](https://www.docker.com/products/docker-desktop/) must be installed and running in **Linux container mode**.
+    *   [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) must be installed.
+    *   [Node.js](https://nodejs.org/) (v16+) and npm must be installed.
+    *   An external Whisper STT service must be running and accessible at `http://localhost:8002`.
 
-#### Manual Build
+2.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/SweetingTech/SwAIvyn.git
+    cd SwAIvyn
+    ```
 
-```bash
-# Clone the repository
-git clone https://github.com/SweetingTech/SwAIvyn.git
-cd SwAIvyn
-
-# Build the backend
-dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
-
-# The executable will be in bin/Release/net8.0/win-x64/publish/
-```
+3.  **Run the application:**
+    ```powershell
+    ./run-hybrid-dev.ps1
+    ```
+    This will start the supporting services in Docker and run the backend directly on your machine. The application will be available at `http://localhost:5173`.
 
 ### First-Time Setup
 
