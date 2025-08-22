@@ -15,8 +15,8 @@ services:
   backend:
     build: ./backend
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Host=swai-db;Port=5432;Database=swai;Username=postgres;Password=${POSTGRES_PASSWORD}
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=swai-db;Port=5432;Database=swai;Username=postgres;Password=${POSTGRES_PASSWORD}"
     ports:
       - "5000:80"
     depends_on:

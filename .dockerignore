@@ -12,6 +12,10 @@ frontend/coverage
 frontend/logs
 frontend/.env*
 
+# Development scripts and tooling
+scripts
+tools
+
 # Python caches and compiled files
 **/__pycache__
 **/*.pyc
