@@ -6,7 +6,8 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - swai-network
 
@@ -28,17 +29,23 @@ services:
       - "5000:8080"
     depends_on:
       neo4j:
-        condition: service_started
+        condition: service_healthy
       weaviate:
-        condition: service_started
+        condition: service_healthy
       tts:
-        condition: service_started
+        condition: service_healthy
       stt:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./data:/data
     networks:
       - swai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
 
   swai-db:
     image: postgres:16
@@ -63,19 +70,45 @@ services:
       - "7687:7687"
     networks:
       - swai-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   weaviate:
     image: semitechnologies/weaviate:1.27.0
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--scheme" 
+      - "http"
+      - "--config-file"
+      - "/weaviate/config.yaml"
     environment:
       QUERY_DEFAULTS_LIMIT: '25'
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: ''
+      LOG_LEVEL: 'info'
+      LOG_FORMAT: 'text'
     ports:
       - "8080:8080"
     volumes:
       - weaviate_data:/var/lib/weaviate
+      - ./weaviate-config.yaml:/weaviate/config.yaml:ro
     networks:
       - swai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/v1/.well-known/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   tts:
     build:
@@ -85,14 +118,27 @@ services:
       - "8081:8081"
     networks:
       - swai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   stt:
-    image: ghcr.io/ggerganov/whisper.cpp:main
-    command: ["--model", "tiny", "--host", "0.0.0.0", "--port", "9000"]
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    environment:
+      ASR_MODEL: tiny
     ports:
       - "9000:9000"
     networks:
       - swai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/docs || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
 networks:
   swai-network:
