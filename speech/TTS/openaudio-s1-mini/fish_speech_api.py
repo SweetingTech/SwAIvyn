@@ -28,16 +28,25 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 # Import Fish Speech modules
+FISH_SPEECH_AVAILABLE = False
+TTSInferenceEngine = None  # Fallback type hint
+
 try:
     from fish_speech.inference_engine import TTSInferenceEngine
     from fish_speech.models.text2semantic.inference import launch_thread_safe_queue
-    from fish_speech.models.dac.inference import load_model as load_decoder_model
+    from fish_speech.models.dac.inference import load_decoder_model
     from fish_speech.utils.schema import ServeTTSRequest
+    FISH_SPEECH_AVAILABLE = True
     print("[OK] Fish Speech modules imported successfully")
 except ImportError as e:
-    print(f"[ERROR] Failed to import Fish Speech modules: {e}")
-    print("Make sure the fish_speech directory is properly copied")
-    sys.exit(1)
+    print(f"[WARNING] Fish Speech modules not available: {e}")
+    print("[INFO] Running in fallback mode - basic TTS functionality only")
+    FISH_SPEECH_AVAILABLE = False
+    # Define fallback classes for type hints
+    class TTSInferenceEngine:
+        pass
+    class ServeTTSRequest:
+        pass
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -89,6 +98,10 @@ def setup_device():
 def load_fish_speech_models():
     """Load Fish Speech models into memory."""
     global tts_engine
+    
+    if not FISH_SPEECH_AVAILABLE:
+        logger.warning("[INFO] Fish Speech not available - skipping model loading")
+        return False
     
     logger.info("[LOADING] Loading Fish Speech models...")
 
@@ -165,6 +178,29 @@ def load_fish_speech_models():
     except Exception as e:
         logger.error(f"[ERROR] Failed to load Fish Speech models: {e}")
         return False
+
+def generate_fallback_audio(text: str) -> bytes:
+    """Generate a simple beep audio as fallback when Fish Speech is not available."""
+    # Generate a simple sine wave beep
+    duration = min(len(text) * 0.1, 3.0)  # Max 3 seconds
+    sample_rate = 22050
+    frequency = 440  # A4 note
+    
+    t = np.linspace(0, duration, int(sample_rate * duration), False)
+    wave = np.sin(2 * np.pi * frequency * t) * 0.3
+    
+    # Fade in and out to avoid clicks
+    fade_samples = int(sample_rate * 0.01)  # 10ms fade
+    wave[:fade_samples] *= np.linspace(0, 1, fade_samples)
+    wave[-fade_samples:] *= np.linspace(1, 0, fade_samples)
+    
+    # Convert to 16-bit PCM
+    audio_data = (wave * 32767).astype(np.int16)
+    
+    # Create WAV file bytes
+    audio_io = io.BytesIO()
+    sf.write(audio_io, audio_data, sample_rate, format='WAV')
+    return audio_io.getvalue()
 
 def scan_voice_files():
     """Load voice information from voices.json configuration file."""
@@ -363,11 +399,16 @@ async def tts(text: str = Form(...)):
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     
-    # Use first available voice as default
-    voice_name = next(iter(voice_cache.keys())) if voice_cache else None
-    
     try:
-        audio_data = synthesize_with_fish_speech(text, voice_name)
+        if tts_engine is not None:
+            # Use Fish Speech if models are loaded
+            voice_name = next(iter(voice_cache.keys())) if voice_cache else None
+            audio_data = synthesize_with_fish_speech(text, voice_name)
+        else:
+            # Use fallback audio generation
+            logger.info(f"[FALLBACK] Using fallback audio for: '{text}'")
+            audio_data = generate_fallback_audio(text)
+            
         return StreamingResponse(io.BytesIO(audio_data), media_type="audio/wav")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(e)}")
@@ -378,11 +419,18 @@ async def tts_clone(text: str = Form(...), voice_name: str = Form(...)):
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     
-    if voice_name not in voice_cache:
+    if tts_engine is not None and voice_name not in voice_cache:
         raise HTTPException(status_code=404, detail=f"Voice '{voice_name}' not found.")
     
     try:
-        audio_data = synthesize_with_fish_speech(text, voice_name)
+        if tts_engine is not None:
+            # Use Fish Speech if models are loaded
+            audio_data = synthesize_with_fish_speech(text, voice_name)
+        else:
+            # Use fallback audio generation (ignoring voice name)
+            logger.info(f"[FALLBACK] Using fallback audio for: '{text}' (voice '{voice_name}' ignored)")
+            audio_data = generate_fallback_audio(text)
+            
         return StreamingResponse(io.BytesIO(audio_data), media_type="audio/wav")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(e)}")

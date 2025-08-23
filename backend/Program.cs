@@ -355,13 +355,6 @@ builder.Services.AddCors(opts =>
 
 var app = builder.Build();
 
-// Apply any pending Entity Framework Core migrations at startup
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
-}
-
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
 // Start terminal logging to mirror console output to log files
@@ -372,23 +365,26 @@ logger.LogInfo($"Terminal logging started. Log file: {terminalLogger.GetLogFileP
 // FishSpeechHostedService will start automatically as a hosted service
 logger.LogInfo("FishSpeechHostedService registered and will start automatically.");
 
-// Health checks
-logger.LogInfo("Performing startup health checks...");
-using (var scope = app.Services.CreateScope())
-{
-    var dbInit = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-    if (!await dbInit.CanConnectAsync())
-        logger.LogWarning("SQLite database connection check failed. Some features may be unavailable.");
-    else
-        logger.LogInfo("SQLite database connection check passed.");
-    logger.LogInfo("Startup health checks completed.");
-}
+logger.LogInfo("Starting HTTP server immediately - deferring heavy initialization to background tasks");
 
-// Initialize directories
+// Track initialization status for health checks
+var initializationStatus = new Dictionary<string, bool>
+{
+    { "directories", false },
+    { "database", false },
+    { "migrations", false },
+    { "users", false },
+    { "characters", false },
+    { "neo4j", false },
+    { "weaviate", false }
+};
+
+// Initialize directories (fast operation - do synchronously)
 try
 {
     logger.LogInfo("Initializing application directories...");
     app.Services.GetRequiredService<DirectoryInitializerService>().InitializeDirectories();
+    initializationStatus["directories"] = true;
     logger.LogInfo("Directory initialization completed successfully");
 }
 catch (Exception ex)
@@ -396,120 +392,114 @@ catch (Exception ex)
     logger.LogCritical("Failed to initialize directories", ex);
 }
 
-// Initialize database & default user
-try
-{
-    logger.LogInfo("Initializing database...");
-    using var scope = app.Services.CreateScope();
-    var dbInit = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
-    await dbInit.InitializeAsync();
-    logger.LogInfo("Database initialization completed successfully");
-
-    logger.LogInfo("Ensuring Users table and default user exist...");
-    await scope.ServiceProvider.GetRequiredService<IDirectDatabaseService>()
-               .CreateUsersTableAndDefaultUserAsync();
-    logger.LogInfo("Users table and default user initialization completed successfully");
-}
-catch (Exception ex)
-{
-    logger.LogCritical("Failed to initialize database", ex);
-    logger.LogWarning("Continuing startup despite database initialization failure");
-}
-
-logger.LogInfo("Skipping Neo4j database schema initialization - will be done after Neo4j runtime starts");
-
-// Initialize Weaviate vector store schema (deferred)
+// Defer all heavy initialization to background tasks
 _ = Task.Run(async () =>
 {
     try
     {
-        logger.LogInfo("[BG] Initializing Weaviate vector store schema...");
-        using var scope = app.Services.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
-        logger.LogInfo("[BG] Weaviate vector store schema initialization completed successfully");
-    }
-    catch (Exception ex)
-    {
-        logger.LogWarning($"[BG] Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
-    }
-});
-
-// --- Seed default user and AI profile on first run ---
-try
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-    Guid defaultUserId;
-    var existingUsers = db.Users.ToList();
-
-    if (existingUsers.Count == 0)
-    {
-        logger.LogInfo("No users found. Creating default user for single-user application...");
-        var defaultUser = new SwAIvyn.Data.Entities.AppUser
+        // Database migrations (can be slow)
+        logger.LogInfo("[BG] Applying Entity Framework Core migrations...");
+        using (var scope = app.Services.CreateScope())
         {
-            Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
-            Username = "Default User",
-            PasswordHash = "",
-            PINCode = "",
-            RecoveryPhrase = "",
-            CreatedAt = DateTime.UtcNow,
-            LastLogin = DateTime.UtcNow
-        };
-        db.Users.Add(defaultUser);
-        db.SaveChanges();
-        defaultUserId = defaultUser.Id;
-        logger.LogInfo($"Created default user: {defaultUserId}");
-    }
-    else if (existingUsers.Count == 1)
-    {
-        defaultUserId = existingUsers[0].Id;
-        logger.LogInfo($"Using existing single user: {defaultUserId}");
-    }
-    else
-    {
-        defaultUserId = existingUsers[0].Id;
-        logger.LogWarning($"Multiple users found ({existingUsers.Count}). Using first user: {defaultUserId}");
-    }
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await Task.Run(() => db.Database.Migrate());
+            initializationStatus["migrations"] = true;
+            logger.LogInfo("[BG] Database migrations completed successfully");
+        }
 
-    // Initialize default settings
-    await scope.ServiceProvider.GetRequiredService<ISettingsService>()
-               .InitializeDefaultSettingsAsync(defaultUserId);
-
-    // Load character cards
-    logger.LogInfo("Loading character cards from filesystem...");
-    await scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>()
-               .LoadCharacterCardsAsync();
-    logger.LogInfo("Character card loading completed");
-
-    // Ensure default character
-    logger.LogInfo("Ensuring GLaDOS default character is loaded...");
-    await scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>()
-               .EnsureDefaultCharacterAsync();
-    logger.LogInfo("GLaDOS default character loaded successfully");
-
-    // Create welcome conversation
-    if (!db.Conversations.Any())
-    {
-        logger.LogInfo("No conversations found. Creating welcome conversation...");
-        var convo = new SwAIvyn.Data.Entities.Conversation
+        // Database initialization
+        logger.LogInfo("[BG] Initializing database...");
+        using (var scope = app.Services.CreateScope())
         {
-            Id = Guid.NewGuid(),
-            UserId = defaultUserId,
-            Title = "Welcome to SwAIvyn! 🎉",
-            Summary = "Getting started guide and tutorial",
-            Status = "active",
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow,
-            LastOpenUtc = DateTime.UtcNow,
-            Tags = "welcome,tutorial,getting-started"
-        };
-        db.Conversations.Add(convo);
-        db.SaveChanges();
+            var dbInit = scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+            await dbInit.InitializeAsync();
+            initializationStatus["database"] = true;
+            logger.LogInfo("[BG] Database initialization completed successfully");
 
-        var messages = new[]
+            logger.LogInfo("[BG] Ensuring Users table and default user exist...");
+            await scope.ServiceProvider.GetRequiredService<IDirectDatabaseService>()
+                       .CreateUsersTableAndDefaultUserAsync();
+            initializationStatus["users"] = true;
+            logger.LogInfo("[BG] Users table and default user initialization completed successfully");
+        }
+
+        // Character and user setup (can be slow with filesystem operations)
+        logger.LogInfo("[BG] Setting up default user and AI profile...");
+        using (var scope = app.Services.CreateScope())
         {
-            new { Role="assistant", Content=@"# Welcome to SwAIvyn! 🎉
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            Guid defaultUserId;
+            var existingUsers = await db.Users.ToListAsync();
+
+            if (existingUsers.Count == 0)
+            {
+                logger.LogInfo("[BG] No users found. Creating default user for single-user application...");
+                var defaultUser = new SwAIvyn.Data.Entities.AppUser
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                    Username = "Default User",
+                    PasswordHash = "",
+                    PINCode = "",
+                    RecoveryPhrase = "",
+                    CreatedAt = DateTime.UtcNow,
+                    LastLogin = DateTime.UtcNow
+                };
+                db.Users.Add(defaultUser);
+                await db.SaveChangesAsync();
+                defaultUserId = defaultUser.Id;
+                logger.LogInfo($"[BG] Created default user: {defaultUserId}");
+            }
+            else if (existingUsers.Count == 1)
+            {
+                defaultUserId = existingUsers[0].Id;
+                logger.LogInfo($"[BG] Using existing single user: {defaultUserId}");
+            }
+            else
+            {
+                defaultUserId = existingUsers[0].Id;
+                logger.LogWarning($"[BG] Multiple users found ({existingUsers.Count}). Using first user: {defaultUserId}");
+            }
+
+            // Initialize default settings
+            await scope.ServiceProvider.GetRequiredService<ISettingsService>()
+                       .InitializeDefaultSettingsAsync(defaultUserId);
+
+            // Load character cards (can be slow with filesystem I/O)
+            logger.LogInfo("[BG] Loading character cards from filesystem...");
+            await scope.ServiceProvider.GetRequiredService<CharacterCardLoaderService>()
+                       .LoadCharacterCardsAsync();
+            logger.LogInfo("[BG] Character card loading completed");
+
+            // Ensure default character
+            logger.LogInfo("[BG] Ensuring GLaDOS default character is loaded...");
+            await scope.ServiceProvider.GetRequiredService<IDefaultCharacterService>()
+                       .EnsureDefaultCharacterAsync();
+            initializationStatus["characters"] = true;
+            logger.LogInfo("[BG] GLaDOS default character loaded successfully");
+
+            // Create welcome conversation
+            if (!await db.Conversations.AnyAsync())
+            {
+                logger.LogInfo("[BG] No conversations found. Creating welcome conversation...");
+                var convo = new SwAIvyn.Data.Entities.Conversation
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = defaultUserId,
+                    Title = "Welcome to SwAIvyn! 🎉",
+                    Summary = "Getting started guide and tutorial",
+                    Status = "active",
+                    CreatedUtc = DateTime.UtcNow,
+                    UpdatedUtc = DateTime.UtcNow,
+                    LastOpenUtc = DateTime.UtcNow,
+                    Tags = "welcome,tutorial,getting-started"
+                };
+                db.Conversations.Add(convo);
+                await db.SaveChangesAsync();
+
+                var messages = new[]
+                {
+                    new { Role="assistant", Content=@"# Welcome to SwAIvyn! 🎉
 
 Hello! I'm your AI assistant, and I'm excited to help you get started with SwAIvyn. This is a powerful AI chat application that lets you:
 
@@ -520,7 +510,7 @@ Hello! I'm your AI assistant, and I'm excited to help you get started with SwAIv
 📊 **Search through your chat history**
 
 Let me show you around!" },
-            new { Role="assistant", Content=@"## 🔧 Getting Started
+                    new { Role="assistant", Content=@"## 🔧 Getting Started
 
 **1. Choose your AI Engine:**
 - Go to Settings to configure Ollama or LM Studio
@@ -536,7 +526,7 @@ Let me show you around!" },
 - Create folders to organize conversations
 - Ask me anything - I'll remember our context
 - Use the search to find old conversations" },
-            new { Role="assistant", Content=@"## 🎯 Quick Tips
+                    new { Role="assistant", Content=@"## 🎯 Quick Tips
 
 **Settings Persistence:**
 - ✅ All settings save automatically
@@ -551,31 +541,37 @@ Let me show you around!" },
 - 🔍 Vector Search: Available (when SQLite-VSS loads)
 
 **Ready to start?** Try asking me a question, or feel free to delete this conversation once you're comfortable with the app!" }
-        };
+                };
 
-        foreach (var msg in messages)
-        {
-            db.ChatIndices.Add(new SwAIvyn.Data.Entities.ChatIndex
-            {
-                Id = Guid.NewGuid(),
-                ConversationId = convo.Id,
-                Content = msg.Content,
-                Embedding = "", // Assuming Embedding might also be non-nullable
-                Role = msg.Role,
-                FilePath = $"welcome_{Guid.NewGuid()}.json",
-                CreatedUtc = DateTime.UtcNow
-            });
+                foreach (var msg in messages)
+                {
+                    db.ChatIndices.Add(new SwAIvyn.Data.Entities.ChatIndex
+                    {
+                        Id = Guid.NewGuid(),
+                        ConversationId = convo.Id,
+                        Content = msg.Content,
+                        Embedding = "", // Assuming Embedding might also be non-nullable
+                        Role = msg.Role,
+                        FilePath = $"welcome_{Guid.NewGuid()}.json",
+                        CreatedUtc = DateTime.UtcNow
+                    });
+                }
+                await db.SaveChangesAsync();
+                logger.LogInfo("[BG] Created welcome conversation with tutorial messages.");
+            }
         }
-        db.SaveChanges();
-        logger.LogInfo("Created welcome conversation with tutorial messages.");
+
+        logger.LogInfo("[BG] Default user and AI profile setup completed successfully");
     }
-}
-catch (Exception ex)
-{
-    logger.LogError("Failed to seed default user and AI profile", ex);
-    if (ex.InnerException != null)
-        logger.LogError($"Inner exception: {ex.InnerException.Message}");
-}
+    catch (Exception ex)
+    {
+        logger.LogError("[BG] Failed during background database/user initialization", ex);
+        if (ex.InnerException != null)
+            logger.LogError($"[BG] Inner exception: {ex.InnerException.Message}");
+    }
+});
+
+logger.LogInfo("Skipping Neo4j database schema initialization - will be done after Neo4j runtime starts");
 
 // Initialize Weaviate vector store (deferred)
 _ = Task.Run(async () =>
