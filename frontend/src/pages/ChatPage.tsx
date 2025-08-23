@@ -14,7 +14,6 @@ import ChatSidebar from '../components/chat/ChatSidebar';
 import CharacterSelector from '../components/chat/CharacterSelector';
 import VoiceSelector from '../components/chat/VoiceSelector';
 import BrainExplorer from '../components/BrainExplorer';
-import useEngineModels from '../hooks/useEngineModels';
 
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
@@ -204,113 +203,70 @@ const ChatPage: React.FC = () => {
     sessionCharacter
   ]);
 
-  /* ---------------------------- LLM discovery --------------------------- */
-  const { data: ollamaModelsApi, error: ollamaError } = useEngineModels('ollama');
-  const { data: lmStudioModelsApi, error: lmStudioError } = useEngineModels('lmstudio');
-  const { data: openAiModelsApi, error: openAiError } = useEngineModels('openai');
-  const { data: claudeModelsApi, error: claudeError } = useEngineModels('claude');
-
+  /* ---------------------------- Load saved LLM options from database --------------------------- */
   useEffect(() => {
-    const llms: LlmOption[] = [
-      { value: 'default', label: 'Default LLM', engine: null, model: null }
-    ];
+    const loadSavedLlmOptions = async () => {
+      if (!user?.id) return;
 
-    /* Log API errors for debugging */
-    if (ollamaError) console.error('🔄 Chat: Ollama API error:', ollamaError);
-    if (lmStudioError) console.error('🔄 Chat: LM Studio API error:', lmStudioError);
-    if (openAiError) console.error('🔄 Chat: OpenAI API error:', openAiError);
-    if (claudeError) console.error('🔄 Chat: Claude API error:', claudeError);
+      try {
+        // Get saved settings from database
+        const settings = await chatService.getChatSettings(user.id);
+        console.log('🔄 Chat: Loaded saved settings from database:', settings);
 
-    /* Ollama */
-    if (Array.isArray(ollamaModelsApi) && ollamaModelsApi.length) {
-      ollamaModelsApi.forEach((m) =>
-        llms.push({
-          value: `ollama:${m}`,
-          label: `Ollama: ${m}`,
-          engine: 'ollama',
-          model: m
-        })
-      );
-    } else {
-      llms.push({
-        value: 'ollama:default',
-        label: 'Ollama (Default Model)',
-        engine: 'ollama',
-        model: null
-      });
-    }
+        // Create LLM options based on saved settings only
+        const llms: LlmOption[] = [
+          { value: 'default', label: 'Default LLM', engine: null, model: null }
+        ];
 
-    /* LM Studio */
-    if (
-      Array.isArray(lmStudioModelsApi?.data) &&
-      lmStudioModelsApi.data.length
-    ) {
-      (lmStudioModelsApi.data as { id: string }[]).forEach(({ id }) =>
-        llms.push({
-          value: `lmstudio:${id}`,
-          label: `LM Studio: ${id}`,
-          engine: 'lmstudio',
-          model: id
-        })
-      );
-    } else if (lmStudioModelsApi?.data?.id) {
-      const id = (lmStudioModelsApi.data as { id: string }).id;
-      llms.push({
-        value: `lmstudio:${id}`,
-        label: `LM Studio: ${id}`,
-        engine: 'lmstudio',
-        model: id
-      });
-    } else {
-      llms.push({
-        value: 'lmstudio:default',
-        label: 'LM Studio (Loaded Model)',
-        engine: 'lmstudio',
-        model: null
-      });
-    }
+        // Add the currently saved configuration as the primary option
+        if (settings.llmEngine && settings.llmModel) {
+          llms.push({
+            value: `${settings.llmEngine}:${settings.llmModel}`,
+            label: `${settings.llmEngine.charAt(0).toUpperCase() + settings.llmEngine.slice(1)}: ${settings.llmModel}`,
+            engine: settings.llmEngine,
+            model: settings.llmModel
+          });
+        } else if (settings.llmEngine) {
+          llms.push({
+            value: `${settings.llmEngine}:default`,
+            label: `${settings.llmEngine.charAt(0).toUpperCase() + settings.llmEngine.slice(1)} (Default)`,
+            engine: settings.llmEngine,
+            model: null
+          });
+        }
 
-    /* OpenAI */
-    if (Array.isArray(openAiModelsApi) && openAiModelsApi.length) {
-      openAiModelsApi.forEach((m) =>
-        llms.push({
-          value: `openai:${m}`,
-          label: `OpenAI: ${m}`,
-          engine: 'openai',
-          model: m
-        })
-      );
-    } else {
-      llms.push({
-        value: 'openai:default',
-        label: 'OpenAI (Default)',
-        engine: 'openai',
-        model: null
-      });
-    }
+        // Add other basic options for fallback
+        ['ollama', 'lmstudio', 'openai', 'claude'].forEach(engine => {
+          if (engine !== settings.llmEngine) {
+            llms.push({
+              value: `${engine}:default`,
+              label: `${engine.charAt(0).toUpperCase() + engine.slice(1)} (Default)`,
+              engine: engine,
+              model: null
+            });
+          }
+        });
 
-    /* Claude */
-    if (Array.isArray(claudeModelsApi) && claudeModelsApi.length) {
-      claudeModelsApi.forEach((m) =>
-        llms.push({
-          value: `claude:${m}`,
-          label: `Claude: ${m}`,
-          engine: 'claude',
-          model: m
-        })
-      );
-    } else {
-      llms.push({
-        value: 'claude:default',
-        label: 'Claude (Default)',
-        engine: 'claude',
-        model: null
-      });
-    }
+        console.log('🔄 Chat: LLM options from saved settings:', llms);
+        setAvailableLlms(llms);
 
-    console.log('🔄 Chat: Available LLMs updated:', llms);
-    setAvailableLlms(llms);
-  }, [ollamaModelsApi, lmStudioModelsApi, openAiModelsApi, claudeModelsApi, ollamaError, lmStudioError, openAiError, claudeError]);
+      } catch (error) {
+        console.error('🔄 Chat: Failed to load saved settings, using fallback options:', error);
+        
+        // Fallback options if database read fails
+        const fallbackLlms: LlmOption[] = [
+          { value: 'default', label: 'Default LLM', engine: null, model: null },
+          { value: 'ollama:default', label: 'Ollama (Default)', engine: 'ollama', model: null },
+          { value: 'lmstudio:default', label: 'LM Studio (Default)', engine: 'lmstudio', model: null },
+          { value: 'openai:default', label: 'OpenAI (Default)', engine: 'openai', model: null },
+          { value: 'claude:default', label: 'Claude (Default)', engine: 'claude', model: null }
+        ];
+        setAvailableLlms(fallbackLlms);
+      }
+    };
+
+    loadSavedLlmOptions();
+  }, [user?.id]); // Only run when user changes
 
   /* 🕵️‍♂️ Debug: track dropdown value + available list */
   useEffect(() => {
