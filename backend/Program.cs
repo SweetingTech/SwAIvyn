@@ -131,44 +131,51 @@ static void CleanupAllRequiredPorts()
 }
 
 // ─── Pre-startup: kill any existing SwAIvyn and Neo4j processes ───────────────
-try
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
-    var me = Process.GetCurrentProcess();
-    var others = Process.GetProcessesByName("SwAIvyn")
-                        .Where(p => p.Id != me.Id)
-                        .ToList();
-
-    if (others.Any())
+    try
     {
-        Console.WriteLine($"[STARTUP] Found {others.Count} existing SwAIvyn process(es). Terminating...");
-        foreach (var p in others)
+        var me = Process.GetCurrentProcess();
+        var others = Process.GetProcessesByName("SwAIvyn")
+                            .Where(p => p.Id != me.Id)
+                            .ToList();
+
+        if (others.Any())
         {
-            try
+            Console.WriteLine($"[STARTUP] Found {others.Count} existing SwAIvyn process(es). Terminating...");
+            foreach (var p in others)
             {
-                Console.WriteLine($"[STARTUP] Killing process {p.Id}...");
-                p.Kill();
-                p.WaitForExit(5000);
-                Console.WriteLine($"[STARTUP] Process {p.Id} terminated successfully");
+                try
+                {
+                    Console.WriteLine($"[STARTUP] Killing process {p.Id}...");
+                    p.Kill();
+                    p.WaitForExit(5000);
+                    Console.WriteLine($"[STARTUP] Process {p.Id} terminated successfully");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[STARTUP] Failed to kill process {p.Id}: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[STARTUP] Failed to kill process {p.Id}: {ex.Message}");
-            }
+            Console.WriteLine("[STARTUP] Waiting 3 seconds for cleanup...");
+            Thread.Sleep(3000);
         }
-        Console.WriteLine("[STARTUP] Waiting 3 seconds for cleanup...");
-        Thread.Sleep(3000);
-    }
-    else
-    {
-        Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
-    }
+        else
+        {
+            Console.WriteLine("[STARTUP] No existing SwAIvyn processes found");
+        }
 
-    Console.WriteLine("[STARTUP] Performing aggressive port cleanup (Neo4j, Fish Speech)...");
-    CleanupAllRequiredPorts();
+        Console.WriteLine("[STARTUP] Performing aggressive port cleanup (Neo4j, Fish Speech)...");
+        CleanupAllRequiredPorts();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[STARTUP] Error during Windows-specific startup cleanup: {ex.Message}");
+    }
 }
-catch (Exception ex)
+else
 {
-    Console.WriteLine($"[STARTUP] Error checking for existing processes: {ex.Message}");
+    Console.WriteLine("[STARTUP] Skipping Windows-specific port/process cleanup inside container.");
 }
 
 // ─── Build host ────────────────────────────────────────────────────────────────
@@ -411,18 +418,21 @@ catch (Exception ex)
 
 logger.LogInfo("Skipping Neo4j database schema initialization - will be done after Neo4j runtime starts");
 
-// Initialize Weaviate vector store schema
-try
+// Initialize Weaviate vector store schema (deferred)
+_ = Task.Run(async () =>
 {
-    logger.LogInfo("Initializing Weaviate vector store schema...");
-    using var scope = app.Services.CreateScope();
-    await scope.ServiceProvider.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
-    logger.LogInfo("Weaviate vector store schema initialization completed successfully");
-}
-catch (Exception ex)
-{
-    logger.LogWarning($"Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
-}
+    try
+    {
+        logger.LogInfo("[BG] Initializing Weaviate vector store schema...");
+        using var scope = app.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
+        logger.LogInfo("[BG] Weaviate vector store schema initialization completed successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning($"[BG] Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
+    }
+});
 
 // --- Seed default user and AI profile on first run ---
 try
@@ -567,17 +577,20 @@ catch (Exception ex)
         logger.LogError($"Inner exception: {ex.InnerException.Message}");
 }
 
-// Initialize Weaviate vector store
-try
+// Initialize Weaviate vector store (deferred)
+_ = Task.Run(async () =>
 {
-    logger.LogInfo("Initializing Weaviate vector store...");
-    await app.Services.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
-    logger.LogInfo("Weaviate vector store initialization completed successfully");
-}
-catch (Exception ex)
-{
-    logger.LogWarning($"Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
-}
+    try
+    {
+        logger.LogInfo("[BG] Initializing Weaviate vector store...");
+        await app.Services.GetRequiredService<WeaviateVectorStore>().InitializeAsync();
+        logger.LogInfo("[BG] Weaviate vector store initialization completed successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning($"[BG] Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
+    }
+});
 
 // Initialize Neo4j runtime + service
 var neo4jEmbedded = builder.Configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", false);
@@ -585,115 +598,125 @@ var requireNeo4j  = builder.Configuration.GetValue<bool>("AppSettings:RequireNeo
 logger.LogInfo($"Neo4j embedded mode is {(neo4jEmbedded ? "enabled" : "disabled")}");
 logger.LogInfo($"Neo4j required: {requireNeo4j}");
 
-try
+// Initialize Neo4j runtime + service (deferred)
+_ = Task.Run(async () =>
 {
-    var rt = app.Services.GetRequiredService<Neo4jRuntimeService>();
-    logger.LogInfo("Initializing Neo4j runtime...");
-    await rt.InitializeAsync();
-
-    if (neo4jEmbedded)
+    try
     {
-        logger.LogInfo("Waiting 30 seconds for Neo4j to fully start up...");
-        await Task.Delay(TimeSpan.FromSeconds(30));
-        logger.LogInfo("Neo4j startup delay completed");
+        var rt = app.Services.GetRequiredService<Neo4jRuntimeService>();
+        logger.LogInfo("[BG] Initializing Neo4j runtime...");
+        await rt.InitializeAsync();
+
+        if (neo4jEmbedded)
+        {
+            logger.LogInfo("[BG] Waiting 30 seconds for Neo4j to fully start up...");
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            logger.LogInfo("[BG] Neo4j startup delay completed");
+        }
+
+        using var scope = app.Services.CreateScope();
+        var nx = scope.ServiceProvider.GetRequiredService<INeo4jService>();
+
+        logger.LogInfo("[BG] Initializing Neo4j service...");
+        await nx.InitializeAsync();
+        logger.LogInfo("[BG] Neo4j service initialization completed successfully");
+
+        var ok = await nx.PingAsync();
+        if (!ok && requireNeo4j)
+        {
+            logger.LogCritical("[BG] Startup aborted: Neo4j service unavailable.");
+            Environment.Exit(1);
+        }
+        if (!ok)
+            logger.LogWarning("[BG] Neo4j offline - graph features disabled until reconnection.");
     }
-
-    using var scope = app.Services.CreateScope();
-    var nx = scope.ServiceProvider.GetRequiredService<INeo4jService>();
-
-    logger.LogInfo("Initializing Neo4j service...");
-    await nx.InitializeAsync();
-    logger.LogInfo("Neo4j service initialization completed successfully");
-
-    var ok = await nx.PingAsync();
-    if (!ok && requireNeo4j)
+    catch (Exception ex)
     {
-        logger.LogCritical("Startup aborted: Neo4j service unavailable.");
-        Environment.Exit(1);
+        if (requireNeo4j)
+        {
+            logger.LogCritical("[BG] Startup aborted: Neo4j service unavailable.", ex);
+            Environment.Exit(1);
+        }
+        else
+            logger.LogWarning($"[BG] Failed to initialize Neo4j service. Graph functionality unavailable. Error: {ex.Message}");
     }
-    if (!ok)
-        logger.LogWarning("Neo4j offline - graph features disabled until reconnection.");
-}
-catch (Exception ex)
-{
-    if (requireNeo4j)
-    {
-        logger.LogCritical("Startup aborted: Neo4j service unavailable.", ex);
-        Environment.Exit(1);
-    }
-    else
-        logger.LogWarning($"Failed to initialize Neo4j service. Graph functionality unavailable. Error: {ex.Message}");
-}
+});
 
-// Initialize Neo4j vector store
-try
+// Initialize Neo4j vector store (deferred)
+_ = Task.Run(async () =>
 {
-    logger.LogInfo("Initializing Neo4j vector store...");
-    await app.Services.GetRequiredService<Neo4jVectorStore>().InitializeAsync();
-    logger.LogInfo("Neo4j vector store initialization completed successfully");
-}
-catch (Exception ex)
-{
-    logger.LogError($"Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
-}
+    try
+    {
+        logger.LogInfo("[BG] Initializing Neo4j vector store...");
+        await app.Services.GetRequiredService<Neo4jVectorStore>().InitializeAsync();
+        logger.LogInfo("[BG] Neo4j vector store initialization completed successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"[BG] Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
+    }
+});
 
 // Fish Speech API is managed by FishSpeechHostedService
 logger.LogInfo("Fish Speech TTS API will be started by FishSpeechHostedService");
 
-// Memory synchronization after Neo4j ready
-try
+// Memory synchronization after Neo4j ready (deferred)
+_ = Task.Run(async () =>
 {
-    logger.LogInfo("Performing memory synchronization after Neo4j initialization...");
-    using var scope = app.Services.CreateScope();
-    var dbCtx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var bg    = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
-
-    var userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
-    var sqliteMem = await dbCtx.Memories.Where(m => m.UserId == userId).ToListAsync();
-
-    List<Guid> neo4jIds = new();
-    try { neo4jIds = await bg.GetAllMemoryIdsAsync(userId); }
-    catch (Exception ex) { logger.LogWarning($"Failed to get Neo4j memories: {ex.Message}"); }
-
-    var missing = sqliteMem.Select(m => m.Id).Except(neo4jIds).ToList();
-    if (missing.Any())
+    try
     {
-        logger.LogInfo($"Found {missing.Count} memories missing in Neo4j. Repairing...");
-        int success=0, failure=0;
-        foreach(var id in missing)
+        logger.LogInfo("[BG] Performing memory synchronization after Neo4j initialization...");
+        using var scope = app.Services.CreateScope();
+        var dbCtx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var bg    = scope.ServiceProvider.GetRequiredService<IBrainGraphService>();
+
+        var userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var sqliteMem = await dbCtx.Memories.Where(m => m.UserId == userId).ToListAsync();
+
+        List<Guid> neo4jIds = new();
+        try { neo4jIds = await bg.GetAllMemoryIdsAsync(userId); }
+        catch (Exception ex) { logger.LogWarning($"[BG] Failed to get Neo4j memories: {ex.Message}"); }
+
+        var missing = sqliteMem.Select(m => m.Id).Except(neo4jIds).ToList();
+        if (missing.Any())
         {
-            var mem = sqliteMem.First(m => m.Id == id);
-            try
+            logger.LogInfo($"[BG] Found {missing.Count} memories missing in Neo4j. Repairing...");
+            int success=0, failure=0;
+            foreach(var id in missing)
             {
-                var meta = new Dictionary<string,string>
+                var mem = sqliteMem.First(m => m.Id == id);
+                try
                 {
-                    {"category", mem.Category ?? "general"},
-                    {"userId",   mem.UserId.ToString()},
-                    {"isShared", mem.IsShared.ToString()},
-                    {"createdAt", mem.CreatedAt.ToString("O")},
-                    {"source",  "startup-sync"}
-                };
-                if (await bg.AddMemoryAsync(mem.Id, mem.Content, meta))
-                    success++;
-                else
+                    var meta = new Dictionary<string,string>
+                    {
+                        {"category", mem.Category ?? "general"},
+                        {"userId",   mem.UserId.ToString()},
+                        {"isShared", mem.IsShared.ToString()},
+                        {"createdAt", mem.CreatedAt.ToString("O")},
+                        {"source",  "startup-sync"}
+                    };
+                    if (await bg.AddMemoryAsync(mem.Id, mem.Content, meta))
+                        success++;
+                    else
+                        failure++;
+                }
+                catch
+                {
                     failure++;
+                }
             }
-            catch
-            {
-                failure++;
-            }
+            logger.LogInfo($"[BG] Startup memory repair: {success} succeeded, {failure} failed");
         }
-        logger.LogInfo($"Startup memory repair: {success} succeeded, {failure} failed");
+        else
+        {
+            logger.LogInfo("[BG] Memory databases already in sync.");
+        }
     }
-    else
+    catch (Exception ex)
     {
-        logger.LogInfo("Memory databases already in sync.");
+        logger.LogError("[BG] Failed to perform startup memory sync", ex);
     }
-}
-catch (Exception ex)
-{
-    logger.LogError("Failed to perform startup memory sync", ex);
-}
+});
 
 // Global unhandled exception handler
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
@@ -720,7 +743,15 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseGlobalExceptionHandler();
-app.UseHttpsRedirection();
+// Avoid HTTPS redirection inside container when only HTTP is exposed
+if (!app.Environment.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_HTTPS_PORTS")))
+{
+    // Skip HTTPS redirection in production container
+}
+else
+{
+    app.UseHttpsRedirection();
+}
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -742,6 +773,10 @@ app.UseAuthorization();
 logger.LogInfo("[ROUTING] Mapping controllers...");
 app.MapControllers();
 logger.LogInfo("[ROUTING] Controllers mapped successfully");
+
+// Lightweight health probe that avoids DB and external dependencies
+app.MapGet("/healthz", () => Results.Ok(new { ok = true, ts = DateTime.UtcNow }))
+   .WithName("Healthz");
 
 app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
 app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");
@@ -874,9 +909,15 @@ app.MapFallback(async context =>
 });
 logger.LogInfo("[ROUTING] SPA fallback configured");
 
-// Explicit URLs
+// Explicit URLs: when running in container, bind to http://0.0.0.0:8080
 if (!app.Urls.Any())
-    app.Urls.Add("http://localhost:5000");
+{
+    var isContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+    if (isContainer)
+        app.Urls.Add("http://0.0.0.0:8080");
+    else
+        app.Urls.Add("http://localhost:5000");
+}
 
 logger.LogInfo($"Application starting on URLs: {string.Join(", ", app.Urls)}");
 

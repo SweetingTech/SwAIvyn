@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SwAIvyn</AssemblyName>
     <RootNamespace>SwAIvyn</RootNamespace>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PlatformTarget>x64</PlatformTarget>
     <Product>SwAIvyn</Product>
     <Description>Privacy-focused AI assistant that runs on your local network</Description>
@@ -16,6 +15,14 @@
     <!-- Disable static web assets to force serving from wwwroot -->
     <GenerateStaticWebAssetsManifest>false</GenerateStaticWebAssetsManifest>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+  </PropertyGroup>
+
+  <!-- Set platform-specific RuntimeIdentifiers so native SQLite (e_sqlite3) is included -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,7 +47,10 @@
 
   <ItemGroup>
     <Compile Remove="old_program.cs" />
-  </ItemGroup>  <ItemGroup>
+  </ItemGroup>
+
+  <!-- Include Windows-only native DLLs for local Windows builds; exclude in Linux Docker builds -->
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <None Include="..\dnd_dll\sqlite-vss.dll">
       <Link>sqlite-vss.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -54,8 +64,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-
-
 
   <!-- Post-build target removed - build script handles executable placement -->
 
