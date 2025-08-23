@@ -3,6 +3,7 @@ using SwAIvyn.Services;
 using System;
 using System.Threading.Tasks;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 
 namespace SwAIvyn.Controllers
 {
@@ -21,7 +22,6 @@ namespace SwAIvyn.Controllers
         [Required]
         public string LlmEngine { get; set; }
 
-        [Required]
         public string LlmModel { get; set; }
 
         public string TtsProvider { get; set; }
@@ -38,6 +38,7 @@ namespace SwAIvyn.Controllers
     {
         private readonly ISettingsService _settingsService;
         private readonly ISimpleLoggerService _logger; // Optional: for logging
+        private readonly ILlmConnectorService _llmConnectorService;
 
         // Constants for settings keys
         private const string ChatLlmEngineKey = "Chat.LlmEngine";
@@ -45,10 +46,11 @@ namespace SwAIvyn.Controllers
         private const string ChatTtsProviderKey = "Chat.TtsProvider";
         private const string ChatTtsVoiceIdKey = "Chat.TtsVoiceId";
 
-        public ChatController(ISettingsService settingsService, ISimpleLoggerService logger)
+        public ChatController(ISettingsService settingsService, ISimpleLoggerService logger, ILlmConnectorService llmConnectorService)
         {
             _settingsService = settingsService;
             _logger = logger;
+            _llmConnectorService = llmConnectorService;
         }
 
         /// <summary>
@@ -103,12 +105,52 @@ namespace SwAIvyn.Controllers
 
             try
             {
-                await _settingsService.SetSettingAsync(userId, ChatLlmEngineKey, request.LlmEngine);
-                await _settingsService.SetSettingAsync(userId, ChatLlmModelKey, request.LlmModel);
+                var engine = request.LlmEngine?.Trim()?.ToLowerInvariant();
+                var model = request.LlmModel?.Trim();
+
+                if (string.IsNullOrEmpty(engine))
+                {
+                    return BadRequest("LlmEngine is required.");
+                }
+
+                if (string.IsNullOrEmpty(model))
+                {
+                    switch (engine)
+                    {
+                        case "lmstudio":
+                            model = await _llmConnectorService.GetLmStudioModelAsync(userId);
+                            if (string.IsNullOrEmpty(model))
+                            {
+                                _logger?.LogInfo($"No LM Studio model reported as loaded for user {userId}; saving empty model.");
+                                model = string.Empty;
+                            }
+                            break;
+                        case "openai":
+                        {
+                            var models = await _llmConnectorService.GetOpenAiModelsAsync(userId);
+                            model = models?.FirstOrDefault() ?? string.Empty;
+                            break;
+                        }
+                        case "claude":
+                        {
+                            var models = await _llmConnectorService.GetClaudeModelsAsync(userId);
+                            model = models?.FirstOrDefault() ?? string.Empty;
+                            break;
+                        }
+                        case "ollama":
+                            return BadRequest("LlmModel is required when engine is 'ollama'.");
+                        default:
+                            model = string.Empty;
+                            break;
+                    }
+                }
+
+                await _settingsService.SetSettingAsync(userId, ChatLlmEngineKey, engine);
+                await _settingsService.SetSettingAsync(userId, ChatLlmModelKey, model ?? string.Empty);
                 await _settingsService.SetSettingAsync(userId, ChatTtsProviderKey, request.TtsProvider ?? string.Empty);
                 await _settingsService.SetSettingAsync(userId, ChatTtsVoiceIdKey, request.TtsVoiceId ?? string.Empty);
 
-                _logger?.LogInfo($"Chat settings updated for user {userId}. Engine: {request.LlmEngine}, Model: {request.LlmModel}");
+                _logger?.LogInfo($"Chat settings updated for user {userId}. Engine: {engine}, Model: {model}");
                 return Ok(new { message = "Chat settings updated successfully." });
             }
             catch (Exception ex)
