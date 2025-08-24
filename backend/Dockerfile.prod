@@ -1,0 +1,34 @@
+# SwAIvyn backend Dockerfile - multi-stage build
+
+# 1) Build stage (context: ./backend)
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy project file and restore dependencies (cache-friendly)
+COPY SwAIvyn.csproj ./
+RUN dotnet restore SwAIvyn.csproj
+
+# Copy the rest of the source and publish
+COPY . .
+RUN dotnet publish SwAIvyn.csproj -c Release -o /app/out /p:UseAppHost=false
+
+# 2) Runtime stage
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+
+# Install curl for entrypoint waits and healthchecks
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bind to 8080 to match docker-compose and frontend nginx
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+
+# App binaries and entrypoint script
+COPY --from=build /app/out ./
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+

@@ -12,7 +12,9 @@ services:
       - swai-network
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       # Use SQLite in container; persist DB under /data
@@ -38,14 +40,15 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/data
+      - ./frontend/AI:/app/../frontend/AI
     networks:
       - swai-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/readyz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
 
   swai-db:
     image: postgres:16
@@ -68,6 +71,9 @@ services:
     ports:
       - "7474:7474"
       - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+
     networks:
       - swai-network
     healthcheck:
@@ -142,4 +148,6 @@ volumes:
   swai_data:
     driver: local
   weaviate_data:
+    driver: local
+  neo4j_data:
     driver: local

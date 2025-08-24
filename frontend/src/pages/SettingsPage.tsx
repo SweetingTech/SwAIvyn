@@ -704,7 +704,10 @@ const ModelSettings = () => {
   const [selectedEngine, setSelectedEngine] = useState<'ollama' | 'openai' | 'claude' | 'lmstudio'>('claude');
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
-  const [lmStudioApiUrl, setLmStudioApiUrl] = useState('http://localhost:1234');
+  const [lmStudioApiUrl, setLmStudioApiUrl] = useState(() => {
+    // Try to load from localStorage, fallback to default
+    return localStorage.getItem("lmstudio:apiUrl") || "http://localhost:1234";
+  });
   const [openAiApiKey, setOpenAiApiKey] = useState('');
   const [claudeApiUrl, setClaudeApiUrl] = useState('https://api.anthropic.com/v1');
   const [claudeApiKey, setClaudeApiKey] = useState('');
@@ -724,6 +727,34 @@ const ModelSettings = () => {
         if (!mounted.current) return;
         setSelectedEngine(settings.engine as any);
         setSelectedModel(settings.model || '');
+
+        // If LM Studio is the selected engine, try to fetch the live model in the background (non-blocking)
+        if ((settings.engine as any) === 'lmstudio') {
+          (async () => {
+            try {
+              const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user.id}`);
+              if (res.ok) {
+                const { model } = await res.json();
+                if (!mounted.current) return;
+                setSelectedModel(model || '');
+
+                // Optionally, persist the new model to backend, but do not block UI
+                fetch('/api/settings/llm', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userId: user.id,
+                    engine: 'lmstudio',
+                    model: model || ''
+                  })
+                }).catch(() => {});
+              }
+            } catch (e) {
+              // Silently ignore errors, do not block UI
+              console.error('Failed to fetch or save loaded LM Studio model on initial load:', e);
+            }
+          })();
+        }
       })
       .catch(() => {})
       .finally(() => mounted.current && setLoading(false));
@@ -973,21 +1004,44 @@ const ModelSettings = () => {
               />
             </div>
 
-            <div>
+<div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm font-medium text-gray-700">Loaded Model</label>
                 <button
                   onClick={async () => {
-                    if (!user?.id) return;
+                    setLoading(true);
                     try {
-                      const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user.id}`);
-                      if (res.ok) {
-                        const { model } = await res.json();
-                        if (!mounted.current) return;
-                        setSelectedModel(model || '');
+                      // Use the LM Studio API URL from the input field, or a default if empty
+                      const baseUrl = lmStudioApiUrl?.trim() || "http://127.0.0.1:1234";
+                      // Persist the user's choice
+                      localStorage.setItem("lmstudio:apiUrl", baseUrl);
+
+                      // 1) Ask LM Studio for models with states
+                      const res = await fetch(`${baseUrl}/api/v0/models`, { method: "GET" });
+                      if (!res.ok) throw new Error(`Models fetch failed: ${res.status}`);
+                      const models = await res.json();
+
+                      // 2) Pick currently loaded model
+                      const loaded = Array.isArray(models)
+                        ? models.find((m: any) => m.state === "loaded")
+                        : null;
+
+                      if (!loaded) {
+                        setSelectedModel("");
+                        localStorage.removeItem("lmstudio:modelId");
+                        alert("No loaded model. Load one in LM Studio first.");
+                        return;
                       }
-                    } catch (e) {
-                      console.error('Failed to fetch loaded LM Studio model:', e);
+
+                      // 3) Remember its id
+                      setSelectedModel(loaded.id);
+                      localStorage.setItem("lmstudio:modelId", loaded.id);
+                    } catch (e: any) {
+                      setSelectedModel("");
+                      localStorage.removeItem("lmstudio:modelId");
+                      alert(e?.message || "Failed to refresh model");
+                    } finally {
+                      setLoading(false);
                     }
                   }}
                   className="text-sm text-blue-600 hover:text-blue-800"
@@ -998,14 +1052,17 @@ const ModelSettings = () => {
               </div>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2 bg-gray-50"
-                value={selectedModel}
-                readOnly
-                placeholder="No model loaded"
+                placeholder="http://localhost:1234"
+                value={lmStudioApiUrl}
+                onChange={(e) => {
+                  setLmStudioApiUrl(e.target.value);
+                  localStorage.setItem("lmstudio:apiUrl", e.target.value);
+                }}
+                className="w-full border rounded px-3 py-2"
                 disabled={loading}
               />
               <p className="text-xs text-gray-500 mt-1">
-                This is the model currently loaded in LM Studio. Load a new model in LM Studio and click Refresh.
+                This is the model currently loaded in LM Studio. Load a new model in LM Studio and click Refresh. The model will be saved automatically.
               </p>
             </div>
           </>
@@ -1082,9 +1139,35 @@ const ModelSettings = () => {
           <select
             className="w-full border rounded px-3 py-2"
             value={selectedEngine}
-            onChange={(e) => {
-              setSelectedEngine(e.target.value as any);
+            onChange={async (e) => {
+              const newEngine = e.target.value as any;
+              setSelectedEngine(newEngine);
               setSelectedModel('');
+
+              // If switching to LM Studio, fetch the live model and save it
+              if (newEngine === 'lmstudio' && user?.id) {
+                try {
+                  const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user.id}`);
+                  if (res.ok) {
+                    const { model } = await res.json();
+                    if (!mounted.current) return;
+                    setSelectedModel(model || '');
+
+                    // Immediately persist the new model to backend
+                    await fetch('/api/settings/llm', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        userId: user.id,
+                        engine: 'lmstudio',
+                        model: model || ''
+                      })
+                    });
+                  }
+                } catch (e) {
+                  console.error('Failed to fetch or save loaded LM Studio model on engine switch:', e);
+                }
+              }
             }}
             disabled={loading}
           >

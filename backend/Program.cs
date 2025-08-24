@@ -774,6 +774,23 @@ logger.LogInfo("[ROUTING] Controllers mapped successfully");
 app.MapGet("/healthz", () => Results.Ok(new { ok = true, ts = DateTime.UtcNow }))
    .WithName("Healthz");
 
+
+// Readiness probe: only returns 200 once core initialization is complete
+app.MapGet("/readyz", () =>
+{
+    bool ready =
+        initializationStatus.TryGetValue("directories", out var d) && d &&
+        initializationStatus.TryGetValue("migrations",  out var m) && m &&
+        initializationStatus.TryGetValue("database",    out var db) && db &&
+        initializationStatus.TryGetValue("users",       out var u) && u &&
+        initializationStatus.TryGetValue("characters",  out var c) && c;
+
+    return ready
+        ? Results.Ok(new { ok = true, ts = DateTime.UtcNow })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+})
+.WithName("Readyz");
+
 app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
 app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");
 app.MapHub<NotificationHub>("/hubs/notification").RequireCors("CorsPolicy");
@@ -983,11 +1000,11 @@ var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(() =>
 {
     logger.LogInfo("Application shutting down...");
-    
+
     // Stop terminal logging
     terminalLogger.StopLogging();
     terminalLogger.Dispose();
-    
+
     if (frontendProcess != null && !frontendProcess.HasExited)
     {
         try

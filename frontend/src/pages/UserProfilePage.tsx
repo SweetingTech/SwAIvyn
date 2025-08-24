@@ -38,13 +38,37 @@ const UserProfilePage = () => {
     loadUserProfile();
   }, []);
 
+  // Simple fetch with retry/backoff for initial startup race conditions
+  const fetchWithRetry = async (
+    url: string,
+    options: RequestInit = {},
+    retries = 6,
+    backoffMs = 500
+  ): Promise<Response> => {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok && (res.status === 503 || res.status === 502 || res.status === 500)) {
+        throw new Error(`Server not ready: ${res.status}`);
+      }
+      return res;
+    } catch (err) {
+      if (retries <= 0) throw err;
+      await new Promise((r) => setTimeout(r, backoffMs));
+      return fetchWithRetry(url, options, retries - 1, Math.min(backoffMs * 2, 4000));
+    }
+  };
+
   const loadUserProfile = async () => {
     try {
       setLoading(true);
 
       // Use the default and only user ID for this application
       const defaultUserId = '00000000-0000-0000-0000-000000000001';
-      const response = await fetch(`/api/user/${defaultUserId}`);
+
+      // Wait for backend readiness quickly in dev/compose scenarios
+      try { await fetchWithRetry('/readyz', {}, 4, 400); } catch { /* continue anyway */ }
+
+      const response = await fetchWithRetry(`/api/user/${defaultUserId}`);
       if (response.ok) {
         const userData = await response.json();
         const userProfile: UserProfile = {

@@ -53,7 +53,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
     updateState({ isLoading: true, error: null });
 
     try {
-      // Step 1: Load default user
+      // Step 1: Load default user (no login required)
       updateState({ currentStep: 'Loading user profile...' });
       const userResponse = await fetch('/api/user/default');
       if (!userResponse.ok) {
