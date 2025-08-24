@@ -80,24 +80,32 @@ data/backups/*
 data/modules/*
 !data/modules/.gitkeep
 
-# Speech models and data (ignore all contents except specific files)
+# Speech models and data
 # Keep the instruction file at the root
 !speech/DOWNLOAD_INSTRUCTIONS.txt
-# Ignore everything in STT and TTS subfolders
+
+# By default ignore all runtime model/data in speech subfolders. Keep small
+# repository source files, but explicitly ignore huge artifacts and local venvs.
 speech/STT/**
 speech/TTS/**
-# But keep the .gitkeep files to preserve folder structure
 !speech/STT/.gitkeep
 !speech/TTS/.gitkeep
-# Unignore TTS directories to allow custom voices
-!speech/TTS/
-!speech/TTS/openaudio-s1-mini/
-!speech/TTS/openaudio-s1-mini/**
-# Re-ignore large model checkpoints
+
+# Exclude large TTS artifacts that should not be tracked
+speech/TTS/openaudio-s1-mini/fish_speech_env/
+speech/TTS/openaudio-s1-mini/fish_speech_env_old/
+speech/TTS/openaudio-s1-mini/fish_speech.egg-info/
+speech/TTS/openaudio-s1-mini/outputs/
+speech/TTS/openaudio-s1-mini/downloaded/
 speech/TTS/openaudio-s1-mini/*.pth
 speech/TTS/openaudio-s1-mini/*.pt
-# Ignore voice audio samples (binary)
+speech/TTS/openaudio-s1-mini/fish_speech_model/
 speech/TTS/openaudio-s1-mini/voices/*.wav
+
+# Keep TTS source files (APIs, configs) but avoid re-including virtualenvs and libs
+!speech/TTS/openaudio-s1-mini/fish_speech_api.py
+!speech/TTS/openaudio-s1-mini/fish_speech_config.json
+!speech/TTS/openaudio-s1-mini/config.json
 
 # Database exports (these are snapshots, not source)
 swai_database_export_*.json
