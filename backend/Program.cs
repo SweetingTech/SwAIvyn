@@ -498,6 +498,7 @@ _ = Task.Factory.StartNew(async () =>
                        .EnsureDefaultCharacterAsync();
             initializationStatus["characters"] = true;
             logger.LogInfo("[BG] GLaDOS default character loaded successfully");
+            logger.LogInfo("[READY] All init tasks completed — healthz will return 200.");
 
             // Create welcome conversation
             if (!await db.Conversations.AnyAsync())

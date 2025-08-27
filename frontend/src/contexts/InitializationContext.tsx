@@ -58,20 +58,20 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       // Step 1: Backend warmup and default user
       updateState({ currentStep: 'Starting backend…' });
       // Quick poll of /healthz to avoid "first call" timeouts during startup races
-      const ping = async (retries = 5, backoff = 300): Promise<void> => {
+      const ping = async (retries = 3, backoff = 2000): Promise<void> => {
         try {
-          const r = await fetchWithRetry('/healthz', {}, 1, 0, 3000);
+          const r = await fetchWithRetry('/healthz', {}, 1, 0, 8000);
           if (!r.ok) throw new Error('not ready');
         } catch {
           if (retries <= 0) return;
           await new Promise(r => setTimeout(r, backoff));
-          return ping(retries - 1, Math.min(backoff * 2, 1500));
+          return ping(retries - 1, Math.min(backoff * 2, 8000));
         }
       };
       await ping();
 
       updateState({ currentStep: 'Loading user profile...' });
-      const userResponse = await fetchWithRetry('/api/user/default', {}, 20, 400, 5000, (a,t) => setAttemptText(`(attempt ${a}/${t})`));
+      const userResponse = await fetchWithRetry('/api/user/default', {}, 20, 400, 10000, (a,t) => setAttemptText(`(attempt ${a}/${t})`));
       if (!userResponse.ok) {
         throw new Error('Failed to load user profile');
       }
@@ -86,8 +86,8 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       // Step 2 & 3: Load settings and characters concurrently
       updateState({ currentStep: 'Loading settings and characters...' });
       const [settingsResponse, charactersResponse] = await Promise.all([
-        fetchWithRetry(`/api/settings/llm?userId=${user.id}`, {}, 20, 400, 5000, (a,t) => setAttemptText(`(settings ${a}/${t})`)),
-        fetchWithRetry(`/api/character/user/${user.id}`, {}, 20, 400, 5000, (a,t) => setAttemptText(`(characters ${a}/${t})`))
+        fetchWithRetry(`/api/settings/llm?userId=${user.id}`, {}, 20, 400, 10000, (a,t) => setAttemptText(`(settings ${a}/${t})`)),
+        fetchWithRetry(`/api/character/user/${user.id}`, {}, 20, 400, 10000, (a,t) => setAttemptText(`(characters ${a}/${t})`))
       ]);
 
       if (settingsResponse.ok) {
