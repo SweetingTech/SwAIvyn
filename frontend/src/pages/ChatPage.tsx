@@ -88,6 +88,8 @@ const ChatPage: React.FC = () => {
   /* ------------------------------ refs ----------------------------------- */
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const isFirstMessage = useRef(urlInfo.isNewConversation);
+  const didLoadSettingsRef = useRef<string | null>(null);
+
 
   /* -------------------------- persist prefs ------------------------------ */
   useEffect(() => {
@@ -101,6 +103,12 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     const syncAllChatSettings = async () => {
       if (!user?.id) return;
+
+      // Guard against duplicate runs (e.g., React StrictMode) per user
+      if (didLoadSettingsRef.current === user.id) {
+        return;
+      }
+      didLoadSettingsRef.current = user.id;
 
       try {
         const settings = await chatService.getChatSettings(user.id);
@@ -203,70 +211,51 @@ const ChatPage: React.FC = () => {
     sessionCharacter
   ]);
 
-  /* ---------------------------- Load saved LLM options from database --------------------------- */
+  /* ---------------------------- Build LLM options from in-memory state --------------------------- */
   useEffect(() => {
-    const loadSavedLlmOptions = async () => {
+    const buildSavedLlmOptions = () => {
       if (!user?.id) return;
 
-      try {
-        // Get saved settings from database
-        const settings = await chatService.getChatSettings(user.id);
-        console.log('🔄 Chat: Loaded saved settings from database:', settings);
+      // Build options based on in-memory settings (already loaded once from DB)
+      const llms: LlmOption[] = [
+        { value: 'default', label: 'Default LLM', engine: null, model: null }
+      ];
 
-        // Create LLM options based on saved settings only
-        const llms: LlmOption[] = [
-          { value: 'default', label: 'Default LLM', engine: null, model: null }
-        ];
+      if (chatEngineOverride && chatModelOverride) {
+        llms.push({
+          value: `${chatEngineOverride}:${chatModelOverride}`,
+          label: `${chatEngineOverride.charAt(0).toUpperCase() + chatEngineOverride.slice(1)}: ${chatModelOverride}`,
+          engine: chatEngineOverride,
+          model: chatModelOverride
+        });
+      } else if (chatEngineOverride) {
+        llms.push({
+          value: `${chatEngineOverride}:default`,
+          label: `${chatEngineOverride.charAt(0).toUpperCase() + chatEngineOverride.slice(1)} (Default)`,
+          engine: chatEngineOverride,
+          model: null
+        });
+      }
 
-        // Add the currently saved configuration as the primary option
-        if (settings.llmEngine && settings.llmModel) {
+      // Add other basic options for fallback, ensuring no duplicates
+      ['ollama', 'lmstudio', 'openai', 'claude'].forEach((engine) => {
+        if (engine !== chatEngineOverride) {
           llms.push({
-            value: `${settings.llmEngine}:${settings.llmModel}`,
-            label: `${settings.llmEngine.charAt(0).toUpperCase() + settings.llmEngine.slice(1)}: ${settings.llmModel}`,
-            engine: settings.llmEngine,
-            model: settings.llmModel
-          });
-        } else if (settings.llmEngine) {
-          llms.push({
-            value: `${settings.llmEngine}:default`,
-            label: `${settings.llmEngine.charAt(0).toUpperCase() + settings.llmEngine.slice(1)} (Default)`,
-            engine: settings.llmEngine,
+            value: `${engine}:default`,
+            label: `${engine.charAt(0).toUpperCase() + engine.slice(1)} (Default)`,
+            engine: engine,
             model: null
           });
         }
+      });
 
-        // Add other basic options for fallback
-        ['ollama', 'lmstudio', 'openai', 'claude'].forEach(engine => {
-          if (engine !== settings.llmEngine) {
-            llms.push({
-              value: `${engine}:default`,
-              label: `${engine.charAt(0).toUpperCase() + engine.slice(1)} (Default)`,
-              engine: engine,
-              model: null
-            });
-          }
-        });
-
-        console.log('🔄 Chat: LLM options from saved settings:', llms);
-        setAvailableLlms(llms);
-
-      } catch (error) {
-        console.error('🔄 Chat: Failed to load saved settings, using fallback options:', error);
-        
-        // Fallback options if database read fails
-        const fallbackLlms: LlmOption[] = [
-          { value: 'default', label: 'Default LLM', engine: null, model: null },
-          { value: 'ollama:default', label: 'Ollama (Default)', engine: 'ollama', model: null },
-          { value: 'lmstudio:default', label: 'LM Studio (Default)', engine: 'lmstudio', model: null },
-          { value: 'openai:default', label: 'OpenAI (Default)', engine: 'openai', model: null },
-          { value: 'claude:default', label: 'Claude (Default)', engine: 'claude', model: null }
-        ];
-        setAvailableLlms(fallbackLlms);
-      }
+      console.log('🔄 Chat: LLM options derived from state:', llms);
+      setAvailableLlms(llms);
     };
 
-    loadSavedLlmOptions();
-  }, [user?.id]); // Only run when user changes
+    buildSavedLlmOptions();
+  }, [user?.id, chatEngineOverride, chatModelOverride]);
+
 
   /* 🕵️‍♂️ Debug: track dropdown value + available list */
   useEffect(() => {

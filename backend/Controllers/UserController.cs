@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SwAIvyn.Data;
 using SwAIvyn.Data.Entities;
+using SwAIvyn.Services;
 
 namespace SwAIvyn.Controllers
 {
@@ -12,18 +14,36 @@ namespace SwAIvyn.Controllers
     public class UserController : ControllerBase
     {
         private readonly ApplicationDbContext _dbContext;
+        private readonly ISimpleLoggerService _logger;
 
-        public UserController(ApplicationDbContext dbContext)
+        public UserController(ApplicationDbContext dbContext, ISimpleLoggerService logger)
         {
             _dbContext = dbContext;
-        }        /// <summary>
+            _logger = logger;
+        }
+
+        /// <summary>
         /// Gets the single default user, creating one if it doesn't exist.
         /// This is a single-user application.
         /// </summary>
         [HttpGet("default")]
         public async Task<IActionResult> GetDefaultUser()
         {
-            var user = await _dbContext.Users.FirstOrDefaultAsync();
+            _logger.LogInfo("[USER] GetDefaultUser invoked");
+            var sw = Stopwatch.StartNew();
+
+            AppUser user = null;
+            try
+            {
+                var q = Stopwatch.StartNew();
+                user = await _dbContext.Users.FirstOrDefaultAsync();
+                _logger.LogInfo($"[USER] Query Users.FirstOrDefaultAsync took {q.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("[USER] Error querying Users table", ex);
+                throw;
+            }
 
             if (user == null)
             {
@@ -39,10 +59,21 @@ namespace SwAIvyn.Controllers
                     LastLogin = DateTime.UtcNow
                 };
 
-                _dbContext.Users.Add(user);
-                await _dbContext.SaveChangesAsync();
+                try
+                {
+                    _dbContext.Users.Add(user);
+                    var save = Stopwatch.StartNew();
+                    await _dbContext.SaveChangesAsync();
+                    _logger.LogInfo($"[USER] Save default user took {save.ElapsedMilliseconds}ms");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError("[USER] Error saving default user", ex);
+                    throw;
+                }
             }
 
+            _logger.LogInfo($"[USER] GetDefaultUser completed in {sw.ElapsedMilliseconds}ms");
             return Ok(new {
                 id = user.Id,
                 username = user.Username,
@@ -60,8 +91,22 @@ namespace SwAIvyn.Controllers
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetUser(Guid userId)
         {
+            _logger.LogInfo($"[USER] GetUser invoked for {userId}");
+            var sw = Stopwatch.StartNew();
+
             // In single-user mode, always return the default user
-            var user = await _dbContext.Users.FirstOrDefaultAsync();
+            AppUser user = null;
+            try
+            {
+                var q = Stopwatch.StartNew();
+                user = await _dbContext.Users.FirstOrDefaultAsync();
+                _logger.LogInfo($"[USER] Query Users.FirstOrDefaultAsync took {q.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("[USER] Error querying Users table in GetUser", ex);
+                throw;
+            }
 
             if (user == null)
             {
@@ -77,8 +122,18 @@ namespace SwAIvyn.Controllers
                     LastLogin = DateTime.UtcNow
                 };
 
-                _dbContext.Users.Add(user);
-                await _dbContext.SaveChangesAsync();
+                try
+                {
+                    _dbContext.Users.Add(user);
+                    var save = Stopwatch.StartNew();
+                    await _dbContext.SaveChangesAsync();
+                    _logger.LogInfo($"[USER] Save default user (GetUser) took {save.ElapsedMilliseconds}ms");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError("[USER] Error saving default user in GetUser", ex);
+                    throw;
+                }
             }
 
             // Validate lastSelectedCharacterId - clear if character doesn't exist
@@ -95,6 +150,7 @@ namespace SwAIvyn.Controllers
                 }
             }
 
+            _logger.LogInfo($"[USER] GetUser completed in {sw.ElapsedMilliseconds}ms");
             return Ok(new {
                 id = user.Id,
                 username = user.Username,

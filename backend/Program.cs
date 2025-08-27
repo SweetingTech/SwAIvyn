@@ -265,13 +265,25 @@ builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
 // Hosted services
 builder.Services.AddHostedService<SwAIvyn.HostedServices.BackupService>(); // Explicitly specify namespace
-builder.Services.AddHostedService<SearchServiceHostedService>();
+
+// Optional hosted services controlled by AppSettings flags
+var enableSearchService = builder.Configuration.GetValue<bool>("AppSettings:EnableSearchService", false);
+if (enableSearchService)
+{
+    builder.Services.AddHostedService<SearchServiceHostedService>();
+}
 
 // Register FishSpeechHostedService as singleton first, then as hosted service
 builder.Services.AddSingleton<FishSpeechHostedService>();
 builder.Services.AddHostedService<FishSpeechHostedService>(provider => provider.GetRequiredService<FishSpeechHostedService>());
 
-builder.Services.AddHostedService<GoogleWorkspaceHostedService>();
+// Google Workspace optional
+var enableGoogleWorkspace = builder.Configuration.GetValue<bool>("AppSettings:EnableGoogleWorkspace", false);
+if (enableGoogleWorkspace)
+{
+    builder.Services.AddHostedService<GoogleWorkspaceHostedService>();
+}
+
 builder.Services.AddHostedService<ApplicationMonitorService>();
 
 // App services
@@ -357,6 +369,12 @@ var app = builder.Build();
 
 var logger = app.Services.GetRequiredService<ISimpleLoggerService>();
 
+// Raise ThreadPool min threads early to avoid starvation during cold start
+ThreadPool.GetMinThreads(out var curWorkers, out var curIo);
+var desiredMin = Math.Max(256, Environment.ProcessorCount * 8);
+ThreadPool.SetMinThreads(Math.Max(curWorkers, desiredMin), Math.Max(curIo, desiredMin));
+logger.LogInfo($"ThreadPool min threads set to at least {desiredMin} (workers/io: {curWorkers}/{curIo})");
+
 // Start terminal logging to mirror console output to log files
 var terminalLogger = app.Services.GetRequiredService<ITerminalLoggerService>();
 terminalLogger.StartLogging();
@@ -392,8 +410,11 @@ catch (Exception ex)
     logger.LogCritical("Failed to initialize directories", ex);
 }
 
+// Defer critical initialization to background tasks; Kestrel will bind immediately.
+logger.LogInfo("[INIT] Deferring critical initialization to background tasks. /healthz will return 503 until ready.");
+
 // Defer all heavy initialization to background tasks
-_ = Task.Run(async () =>
+_ = Task.Factory.StartNew(async () =>
 {
     try
     {
@@ -569,12 +590,12 @@ Let me show you around!" },
         if (ex.InnerException != null)
             logger.LogError($"[BG] Inner exception: {ex.InnerException.Message}");
     }
-});
+}, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
 
 logger.LogInfo("Skipping Neo4j database schema initialization - will be done after Neo4j runtime starts");
 
 // Initialize Weaviate vector store (deferred)
-_ = Task.Run(async () =>
+_ = Task.Factory.StartNew(async () =>
 {
     try
     {
@@ -586,7 +607,7 @@ _ = Task.Run(async () =>
     {
         logger.LogWarning($"[BG] Failed to initialize Weaviate vector store - this is expected if Weaviate is not available. Error: {ex.Message}");
     }
-});
+}, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
 
 // Initialize Neo4j runtime + service
 var neo4jEmbedded = builder.Configuration.GetValue<bool>("AppSettings:Neo4jEmbedded", false);
@@ -594,17 +615,17 @@ var requireNeo4j  = builder.Configuration.GetValue<bool>("AppSettings:RequireNeo
 logger.LogInfo($"Neo4j embedded mode is {(neo4jEmbedded ? "enabled" : "disabled")}");
 logger.LogInfo($"Neo4j required: {requireNeo4j}");
 
-// Initialize Neo4j runtime + service (deferred)
-_ = Task.Run(async () =>
+// Initialize Neo4j runtime + service (deferred) — only when embedded mode is enabled
+_ = Task.Factory.StartNew(async () =>
 {
     try
     {
-        var rt = app.Services.GetRequiredService<Neo4jRuntimeService>();
-        logger.LogInfo("[BG] Initializing Neo4j runtime...");
-        await rt.InitializeAsync();
-
         if (neo4jEmbedded)
         {
+            var rt = app.Services.GetRequiredService<Neo4jRuntimeService>();
+            logger.LogInfo("[BG] Initializing Neo4j runtime (embedded mode)...");
+            await rt.InitializeAsync();
+
             logger.LogInfo("[BG] Waiting 30 seconds for Neo4j to fully start up...");
             await Task.Delay(TimeSpan.FromSeconds(30));
             logger.LogInfo("[BG] Neo4j startup delay completed");
@@ -636,10 +657,10 @@ _ = Task.Run(async () =>
         else
             logger.LogWarning($"[BG] Failed to initialize Neo4j service. Graph functionality unavailable. Error: {ex.Message}");
     }
-});
+}, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
 
 // Initialize Neo4j vector store (deferred)
-_ = Task.Run(async () =>
+_ = Task.Factory.StartNew(async () =>
 {
     try
     {
@@ -651,13 +672,13 @@ _ = Task.Run(async () =>
     {
         logger.LogError($"[BG] Failed to initialize Neo4j vector store. Memory search will not be available. Error: {ex.Message}");
     }
-});
+}, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
 
 // Fish Speech API is managed by FishSpeechHostedService
 logger.LogInfo("Fish Speech TTS API will be started by FishSpeechHostedService");
 
 // Memory synchronization after Neo4j ready (deferred)
-_ = Task.Run(async () =>
+_ = Task.Factory.StartNew(async () =>
 {
     try
     {
@@ -712,7 +733,7 @@ _ = Task.Run(async () =>
     {
         logger.LogError("[BG] Failed to perform startup memory sync", ex);
     }
-});
+}, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
 
 // Global unhandled exception handler
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
@@ -739,14 +760,16 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseGlobalExceptionHandler();
-// Avoid HTTPS redirection inside container when only HTTP is exposed
-if (!app.Environment.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_HTTPS_PORTS")))
+// Avoid HTTPS redirection inside container or when HTTPS isn't configured
+var runningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+var httpsPortsConfigured = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_HTTPS_PORTS"));
+if (!runningInContainer && (app.Environment.IsDevelopment() || httpsPortsConfigured))
 {
-    // Skip HTTPS redirection in production container
+    app.UseHttpsRedirection();
 }
 else
 {
-    app.UseHttpsRedirection();
+    logger.LogInfo("HTTPS redirection disabled (running in container or no HTTPS ports configured)");
 }
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions
@@ -762,6 +785,10 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 app.UseRouting();
+
+// Global request/response logging with correlation IDs
+app.UseRequestResponseLogging();
+
 app.UseCors("CorsPolicy");
 app.UseAuthorization();
 
@@ -770,9 +797,20 @@ logger.LogInfo("[ROUTING] Mapping controllers...");
 app.MapControllers();
 logger.LogInfo("[ROUTING] Controllers mapped successfully");
 
-// Lightweight health probe that avoids DB and external dependencies
-app.MapGet("/healthz", () => Results.Ok(new { ok = true, ts = DateTime.UtcNow }))
-   .WithName("Healthz");
+// Health probe reflects readiness after critical init; returns 503 while starting
+app.MapGet("/healthz", () =>
+{
+    bool ready =
+        initializationStatus.TryGetValue("directories", out var d) && d &&
+        initializationStatus.TryGetValue("migrations",  out var m) && m &&
+        initializationStatus.TryGetValue("database",    out var db) && db &&
+        initializationStatus.TryGetValue("users",       out var u) && u &&
+        initializationStatus.TryGetValue("characters",  out var c) && c;
+
+    return ready
+        ? Results.Ok(new { ok = true, ts = DateTime.UtcNow })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+}).WithName("Healthz");
 
 
 // Readiness probe: only returns 200 once core initialization is complete

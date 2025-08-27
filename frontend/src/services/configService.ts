@@ -62,8 +62,8 @@ class ConfigService {
   }
 
   public async getModels(engine: string) {
-    const api = await this.getApiBaseUrl();
-    const response = await fetch(`${api}/llm/models?engine=${engine}`);
+    // Always use relative path so requests route through frontend proxy (Nginx) to backend
+    const response = await fetch(`/api/llm/models?engine=${engine}`);
     if (response.ok) {
       return response.json();
     }

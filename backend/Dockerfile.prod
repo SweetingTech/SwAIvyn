@@ -8,9 +8,9 @@ WORKDIR /src
 COPY SwAIvyn.csproj ./
 RUN dotnet restore SwAIvyn.csproj
 
-# Copy the rest of the source and publish
+# Copy the rest of the source and publish with ReadyToRun
 COPY . .
-RUN dotnet publish SwAIvyn.csproj -c Release -o /app/out /p:UseAppHost=false
+RUN dotnet publish SwAIvyn.csproj -c Release -o /app/out /p:UseAppHost=false -p:PublishReadyToRun=true
 
 # 2) Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
@@ -21,8 +21,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Bind to 8080 to match docker-compose and frontend nginx
-ENV ASPNETCORE_URLS=http://+:8080
+# Bind to 8080 to match docker-compose and frontend nginx, enable perf-friendly runtime flags
+ENV ASPNETCORE_URLS=http://+:8080 \
+    DOTNET_GCServer=1 \
+    DOTNET_TieredPGO=1 \
+    DOTNET_TC_QuickJitForLoops=1
 EXPOSE 8080
 
 # App binaries and entrypoint script

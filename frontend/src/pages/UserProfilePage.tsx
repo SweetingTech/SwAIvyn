@@ -66,7 +66,7 @@ const UserProfilePage = () => {
       const defaultUserId = '00000000-0000-0000-0000-000000000001';
 
       // Wait for backend readiness quickly in dev/compose scenarios
-      try { await fetchWithRetry('/readyz', {}, 4, 400); } catch { /* continue anyway */ }
+      try { await fetchWithRetry('/healthz', {}, 4, 400); } catch { /* continue anyway */ }
 
       const response = await fetchWithRetry(`/api/user/${defaultUserId}`);
       if (response.ok) {

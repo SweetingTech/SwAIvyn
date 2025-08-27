@@ -7,7 +7,7 @@ services:
       - "5173:80"
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_started
     networks:
       - swai-network
 
@@ -17,8 +17,12 @@ services:
       dockerfile: Dockerfile.prod
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      # Use SQLite in container; persist DB under /data
-      ConnectionStrings__DefaultConnection: "Data Source=../data/swai-vyn.db"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+
+      # Use SQLite in container; persist DB under /data (absolute path).
+      # Note: Microsoft.Data.Sqlite supports a limited set of connection string keywords.
+      # We'll keep it simple and robust.
+      ConnectionStrings__DefaultConnection: "Data Source=/data/swai-vyn.db"
       # Service-to-service URLs inside Docker network
       AppSettings__Neo4jEmbedded: "false"
       AppSettings__RequireNeo4j: "false"
@@ -27,6 +31,15 @@ services:
       AppSettings__Neo4jPassword: "${NEO4J_PASSWORD}"
       FishSpeech__BaseUrl: "http://tts:8081"
       AppSettings__WeaviateUrl: "http://weaviate:8080"
+      # Feature flags for optional services (disabled by default):
+      # - FishSpeech__AutoStart: Let the backend auto-start the Fish Speech Python server.
+      #   Keep "false" because TTS runs in its own Docker service (service name: tts) on port 8081.
+      # - AppSettings__EnableSearchService: Start the internal FastAPI search service (requires ./backend/search/search.py in image)
+      # - AppSettings__EnableGoogleWorkspace: Start the internal Google Workspace API (requires ./backend/services/google_workspace/google_workspace_api.py in image)
+      # Toggle to "true" only if you intend to run these inside the backend container.
+      FishSpeech__AutoStart: "false"
+      AppSettings__EnableSearchService: "false"
+      AppSettings__EnableGoogleWorkspace: "false"
     ports:
       - "5000:8080"
     depends_on:
@@ -44,11 +57,26 @@ services:
     networks:
       - swai-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/readyz || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/healthz || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 15
-      start_period: 10s
+      retries: 60
+      start_period: 120s
+
+    # Give backend real resources so it doesn't get throttled
+    deploy:
+      resources:
+        limits:
+          cpus: '32.0'
+          memory: 32g
+        reservations:
+          cpus: '16.0'
+          memory: 8g
+    init: true
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
 
   swai-db:
     image: postgres:16
@@ -104,11 +132,11 @@ services:
     networks:
       - swai-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/v1/.well-known/ready || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/v1/.well-known/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   tts:
     build:
@@ -119,11 +147,11 @@ services:
     networks:
       - swai-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "python - <<'PY'\nimport sys, urllib.request\ntry:\n  with urllib.request.urlopen('http://localhost:8081/health', timeout=3) as r:\n    sys.exit(0 if r.status==200 else 1)\nexcept Exception as e:\n  sys.exit(1)\nPY\n"]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   stt:
     image: onerahmet/openai-whisper-asr-webservice:latest
