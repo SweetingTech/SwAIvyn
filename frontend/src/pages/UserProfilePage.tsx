@@ -1,8 +1,7 @@
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   User,
-  Mail,
   Calendar,
   Shield,
   Edit3,
@@ -12,6 +11,7 @@ import {
   Key,
   Clock
 } from 'lucide-react';
+import fetchWithRetry from '../utils/fetchWithRetry';
 import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface UserProfile {
@@ -34,41 +34,17 @@ const UserProfilePage = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  useEffect(() => {
-    loadUserProfile();
-  }, []);
-
-  // Simple fetch with retry/backoff for initial startup race conditions
-  const fetchWithRetry = async (
-    url: string,
-    options: RequestInit = {},
-    retries = 6,
-    backoffMs = 500
-  ): Promise<Response> => {
-    try {
-      const res = await fetch(url, options);
-      if (!res.ok && (res.status === 503 || res.status === 502 || res.status === 500)) {
-        throw new Error(`Server not ready: ${res.status}`);
-      }
-      return res;
-    } catch (err) {
-      if (retries <= 0) throw err;
-      await new Promise((r) => setTimeout(r, backoffMs));
-      return fetchWithRetry(url, options, retries - 1, Math.min(backoffMs * 2, 4000));
-    }
-  };
-
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     try {
       setLoading(true);
 
       // Use the default and only user ID for this application
       const defaultUserId = '00000000-0000-0000-0000-000000000001';
 
-      // Wait for backend readiness quickly in dev/compose scenarios
-      try { await fetchWithRetry('/healthz', {}, 4, 400); } catch { /* continue anyway */ }
+      // Fire a health check to warm the backend but don't block profile loading
+      void fetchWithRetry('/healthz', {}, 1, 0, 8000).catch(() => {});
 
-      const response = await fetchWithRetry(`/api/user/${defaultUserId}`);
+      const response = await fetchWithRetry(`/api/user/${defaultUserId}`, {}, 6, 500, 8000);
       if (response.ok) {
         const userData = await response.json();
         const userProfile: UserProfile = {
@@ -118,7 +94,11 @@ const UserProfilePage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadUserProfile();
+  }, [loadUserProfile]);
 
   const handleSave = async () => {
     try {
