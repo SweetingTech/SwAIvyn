@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using SwAIvyn.Hubs;
 using SwAIvyn.Services;
 
 namespace SwAIvyn.Controllers
@@ -16,6 +18,7 @@ namespace SwAIvyn.Controllers
         private readonly ISettingsService _settingsService;
         private readonly IAiChatService _aiChatService;
         private readonly ISimpleLoggerService _logger;
+        private readonly IHubContext<SettingsHub, ISettingsClient> _settingsHub;
 
         /// <summary>
         /// Initializes a new instance of the SettingsController
@@ -23,11 +26,13 @@ namespace SwAIvyn.Controllers
         public SettingsController(
             ISettingsService settingsService,
             IAiChatService aiChatService,
-            ISimpleLoggerService logger)
+            ISimpleLoggerService logger,
+            IHubContext<SettingsHub, ISettingsClient> settingsHub)
         {
             _settingsService = settingsService;
             _aiChatService = aiChatService;
             _logger = logger;
+            _settingsHub = settingsHub;
         }
 
         /// <summary>
@@ -81,6 +86,14 @@ namespace SwAIvyn.Controllers
                 var success = await _settingsService.SetSettingAsync(request.UserId, key, request.Value);
                 if (success)
                 {
+                    if (request.UserId.HasValue)
+                    {
+                        await _settingsHub.Clients.User(request.UserId.Value.ToString()).SettingsChanged();
+                    }
+                    else
+                    {
+                        await _settingsHub.Clients.All.SettingsChanged();
+                    }
                     return Ok(new { message = $"Setting '{key}' updated successfully" });
                 }
                 return StatusCode(500, $"Failed to update setting '{key}'");
@@ -103,6 +116,14 @@ namespace SwAIvyn.Controllers
                 var success = await _settingsService.SetSettingsAsync(request.UserId, request.Settings);
                 if (success)
                 {
+                    if (request.UserId.HasValue)
+                    {
+                        await _settingsHub.Clients.User(request.UserId.Value.ToString()).SettingsChanged();
+                    }
+                    else
+                    {
+                        await _settingsHub.Clients.All.SettingsChanged();
+                    }
                     return Ok(new { message = "Settings updated successfully" });
                 }
                 return StatusCode(500, "Failed to update settings");
@@ -188,6 +209,14 @@ namespace SwAIvyn.Controllers
                 var success = await _settingsService.SetSettingsAsync(request.UserId, settings);
                 if (success)
                 {
+                    if (request.UserId.HasValue)
+                    {
+                        await _settingsHub.Clients.User(request.UserId.Value.ToString()).SettingsChanged();
+                    }
+                    else
+                    {
+                        await _settingsHub.Clients.All.SettingsChanged();
+                    }
                     return Ok(new { message = "Connection settings updated successfully" });
                 }
                 return StatusCode(500, "Failed to update connection settings");
@@ -229,7 +258,17 @@ namespace SwAIvyn.Controllers
                     request.UserId, request.Engine, request.Model);
 
                 if (success)
+                {
+                    if (request.UserId.HasValue)
+                    {
+                        await _settingsHub.Clients.User(request.UserId.Value.ToString()).SettingsChanged();
+                    }
+                    else
+                    {
+                        await _settingsHub.Clients.All.SettingsChanged();
+                    }
                     return Ok(new { message = "LLM settings updated successfully" });
+                }
 
                 return StatusCode(500, "Failed to update LLM settings");
             }

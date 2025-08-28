@@ -833,6 +833,7 @@ app.MapGet("/readyz", () =>
 app.MapHub<ChatHub>("/hubs/chat").RequireCors("CorsPolicy");
 app.MapHub<VoiceHub>("/hubs/voice").RequireCors("CorsPolicy");
 app.MapHub<NotificationHub>("/hubs/notification").RequireCors("CorsPolicy");
+app.MapHub<SettingsHub>("/hubs/settings").RequireCors("CorsPolicy");
 
 app.MapGet("/api/health/neo4j", async (INeo4jService nx) =>
     Results.Ok(await nx.GetStatusAsync())
