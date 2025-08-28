@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  ReactNode,
+} from 'react';
 import fetchWithRetry from '../utils/fetchWithRetry';
 
 interface User {
@@ -44,78 +51,136 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
   });
   const [attemptText, setAttemptText] = useState<string>('');
 
-  const updateState = (updates: Partial<InitializationState>) => {
+  // Guards
+  const mountedRef = useRef(true);
+  const bootingRef = useRef(false); // prevent concurrent initialize calls
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const safeSetState = (updates: Partial<InitializationState>) => {
+    if (!mountedRef.current) return;
     setState(prev => ({ ...prev, ...updates }));
+  };
+  const safeSetAttempt = (text: string) => {
+    if (!mountedRef.current) return;
+    setAttemptText(text);
   };
 
   const initialize = async () => {
-    if (state.isInitialized || state.isLoading) {
-      return;
-    }
+    if (state.isInitialized || state.isLoading || bootingRef.current) return;
+    bootingRef.current = true;
 
-    updateState({ isLoading: true, error: null });
+    safeSetState({ isLoading: true, error: null });
 
     try {
-      // Step 1: Backend warmup and default user
-      updateState({ currentStep: 'Starting backend…' });
-      // Fire a health check to warm the backend but don't block initialization
+      // Step 0: opportunistic backend warmup. Do not block init.
+      safeSetState({ currentStep: 'Starting backend…' });
       void fetchWithRetry('/healthz', {}, 1, 0, 8000).catch(() => {});
 
-      updateState({ currentStep: 'Loading user profile...' });
-      const userResponse = await fetchWithRetry('/api/user/default', {}, 20, 400, 10000, (a,t) => setAttemptText(`(attempt ${a}/${t})`));
-      if (!userResponse.ok) {
-        throw new Error('Failed to load user profile');
-      }
-      const userData = await userResponse.json();
-      const user: User = {
-        id: userData.id,
-        username: userData.username || 'User',
-        email: userData.email || 'user@example.com'
-      };
-      updateState({ user });
+      // Step 1: load default user with retries
+      safeSetState({ currentStep: 'Loading user profile…' });
+      const userResponse = await fetchWithRetry(
+        '/api/user/default',
+        {},
+        20,
+        400,
+        10000,
+        (a, t) => safeSetAttempt(`(attempt ${a}/${t})`)
+      );
 
-      // Step 2 & 3: Load settings and characters concurrently
-      updateState({ currentStep: 'Loading settings and characters...' });
+      if (!userResponse.ok) {
+        throw new Error(`Failed to load user profile (${userResponse.status})`);
+      }
+
+      // Some backends return 204. Guard parse.
+      let userData: any = null;
+      const text = await userResponse.text();
+      if (text) userData = JSON.parse(text);
+
+      const user: User = {
+        id: userData?.id ?? 'unknown',
+        username: userData?.username || 'User',
+        email: userData?.email || 'user@example.com',
+      };
+      safeSetState({ user });
+
+      // Step 2: settings + characters in parallel. Each with its own retry surface.
+      safeSetState({ currentStep: 'Loading settings and characters…' });
+
       const [settingsResponse, charactersResponse] = await Promise.all([
-        fetchWithRetry(`/api/settings/llm?userId=${user.id}`, {}, 20, 400, 10000, (a,t) => setAttemptText(`(settings ${a}/${t})`)),
-        fetchWithRetry(`/api/character/user/${user.id}`, {}, 20, 400, 10000, (a,t) => setAttemptText(`(characters ${a}/${t})`))
+        fetchWithRetry(
+          `/api/settings/llm?userId=${encodeURIComponent(user.id)}`,
+          {},
+          20,
+          400,
+          10000,
+          (a, t) => safeSetAttempt(`(settings ${a}/${t})`)
+        ).catch(e => e as Response), // normalize
+        fetchWithRetry(
+          `/api/character/user/${encodeURIComponent(user.id)}`,
+          {},
+          20,
+          400,
+          10000,
+          (a, t) => safeSetAttempt(`(characters ${a}/${t})`)
+        ).catch(e => e as Response),
       ]);
 
-      if (settingsResponse.ok) {
-        const settings = await settingsResponse.json();
-        console.log('✅ Settings loaded:', settings);
+      if (settingsResponse && (settingsResponse as Response).ok) {
+        try {
+          const settings = await (settingsResponse as Response).json();
+          // eslint-disable-next-line no-console
+          console.log('Settings loaded:', settings);
+        } catch {
+          // ignore parse issues
+        }
       }
 
-      if (charactersResponse.ok) {
-        const characters = await charactersResponse.json();
-        console.log('✅ Characters loaded:', characters.length, 'characters');
+      if (charactersResponse && (charactersResponse as Response).ok) {
+        try {
+          const characters = await (charactersResponse as Response).json();
+          // eslint-disable-next-line no-console
+          console.log('Characters loaded:', Array.isArray(characters) ? characters.length : 'n/a');
+        } catch {
+          // ignore parse issues
+        }
       }
 
-      // Step 4: Complete initialization
-      updateState({
+      // Step 3: done
+      safeSetState({
         currentStep: 'Initialization complete!',
         isInitialized: true,
-        isLoading: false
+        isLoading: false,
       });
-      setAttemptText('');
-
-      console.log('🎉 Application initialization completed successfully');
-
-    } catch (error) {
-      console.error('❌ Initialization failed:', error);
-      updateState({
-        error: error instanceof Error ? error.message : 'Initialization failed',
-        isLoading: false
+      safeSetAttempt('');
+      // eslint-disable-next-line no-console
+      console.log('Application initialization completed successfully');
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message :
+        typeof err === 'string' ? err :
+        'Initialization failed';
+      // eslint-disable-next-line no-console
+      console.error('Initialization failed:', err);
+      safeSetState({
+        error: message,
+        isLoading: false,
       });
-      setAttemptText('');
+      safeSetAttempt('');
+    } finally {
+      bootingRef.current = false;
     }
   };
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    initialize();
+    // fire on mount
+    void initialize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /* eslint-enable react-hooks/exhaustive-deps */
 
   const value: InitializationContextType = {
     ...state,
@@ -126,7 +191,20 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
     <InitializationContext.Provider value={value}>
       {/* Lightweight status for startup */}
       {!state.isInitialized && state.isLoading && (
-        <div style={{position:'fixed',bottom:12,right:12,background:'#1f2937',color:'#fff',padding:'8px 12px',borderRadius:8,fontSize:12,opacity:0.9,zIndex:9999}}>
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 12,
+            right: 12,
+            background: '#1f2937',
+            color: '#fff',
+            padding: '8px 12px',
+            borderRadius: 8,
+            fontSize: 12,
+            opacity: 0.9,
+            zIndex: 9999,
+          }}
+        >
           {state.currentStep} {attemptText}
         </div>
       )}
