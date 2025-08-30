@@ -16,14 +16,18 @@ import MemoryBrowser from './pages/MemoryBrowser';
 import ConversationManagement from './pages/ConversationManagement';
 import KnowledgeUploadPage from './pages/KnowledgeUploadPage';
 import { InitializationProvider, useInitialization } from './contexts/InitializationContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import LoginPage from './pages/LoginPage';
 import { StagewiseToolbar } from '@stagewise/toolbar-react';
 import { ReactPlugin } from '@stagewise-plugins/react';
+import AdminUsersPage from './pages/AdminUsersPage';
 
 // Initialize i18n
 import './i18n';
 
 function AppContent() {
   const { isInitialized, isLoading, currentStep, error, initialize, user } = useInitialization();
+  const { token } = useAuth();
 
   // Show splash screen during initialization
   if (!isInitialized) {
@@ -37,7 +41,17 @@ function AppContent() {
     );
   }
 
-  // Show main app once initialized
+  // Show main app once initialized and authenticated
+  if (!token) {
+    return (
+      <Suspense fallback={<LoadingSpinner />}>
+        <Routes>
+          <Route path="/*" element={<LoginPage />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
   return (
     <Suspense fallback={<LoadingSpinner />}>
       <Routes>
@@ -53,6 +67,7 @@ function AppContent() {
           <Route path="profile" element={<UserProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
+          <Route path="admin/users" element={<AdminUsersPage />} />
           <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
           <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
         </Route>
@@ -63,10 +78,12 @@ function AppContent() {
 
 function App() {
   return (
-    <InitializationProvider>
-      <AppContent />
-      <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
-    </InitializationProvider>
+    <AuthProvider>
+      <InitializationProvider>
+        <AppContent />
+        <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
+      </InitializationProvider>
+    </AuthProvider>
   );
 }
 

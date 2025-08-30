@@ -1,9 +1,11 @@
 import { NavLink } from 'react-router-dom';
 import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Navigation = () => {
   const { t } = useTranslation();
+  const { user } = useAuth();
 
   return (
     <header className="sticky top-0 bg-white shadow-sm z-50">
@@ -29,6 +31,9 @@ const Navigation = () => {
             <NavItem to="/agents" icon={<Bot size={18} />} label={t('navigation.agents')} />
             <NavItem to="/profile" icon={<User size={18} />} label={t('navigation.profile')} />
             <NavItem to="/settings" icon={<Settings size={18} />} label={t('navigation.settings')} />
+            {user?.role === 'admin' && (
+              <NavItem to="/admin/users" icon={<User size={18} />} label="Admin" />
+            )}
           </nav>
 
           <div className="flex md:hidden">

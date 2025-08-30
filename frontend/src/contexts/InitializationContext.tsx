@@ -77,9 +77,16 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
     safeSetState({ isLoading: true, error: null });
 
     try {
-      // Step 0: opportunistic backend warmup. Do not block init.
-      safeSetState({ currentStep: 'Starting backend…' });
-      void fetchWithRetry('/healthz', {}, 1, 0, 8000).catch(() => {});
+      // Step 0: wait for backend readiness to avoid early timeouts during migrations/seed.
+      safeSetState({ currentStep: 'Waiting for backend…' });
+      await fetchWithRetry(
+        '/api/readyz',
+        {},
+        60,   // up to ~6–7 minutes worst‑case
+        500,  // gentle backoff
+        8000, // per‑attempt timeout
+        (a, t) => safeSetAttempt(`(backend ${a}/${t})`)
+      );
 
       // Step 1: load default user with retries
       safeSetState({ currentStep: 'Loading user profile…' });

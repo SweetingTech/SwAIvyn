@@ -701,7 +701,7 @@ const ModelSettings = () => {
   const { user } = useInitialization();
   const mounted = useMountedRef();
 
-  const [selectedEngine, setSelectedEngine] = useState<'ollama' | 'openai' | 'claude' | 'lmstudio'>('claude');
+  const [selectedEngine, setSelectedEngine] = useState<'ollama' | 'openai' | 'claude' | 'lmstudio' | 'vllm'>('claude');
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
   const [lmStudioApiUrl, setLmStudioApiUrl] = useState(() => {
@@ -1068,6 +1068,58 @@ const ModelSettings = () => {
           </>
         );
 
+      case 'vllm':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">vLLM API URL</label>
+              <input
+                type="text"
+                placeholder="http://localhost:8000"
+                value={lmStudioApiUrl /* reuse local state holder or add separate state */}
+                onChange={(e) => setLmStudioApiUrl(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">Models</label>
+                <button
+                  onClick={async () => {
+                    try {
+                      const endpoint = `/api/llm/vllm/models?userId=${user?.id || ''}`;
+                      const res = await fetchWithTimeout(endpoint);
+                      if (!res.ok) throw new Error(`vLLM models fetch failed: ${res.status}`);
+                      const models = await res.json();
+                      const arr = Array.isArray(models) ? models : [];
+                      if (arr.length > 0) setSelectedModel(arr[0]);
+                    } catch (e: any) {
+                      alert(e?.message || 'Failed to refresh vLLM models');
+                    }
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                  disabled={loading}
+                >
+                  Refresh
+                </button>
+              </div>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">Select a model...</option>
+                {/* Render cachedOllamaModels when vLLM returns list; keep placeholder */}
+                {cachedOllamaModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          </>
+        );
+
       default:
         return null;
     }
@@ -1109,6 +1161,11 @@ const ModelSettings = () => {
 
       if (selectedEngine === 'lmstudio' && lmStudioApiUrl) {
         connectionSettings.LmStudioApiUrl = lmStudioApiUrl;
+      }
+
+      if (selectedEngine === 'vllm' && lmStudioApiUrl) {
+        // Reuse field holder for now (UI binds to the same input box above)
+        connectionSettings.VllmApiUrl = lmStudioApiUrl;
       }
 
       await fetch('/api/settings/connections', {
@@ -1175,6 +1232,7 @@ const ModelSettings = () => {
             <option value="openai">OpenAI</option>
             <option value="ollama">Ollama</option>
             <option value="lmstudio">LM Studio</option>
+            <option value="vllm">vLLM</option>
           </select>
         </div>
 

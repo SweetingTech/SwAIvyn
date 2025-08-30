@@ -84,6 +84,8 @@ const ChatPage: React.FC = () => {
   const [ttsProvider, setTtsProvider] = useState<string | null>(null);
   const [ttsVoiceId, setTtsVoiceId] = useState<string | null>(null);
   const [availableLlms, setAvailableLlms] = useState<LlmOption[]>([]);
+  const [notice, setNotice] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement|null>(null);
 
   /* ------------------------------ refs ----------------------------------- */
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -211,50 +213,37 @@ const ChatPage: React.FC = () => {
     sessionCharacter
   ]);
 
-  /* ---------------------------- Build LLM options from in-memory state --------------------------- */
+  /* ---------------------------- Fetch LLM options from backend --------------------------- */
   useEffect(() => {
-    const buildSavedLlmOptions = () => {
+    const loadModels = async () => {
       if (!user?.id) return;
-
-      // Build options based on in-memory settings (already loaded once from DB)
-      const llms: LlmOption[] = [
-        { value: 'default', label: 'Default LLM', engine: null, model: null }
-      ];
-
-      if (chatEngineOverride && chatModelOverride) {
-        llms.push({
-          value: `${chatEngineOverride}:${chatModelOverride}`,
-          label: `${chatEngineOverride.charAt(0).toUpperCase() + chatEngineOverride.slice(1)}: ${chatModelOverride}`,
-          engine: chatEngineOverride,
-          model: chatModelOverride
-        });
-      } else if (chatEngineOverride) {
-        llms.push({
-          value: `${chatEngineOverride}:default`,
-          label: `${chatEngineOverride.charAt(0).toUpperCase() + chatEngineOverride.slice(1)} (Default)`,
-          engine: chatEngineOverride,
-          model: null
-        });
+      try {
+        const res = await fetch('/api/llm/models');
+        if (!res.ok) throw new Error('Failed to load models');
+        const data = await res.json();
+        const llms: LlmOption[] = [
+          { value: 'default', label: 'Default LLM', engine: null, model: null },
+        ];
+        const addEngine = (engine: string, models: string[]) => {
+          if (!models || models.length === 0) {
+            llms.push({ value: `${engine}:default`, label: `${engine} (Default)`, engine, model: null });
+          } else {
+            models.forEach((m) => llms.push({ value: `${engine}:${m}`, label: `${engine}: ${m}` , engine, model: m }));
+          }
+        };
+        if (data.ollama?.available) addEngine('ollama', data.ollama.models);
+        if (data.lmstudio?.available) addEngine('lmstudio', data.lmstudio.models);
+        if (data.vllm?.available) addEngine('vllm', data.vllm.models);
+        if (data.openai?.available) addEngine('openai', data.openai.models);
+        if (data.claude?.available) addEngine('claude', data.claude.models);
+        setAvailableLlms(llms);
+      } catch (err) {
+        console.error('Failed to load model options:', err);
+        setAvailableLlms([{ value: 'default', label: 'Default LLM', engine: null, model: null }]);
       }
-
-      // Add other basic options for fallback, ensuring no duplicates
-      ['ollama', 'lmstudio', 'openai', 'claude'].forEach((engine) => {
-        if (engine !== chatEngineOverride) {
-          llms.push({
-            value: `${engine}:default`,
-            label: `${engine.charAt(0).toUpperCase() + engine.slice(1)} (Default)`,
-            engine: engine,
-            model: null
-          });
-        }
-      });
-
-      console.log('🔄 Chat: LLM options derived from state:', llms);
-      setAvailableLlms(llms);
     };
-
-    buildSavedLlmOptions();
-  }, [user?.id, chatEngineOverride, chatModelOverride]);
+    loadModels();
+  }, [user?.id]);
 
 
   /* 🕵️‍♂️ Debug: track dropdown value + available list */
@@ -694,6 +683,8 @@ const ChatPage: React.FC = () => {
                       })
                     );
                     console.log('🔄 Chat: Chat settings (including LLM) updated and Dashboard notified.');
+                    setNotice('LLM selection saved');
+                    setTimeout(() => setNotice(''), 2000);
                   } catch (err) {
                     console.error('Failed to update chat settings:', err);
                   }
@@ -781,10 +772,42 @@ const ChatPage: React.FC = () => {
               <p className="text-sm text-gray-500">
                 Drag and drop files here to upload
               </p>
-              <button className="btn btn-ghost w-full mt-2 border-dashed">
+              <button className="btn btn-ghost w-full mt-2 border-dashed" onClick={() => fileInputRef.current?.click()}>
                 <Paperclip size={16} className="mr-2" />
                 Upload Files
               </button>
+              <button
+                type="button"
+                className="btn btn-ghost w-full mt-2"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={16} className="mr-2" /> Choose Files…
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={async (e) => {
+                  if (!e.target.files || !currentConversation.id) return;
+                  const form = new FormData();
+                  Array.from(e.target.files).forEach((f) => form.append('files', f));
+                  form.append('conversationId', currentConversation.id);
+                  try {
+                    const resp = await fetch('/api/upload/files', { method: 'POST', body: form });
+                    if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+                    setNotice('Files uploaded and processing started');
+                    setTimeout(() => setNotice(''), 2500);
+                  } catch (upErr) {
+                    console.error('Upload error:', upErr);
+                    setNotice('Upload failed');
+                    setTimeout(() => setNotice(''), 2500);
+                  } finally {
+                    e.target.value = '';
+                  }
+                }}
+              />
+              <script/>
             </div>
 
             <div>
@@ -807,6 +830,12 @@ const ChatPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {/* toast */}
+      {notice && (
+        <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50">
+          {notice}
+        </div>
+      )}
     </motion.div>
   );
 };
