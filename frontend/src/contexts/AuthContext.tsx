@@ -4,7 +4,7 @@ import axios from 'axios';
 interface AuthState {
   token: string | null;
   user: { id: string; username: string; email: string; role?: string } | null;
-  login: (identifier: string, password: string) => Promise<boolean>;
+  login: (identifier: string, password: string, remember?: boolean) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -17,11 +17,18 @@ export const useAuth = () => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
-  const [user, setUser] = useState<AuthState['user']>(() => {
-    const raw = localStorage.getItem('auth_user');
-    return raw ? JSON.parse(raw) : null;
-  });
+  // Hydrate from localStorage to persist across reloads when "Remember me" was chosen
+  const initialToken = (() => {
+    try { return localStorage.getItem('auth_token'); } catch { return null; }
+  })();
+  const initialUser = (() => {
+    try {
+      const s = localStorage.getItem('auth_user');
+      return s ? JSON.parse(s) as AuthState['user'] : null;
+    } catch { return null; }
+  })();
+  const [token, setToken] = useState<string | null>(initialToken);
+  const [user, setUser] = useState<AuthState['user']>(initialUser);
 
   // Keep axios Authorization header in sync
   useEffect(() => {
@@ -32,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [token]);
 
-  const login = useMemo(() => async (identifier: string, password: string) => {
+  const login = useMemo(() => async (identifier: string, password: string, remember?: boolean) => {
     try {
       const resp = await fetch('/api/auth/login', {
         method: 'POST',
@@ -45,8 +52,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const usr = data.user as { id: string; username: string; email: string; role?: string };
       setToken(tok);
       setUser(usr);
-      localStorage.setItem('auth_token', tok);
-      localStorage.setItem('auth_user', JSON.stringify(usr));
+      if (remember) {
+        localStorage.setItem('auth_token', tok);
+        localStorage.setItem('auth_user', JSON.stringify(usr));
+      } else {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+      }
       return true;
     } catch {
       return false;
@@ -63,4 +75,3 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value: AuthState = { token, user, login, logout };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-

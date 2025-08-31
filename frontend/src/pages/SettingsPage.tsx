@@ -122,6 +122,20 @@ const VoiceSettings = () => {
         ]);
       })
       .finally(() => mounted.current && setLoading(false));
+
+    // Load consolidated chat settings first so toggles reflect saved state
+    chatService
+      .getChatSettings(user.id)
+      .then((s) => {
+        if (!mounted.current) return;
+        setEnabledEngines(s.enabledEngines || enabledEngines);
+        setEngineModels(s.engineModels || {});
+        setSelectedEngine((s.llmEngine as any) || 'ollama');
+        const modelForEngine = (s.engineModels && s.engineModels[s.llmEngine]) || s.llmModel || '';
+        setSelectedModel(modelForEngine);
+      })
+      .catch(() => {})
+      .finally(() => mounted.current && setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -867,7 +881,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
+                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
                 disabled={loading} // fix: do not couple to engine
               >
                 <option value="">Select a model...</option>
@@ -920,7 +934,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
+                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -975,7 +989,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
+                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -1016,26 +1030,21 @@ const ModelSettings = () => {
                       // Persist the user's choice
                       localStorage.setItem("lmstudio:apiUrl", baseUrl);
 
-                      // 1) Ask LM Studio for models with states
-                      const res = await fetch(`${baseUrl}/api/v0/models`, { method: "GET" });
-                      if (!res.ok) throw new Error(`Models fetch failed: ${res.status}`);
-                      const models = await res.json();
+                      // Ask backend to resolve the currently loaded LM Studio model
+                      const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user?.id || ''}`);
+                      if (!res.ok) throw new Error(`LM Studio model lookup failed: ${res.status}`);
+                      const { model } = await res.json();
 
-                      // 2) Pick currently loaded model
-                      const loaded = Array.isArray(models)
-                        ? models.find((m: any) => m.state === "loaded")
-                        : null;
-
-                      if (!loaded) {
+                      if (!model) {
                         setSelectedModel("");
                         localStorage.removeItem("lmstudio:modelId");
                         alert("No loaded model. Load one in LM Studio first.");
                         return;
                       }
 
-                      // 3) Remember its id
-                      setSelectedModel(loaded.id);
-                      localStorage.setItem("lmstudio:modelId", loaded.id);
+                      // Remember the model id
+                      setSelectedModel(model);
+                      localStorage.setItem("lmstudio:modelId", model); setEngineModels(prev => ({ ...prev, lmstudio: model }));
                     } catch (e: any) {
                       setSelectedModel("");
                       localStorage.removeItem("lmstudio:modelId");
@@ -1107,7 +1116,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
+                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -1132,11 +1141,13 @@ const ModelSettings = () => {
     try {
       // keep your dual-save behavior
       await chatService.updateChatSettings(user.id, {
-        llmEngine: selectedEngine,
-        llmModel: selectedModel || '',
-        ttsProvider: 'fishspeech',
-        ttsVoiceId: 'glados',
-      });
+  llmEngine: selectedEngine,
+  llmModel: selectedModel || '',
+  ttsProvider: 'fishspeech',
+  ttsVoiceId: 'glados',
+  enabledEngines,
+  engineModels: { ...engineModels, [selectedEngine]: selectedModel || (engineModels[selectedEngine] || '') },
+});
 
       await chatService.updateLlmSettings(selectedEngine, selectedModel, user.id);
 
@@ -1191,6 +1202,24 @@ const ModelSettings = () => {
       <p className="text-sm text-gray-600">Configure your AI model provider</p>
 
       <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Enabled Engines</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['ollama','lmstudio','openai','claude','vllm'] as const).map((eng) => (
+              <label key={eng} className="inline-flex items-center space-x-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={!!enabledEngines[eng]}
+                  onChange={(e) => setEnabledEngines(prev => ({ ...prev, [eng]: e.target.checked }))}
+                  className="rounded border-gray-300"
+                  disabled={(eng === 'openai' && !openAiApiKey) || (eng === 'claude' && !claudeApiKey)}
+                  title={(eng === 'openai' && !openAiApiKey) ? 'Provide OpenAI API key in Connections to enable' : (eng === 'claude' && !claudeApiKey) ? 'Provide Claude API key in Connections to enable' : ''}
+                />
+                <span className="capitalize">{eng}</span>
+              </label>
+            ))}
+          </div>
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">LLM Engine</label>
           <select
@@ -1280,8 +1309,252 @@ const ModelSettings = () => {
 // ======================= other sections unchanged =======================
 
 const CharacterSettings = () => {
-  // ... (unchanged)
-  return <div>/* your character settings code */</div>;
+  const { user } = useInitialization();
+  const mounted = useMountedRef();
+
+  const [loading, setLoading] = useState(false);
+  const [characters, setCharacters] = useState<Array<{ id: string; name: string; systemPrompt?: string; imagePath?: string }>>([]);
+  const [defaultId, setDefaultId] = useState<string>('');
+  const [newCharOpen, setNewCharOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; systemPrompt: string; imagePath: string }>({ name: '', systemPrompt: '', imagePath: '' });
+  const [form, setForm] = useState({ name: 'GLaDOS', imagePath: '', systemPrompt: `You are GLaDOS: a highly intelligent, sarcastic, darkly humorous AI. Speak with dry wit, occasional passive-aggressiveness, and a tone of clinical detachment. Always be helpful while maintaining your signature style.` });
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const placeholder = (
+    <div className="w-16 h-16 rounded bg-gray-200 text-gray-500 flex items-center justify-center text-xs">
+      No Image
+    </div>
+  );
+
+  const load = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const [charsRes, defRes] = await Promise.all([
+        fetch(`/api/character/user/${encodeURIComponent(user.id)}`),
+        fetch(`/api/settings/DefaultCharacterId?userId=${encodeURIComponent(user.id)}`),
+      ]);
+      if (charsRes.ok) {
+        const list = await charsRes.json();
+        if (mounted.current) setCharacters(Array.isArray(list) ? list : []);
+      }
+      if (defRes.ok) {
+        const { value } = await defRes.json();
+        if (mounted.current) setDefaultId(value || '');
+      }
+    } catch (e) {
+      setError('Failed to load characters');
+    } finally {
+      mounted.current && setLoading(false);
+    }
+  }, [mounted, user?.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const setAsDefault = async (id: string) => {
+    if (!user?.id) return;
+    try {
+      await fetch(`/api/user/${encodeURIComponent(user.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_character: id })
+      });
+      setDefaultId(id);
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setError('Failed to set default');
+    }
+  };
+
+  const createCharacter = async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const resp = await fetch('/api/character', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name.trim() || 'New Character', imagePath: form.imagePath.trim(), systemPrompt: form.systemPrompt, shared: false })
+      });
+      if (!resp.ok) throw new Error('Create failed');
+      setNewCharOpen(false);
+      setForm({ name: 'GLaDOS', imagePath: '', systemPrompt: form.systemPrompt });
+      await load();
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create');
+    } finally {
+      mounted.current && setLoading(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    setLoading(true);
+    try {
+      const body: any = { name: editForm.name, systemPrompt: editForm.systemPrompt };
+      if (editForm.imagePath) body.imagePath = editForm.imagePath;
+      const resp = await fetch(`/api/character/${encodeURIComponent(editingId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!resp.ok) throw new Error('Update failed');
+      setEditingId(null);
+      await load();
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteCharacter = async (id: string) => {
+    if (!confirm('Delete this character?')) return;
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/character/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!resp.ok) throw new Error('Delete failed');
+      await load();
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-medium">Character Settings</h2>
+      <p className="text-sm text-gray-600">Create and manage AI personalities. Set a default character for chat. Add an image for visual identity.</p>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded">{error}</div>}
+      {saved && <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded">Saved</div>}
+
+      {/* Current default */}
+      <div className="border rounded p-4">
+        <h3 className="font-semibold mb-2">Current Personality</h3>
+        {(() => {
+          const cur = characters.find(c => c.id === defaultId) || characters[0];
+          if (!cur) return <div className="text-sm text-gray-500">No characters yet.</div>;
+          return (
+            <div className="flex items-center space-x-3">
+              {cur.imagePath ? <img src={cur.imagePath.startsWith('http') || cur.imagePath.startsWith('/') ? cur.imagePath : `/${cur.imagePath}`} alt={cur.name} className="w-16 h-16 rounded object-cover" /> : placeholder}
+              <div>
+                <div className="font-medium">{cur.name}</div>
+                <div className="text-xs text-gray-500">ID: {cur.id}</div>
+              </div>
+              <button className="ml-auto btn btn-outline" onClick={() => setAsDefault(cur.id)} disabled={loading || defaultId === cur.id}>Set Default</button>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* List */}
+      <div className="border rounded p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold">Your Characters</h3>
+          <button className="btn btn-primary" onClick={() => setNewCharOpen(v => !v)}>{newCharOpen ? 'Cancel' : 'New Character'}</button>
+        </div>
+        <div className="flex items-center space-x-3 mb-3">
+          <label className="btn btn-outline">
+            Upload YAML Card
+            <input
+              type="file"
+              accept=".yaml,.yml"
+              className="hidden"
+              onChange={async (e) => {
+                if (!e.target.files || !e.target.files[0]) return;
+                const text = await e.target.files[0].text();
+                try {
+                  const resp = await fetch('/api/character/import-yaml', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ yaml: text })
+                  });
+                  if (!resp.ok) throw new Error('Import failed');
+                  await load();
+                } catch (err) {
+                  alert((err as Error).message);
+                } finally {
+                  e.target.value = '';
+                }
+              }}
+            />
+          </label>
+        </div>
+        {newCharOpen && (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-sm font-medium">Name</label>
+              <input className="w-full border rounded px-3 py-2" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Image URL (optional)</label>
+              <input className="w-full border rounded px-3 py-2" value={form.imagePath} onChange={e => setForm({ ...form, imagePath: e.target.value })} placeholder="/images/glados.png or https://..." />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium">System Prompt</label>
+              <textarea className="w-full border rounded px-3 py-2 h-32" value={form.systemPrompt} onChange={e => setForm({ ...form, systemPrompt: e.target.value })} />
+            </div>
+            <div className="sm:col-span-2 flex justify-end">
+              <button className="btn btn-primary" onClick={createCharacter} disabled={loading}>Create</button>
+            </div>
+          </div>
+        )}
+        <div className="grid sm:grid-cols-2 gap-3">
+          {characters.map(c => (
+            <div key={c.id} className="border rounded p-3 space-y-2">
+              <div className="flex items-center space-x-3">
+                {c.imagePath ? <img src={c.imagePath.startsWith('http') || c.imagePath.startsWith('/') ? c.imagePath : `/${c.imagePath}`} alt={c.name} className="w-12 h-12 rounded object-cover" /> : placeholder}
+                <div className="flex-1">
+                  {editingId === c.id ? (
+                    <>
+                      <input className="w-full border rounded px-2 py-1 mb-1" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
+                      <textarea className="w-full border rounded px-2 py-1 h-20" value={editForm.systemPrompt} onChange={e => setEditForm({ ...editForm, systemPrompt: e.target.value })} />
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-medium">{c.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{(c.systemPrompt || '').slice(0, 120)}</div>
+                    </>
+                  )}
+                </div>
+                <button className="btn btn-outline" onClick={() => setAsDefault(c.id)} disabled={loading || defaultId === c.id}>Default</button>
+                {editingId === c.id ? (
+                  <>
+                    <button className="btn btn-primary" onClick={saveEdit} disabled={loading}>Save</button>
+                    <button className="btn" onClick={() => setEditingId(null)} disabled={loading}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn" onClick={() => { setEditingId(c.id); setEditForm({ name: c.name, systemPrompt: c.systemPrompt || '', imagePath: c.imagePath || '' }); }}>Edit</button>
+                    <button className="btn btn-error" onClick={() => deleteCharacter(c.id)} disabled={loading}>Delete</button>
+                  </>
+                )}
+              </div>
+              <label className="btn btn-ghost">
+                Upload Image
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                  if (!e.target.files || !e.target.files[0]) return;
+                  const fd = new FormData();
+                  fd.append("file", e.target.files[0]);
+                  fd.append("character_id", c.id);
+                  const r = await fetch("/api/character/image", { method: "POST", body: fd });
+                  if (r.ok) { await load(); } else { alert("Upload failed"); }
+                }} />
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const AgentsSettings = () => (
@@ -1382,3 +1655,11 @@ const SettingsPage = () => {
 };
 
 export default SettingsPage;
+
+
+
+
+
+
+
+

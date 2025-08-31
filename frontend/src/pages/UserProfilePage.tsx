@@ -12,6 +12,7 @@ import {
   Clock
 } from 'lucide-react';
 import fetchWithRetry from '../utils/fetchWithRetry';
+import { useInitialization } from '../contexts/InitializationContext';
 import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface UserProfile {
@@ -24,6 +25,7 @@ interface UserProfile {
 }
 
 const UserProfilePage = () => {
+  const { user } = useInitialization();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -38,17 +40,22 @@ const UserProfilePage = () => {
     try {
       setLoading(true);
 
-      // Use the default and only user ID for this application
-      const defaultUserId = '00000000-0000-0000-0000-000000000001';
+      // Use initialized user id when available; fall back to backend default endpoint
+      const effectiveUserId = user?.id;
 
       // Fire a health check to warm the backend but don't block profile loading
       void fetchWithRetry('/healthz', {}, 1, 0, 8000).catch(() => {});
 
-      const response = await fetchWithRetry(`/api/user/${defaultUserId}`, {}, 6, 500, 8000);
-      if (response.ok) {
+      let response: Response | null = null;
+      if (effectiveUserId) {
+        response = await fetchWithRetry(`/api/user/${encodeURIComponent(effectiveUserId)}`, {}, 6, 500, 8000);
+      } else {
+        response = await fetchWithRetry('/api/user/default', {}, 6, 500, 8000);
+      }
+      if (response && response.ok) {
         const userData = await response.json();
         const userProfile: UserProfile = {
-          id: userData.id || defaultUserId,
+          id: userData.id || effectiveUserId || 'unknown',
           username: userData.username || 'Default User',
           email: userData.email || 'user@example.com',
           createdAt: userData.createdAt || new Date().toISOString(),
@@ -64,7 +71,7 @@ const UserProfilePage = () => {
       } else {
         // Fallback to default data
         const defaultProfile: UserProfile = {
-          id: defaultUserId,
+          id: effectiveUserId || 'unknown',
           username: 'Default User',
           email: 'user@example.com',
           createdAt: new Date().toISOString(),

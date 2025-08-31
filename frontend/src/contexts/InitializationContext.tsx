@@ -88,39 +88,47 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
         (a, t) => safeSetAttempt(`(backend ${a}/${t})`)
       );
 
-      // Step 1: load default user with retries
+      // Step 1: load current user (prefer authenticated). If not authenticated, leave user null and let Auth gate show login.
       safeSetState({ currentStep: 'Loading user profile…' });
-      const userResponse = await fetchWithRetry(
-        '/api/user/default',
-        {},
-        20,
-        400,
-        10000,
-        (a, t) => safeSetAttempt(`(attempt ${a}/${t})`)
-      );
-
-      if (!userResponse.ok) {
-        throw new Error(`Failed to load user profile (${userResponse.status})`);
+      let loadedUser: User | null = null;
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        try {
+          const meResp = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (meResp.ok) {
+            const me = await meResp.json();
+            loadedUser = {
+              id: me.id || 'unknown',
+              username: me.username || 'User',
+              email: me.email || 'user@example.com'
+            };
+          } else {
+            // Clear stale/invalid token so subsequent loads don't keep 401-ing
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_user');
+          }
+        } catch {
+          // ignore and fall back
+        }
       }
+      // No fallback default user; require login
+      safeSetState({ user: loadedUser });
 
-      // Some backends return 204. Guard parse.
-      let userData: any = null;
-      const text = await userResponse.text();
-      if (text) userData = JSON.parse(text);
-
-      const user: User = {
-        id: userData?.id ?? 'unknown',
-        username: userData?.username || 'User',
-        email: userData?.email || 'user@example.com',
-      };
-      safeSetState({ user });
+      // If not authenticated, finish initialization and show login page
+      if (!loadedUser) {
+        safeSetState({ currentStep: 'Awaiting login', isInitialized: true, isLoading: false });
+        safeSetAttempt('');
+        return;
+      }
 
       // Step 2: settings + characters in parallel. Each with its own retry surface.
       safeSetState({ currentStep: 'Loading settings and characters…' });
 
       const [settingsResponse, charactersResponse] = await Promise.all([
         fetchWithRetry(
-          `/api/settings/llm?userId=${encodeURIComponent(user.id)}`,
+          `/api/settings/llm?userId=${encodeURIComponent(loadedUser.id)}`,
           {},
           20,
           400,
@@ -128,7 +136,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
           (a, t) => safeSetAttempt(`(settings ${a}/${t})`)
         ).catch(e => e as Response), // normalize
         fetchWithRetry(
-          `/api/character/user/${encodeURIComponent(user.id)}`,
+          `/api/character/user/${encodeURIComponent(loadedUser.id)}`,
           {},
           20,
           400,
@@ -158,11 +166,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       }
 
       // Step 3: done
-      safeSetState({
-        currentStep: 'Initialization complete!',
-        isInitialized: true,
-        isLoading: false,
-      });
+      safeSetState({ currentStep: 'Initialization complete!', isInitialized: true, isLoading: false });
       safeSetAttempt('');
       // eslint-disable-next-line no-console
       console.log('Application initialization completed successfully');

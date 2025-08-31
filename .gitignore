@@ -1,236 +1,96 @@
-# SwAIvyn .gitignore file
-#
-# PRINCIPLE: Keep static/source files, ignore dynamic/generated files
-# - KEEP: Source code, configs, build scripts, essential static DLLs, docs
-# - IGNORE: Build outputs, runtime data, logs, user-specific files
+# OS artifacts
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# =============================================================================
-# DYNAMIC BUILD OUTPUTS (IGNORE - these get regenerated)
-# =============================================================================
+# Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
+.history/
 
-# .NET Build outputs
-[Bb]in/
-[Oo]bj/
-[Dd]ist/
-[Bb]uild/
-[Rr]elease/
-[Dd]ebug/
-x64/
-x86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
-artifacts/
+# Environment files (ignore all except example templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
 
-# Root-level build artifacts (generated at runtime)
-/*.deps.json
-/*.runtimeconfig.json
-/*.staticwebassets.*.json
-/web.config
-/createdump.exe
-/SwAIvyn.exe
-/SwAIvyn.pdb
+# Virtual environments
+.venv/
+venv/
+env/
+**/.venv/
+**/venv/
+**/env/
+.tox/
+.python-version
 
-# Build output directories
-dll/
-backend/wwwroot/
-backend/bin/
-backend/obj/
+# Python caches and build artifacts
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pyre/
+**/.pytype/
+.coverage
+.coverage.*
+htmlcov/
+**/build/
+**/dist/
+**/*.egg-info/
+*.egg
+**/.ipynb_checkpoints/
 
-# Frontend build outputs
-frontend/dist/
-frontend/build/
-frontend/.cache/
-frontend/coverage/
-frontend/public/build/
-frontend/.vite/
-frontend/node_modules/
+# Node / JS
+node_modules/
+dist/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# =============================================================================
-# STATIC ESSENTIAL FILES (KEEP - these are source/never change)
-# =============================================================================
+# .NET / C#
+**/[Bb]in/
+**/[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.iml
+TestResults/
+coverage/
+Coverage/
 
-# CRITICAL: Pre-built DLLs needed for compilation
-!dnd_dll/
-!dnd_dll/*.dll
+# Logs
+logs/
+*.log
 
-# =============================================================================
-# RUNTIME DATA AND DATABASES (IGNORE - changes during use)
-# =============================================================================
+# Temp files/folders
+.tmp/
+tmp/
+**/tmp/
+temp/
+**/temp/
+*.tmp
+*.temp
 
-# Runtime database files
+# Databases (local dev)
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
-*.sqlite-shm
-*.sqlite-wal
-backend/local_dev.db
-Sqldatabase/
+*.sqlite3
+*.mdf
+*.ldf
+*.ndf
+*.bak
 
-# Runtime application data
-data/
-!data/.gitkeep
-data/avatars/*
-!data/avatars/.gitkeep
-data/uploads/*
-!data/uploads/.gitkeep
-data/backups/*
-!data/backups/.gitkeep
-data/modules/*
-!data/modules/.gitkeep
+# Docker and local overrides
+.docker/
+docker-compose.override.yml
+.envrc
 
-# Speech models and data
-# Keep the instruction file at the root
-!speech/DOWNLOAD_INSTRUCTIONS.txt
-
-# By default ignore all runtime model/data in speech subfolders. Keep small
-# repository source files, but explicitly ignore huge artifacts and local venvs.
-speech/STT/**
-speech/TTS/**
-!speech/STT/.gitkeep
-!speech/TTS/.gitkeep
-
-# Exclude large TTS artifacts that should not be tracked
-speech/TTS/openaudio-s1-mini/fish_speech_env/
-speech/TTS/openaudio-s1-mini/fish_speech_env_old/
-speech/TTS/openaudio-s1-mini/fish_speech.egg-info/
-speech/TTS/openaudio-s1-mini/outputs/
-speech/TTS/openaudio-s1-mini/downloaded/
-speech/TTS/openaudio-s1-mini/*.pth
-speech/TTS/openaudio-s1-mini/*.pt
-speech/TTS/openaudio-s1-mini/fish_speech_model/
-speech/TTS/openaudio-s1-mini/voices/*.wav
-
-# Keep TTS source files (APIs, configs) but avoid re-including virtualenvs and libs
-!speech/TTS/openaudio-s1-mini/fish_speech_api.py
-!speech/TTS/openaudio-s1-mini/fish_speech_config.json
-!speech/TTS/openaudio-s1-mini/config.json
-
-# Database exports (these are snapshots, not source)
-swai_database_export_*.json
-
-# =============================================================================
-# LOGS AND TEMPORARY FILES (IGNORE - generated during runtime)
-# =============================================================================
-
-# Log files
-*.log
-*.log.*
-logs/
-crash_*.txt
-[Ll]og/
-[Ll]ogs/
-frontend/logs/
-
-# Temporary files
-[Tt]emp/
-[Tt]mp/
-*.tmp
-*.temp
-
-# =============================================================================
-# USER-SPECIFIC AND IDE FILES (IGNORE - personal settings)
-# =============================================================================
-
-# Visual Studio
-.vs/
-.vscode/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-*.userprefs
-
-# Other IDEs
-.idea/
-*.sublime-workspace
-*.sublime-project
-.project
-.classpath
-.settings/
-*.launch
-*.tmproj
-*.esproj
-nbproject/
-*.code-workspace
-
-# =============================================================================
-# PACKAGE MANAGERS AND DEPENDENCIES (IGNORE - can be restored)
-# =============================================================================
-
-# Node.js
-node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
-.pnp/
-.pnp.js
-.npm
-.yarn/
-.yarn-integrity
-
-# .NET
-project.lock.json
-project.fragment.lock.json
-**/Properties/launchSettings.json
-
-# =============================================================================
-# DEVELOPMENT ARTIFACTS (IGNORE - generated during development)
-# =============================================================================
-
-# Large source repositories (these can be re-downloaded)
-sqlite-vss/
-windows-libs/
-
-# Environment-specific files
-frontend/modules/SwAIvyn_modules_settings.json
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
-.env
-
-# =============================================================================
-# OS AND SYSTEM FILES (IGNORE - system generated)
-# =============================================================================
-
-# Windows
-Thumbs.db
-ehthumbs.db
-desktop.ini
-*.lnk
-SwAIvyn.lnk
-
-# macOS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-
-# Linux
-*~
-
-# =============================================================================
-# ARCHIVE AND PACKAGE FILES (IGNORE - not source code)
-# =============================================================================
-
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# =============================================================================
-# KEEP THESE IMPORTANT STATIC FILES (EXCEPTIONS)
-# =============================================================================
-
-# Backend source data models (these are source code, not runtime data)
-!backend/Data/
-
-# Keep essential configuration files (these are templates/source)
-# Note: Runtime configs are ignored above, but source configs are kept
+# Project-specific
+scripts/.dev-state.json
+Services/**/wwwroot/uploads/

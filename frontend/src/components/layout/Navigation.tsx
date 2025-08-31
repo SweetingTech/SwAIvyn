@@ -1,11 +1,12 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Navigation = () => {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <header className="sticky top-0 bg-white shadow-sm z-50">
@@ -36,8 +37,19 @@ const Navigation = () => {
             )}
           </nav>
 
-          <div className="flex md:hidden">
-            <MobileMenu />
+          <div className="flex items-center space-x-3">
+            {user && (
+              <span className="text-sm text-gray-600 hidden sm:inline">{user.username}</span>
+            )}
+            <button
+              className="px-3 py-1.5 text-sm rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700"
+              onClick={() => { logout(); navigate('/'); }}
+            >
+              Logout
+            </button>
+            <div className="md:hidden">
+              <MobileMenu />
+            </div>
           </div>
         </div>
       </div>

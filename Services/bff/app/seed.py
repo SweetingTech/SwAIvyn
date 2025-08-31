@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .models import metadata, users
+from .models import metadata, users, characters
 
 
 async def ensure_seed(engine: AsyncEngine) -> None:
@@ -70,3 +70,17 @@ async def ensure_seed(engine: AsyncEngine) -> None:
                 )
             )
 
+        # Seed a default shared character
+        try:
+            await conn.execute(
+                characters.insert().values(
+                    id="default",
+                    user_id=None,
+                    name="Default",
+                    system_prompt="You are a helpful AI assistant.",
+                    image_path="",
+                )
+            )
+        except Exception:
+            # ignore if already exists
+            pass

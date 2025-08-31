@@ -213,36 +213,30 @@ const ChatPage: React.FC = () => {
     sessionCharacter
   ]);
 
-  /* ---------------------------- Fetch LLM options from backend --------------------------- */
+  /* ---------------------------- Build LLM options from saved settings --------------------------- */
   useEffect(() => {
-    const loadModels = async () => {
+    const buildFromSettings = async () => {
       if (!user?.id) return;
       try {
-        const res = await fetch('/api/llm/models');
-        if (!res.ok) throw new Error('Failed to load models');
-        const data = await res.json();
+        const s = await chatService.getChatSettings(user.id);
         const llms: LlmOption[] = [
           { value: 'default', label: 'Default LLM', engine: null, model: null },
         ];
-        const addEngine = (engine: string, models: string[]) => {
-          if (!models || models.length === 0) {
-            llms.push({ value: `${engine}:default`, label: `${engine} (Default)`, engine, model: null });
-          } else {
-            models.forEach((m) => llms.push({ value: `${engine}:${m}`, label: `${engine}: ${m}` , engine, model: m }));
-          }
+        const enabled = s.enabledEngines || {};
+        const engineModels = s.engineModels || {};
+        const add = (engine: string) => {
+          if (!enabled[engine]) return;
+          const m = engineModels[engine];
+          if (m) llms.push({ value: `${engine}:${m}`, label: `${engine}: ${m}`, engine, model: m });
         };
-        if (data.ollama?.available) addEngine('ollama', data.ollama.models);
-        if (data.lmstudio?.available) addEngine('lmstudio', data.lmstudio.models);
-        if (data.vllm?.available) addEngine('vllm', data.vllm.models);
-        if (data.openai?.available) addEngine('openai', data.openai.models);
-        if (data.claude?.available) addEngine('claude', data.claude.models);
+        ['ollama', 'lmstudio', 'openai', 'claude', 'vllm'].forEach(add);
         setAvailableLlms(llms);
       } catch (err) {
-        console.error('Failed to load model options:', err);
+        console.error('Failed to build model options from settings:', err);
         setAvailableLlms([{ value: 'default', label: 'Default LLM', engine: null, model: null }]);
       }
     };
-    loadModels();
+    buildFromSettings();
   }, [user?.id]);
 
 

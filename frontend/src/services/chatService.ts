@@ -6,6 +6,8 @@ export interface ChatSettings {
   llmModel: string;
   ttsProvider: string;
   ttsVoiceId: string;
+  enabledEngines?: Record<string, boolean>;
+  engineModels?: Record<string, string>;
 }
 
 export interface UpdateChatSettingsPayload {

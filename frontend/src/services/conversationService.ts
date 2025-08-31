@@ -250,15 +250,15 @@ const conversationService = {
         };
       }
 
-      // Validate that the IDs look like valid GUIDs
+      // Validate conversationId format, but allow flexible userId formats (seeded dev users are not GUIDs)
       const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!guidRegex.test(conversationId)) {
         console.error('Invalid conversationId format:', conversationId);
         throw new Error(`Invalid conversation ID format: ${conversationId}`);
       }
-      if (!guidRegex.test(userId)) {
-        console.error('Invalid userId format:', userId);
-        throw new Error(`Invalid user ID format: ${userId}`);
+      if (!userId) {
+        console.error('Missing userId');
+        throw new Error('Missing user ID');
       }
 
       const requestData = {

@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [pinCode, setPinCode] = useState('');
   const [error, setError] = useState('');
   const [isPinLogin, setIsPinLogin] = useState(false);
+  const [remember, setRemember] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -17,7 +18,7 @@ export default function LoginPage() {
       setError('PIN login not enabled');
       return;
     }
-    const ok = await login(username, password);
+    const ok = await login(username, password, remember);
     if (!ok) {
       setError('Invalid credentials');
       return;
@@ -61,6 +62,12 @@ export default function LoginPage() {
           </div>
         )}
         {error && <div className="mb-4 text-red-600">{error}</div>}
+        <div className="mb-4 flex items-center justify-between">
+          <label className="inline-flex items-center text-sm text-gray-600">
+            <input type="checkbox" className="mr-2" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            Remember me
+          </label>
+        </div>
         <button
           onClick={handleLogin}
           className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition"

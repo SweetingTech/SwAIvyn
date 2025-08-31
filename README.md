@@ -259,3 +259,34 @@ A new **Agents** tab is available in the SwAIvyn frontend. This tab allows you t
 *   See when an agent was last run and how many tasks it has completed.
 *   Start and Stop agents.
 *   The status of agents is polled periodically to reflect updates from the worker.
+
+---
+
+## Developer Quickstart (Hybrid Dev)
+
+Run app tiers (BFF, Orchestrator, Frontend) on the host with hot reload, and keep infra in Docker (Postgres, Temporal, Qdrant, Neo4j, STT, ElevenLabs adapter).
+
+Prereqs:
+- Docker Desktop
+- Python 3.11+ (`python --version`)
+- Node 18+
+
+Scripts:
+- Start everything: `scripts/dev-start.ps1`
+  - Options: `-IncludeTTS` (builds heavy TTS image), `-ActivityThreads 64`, `-NoStopAppContainers`
+- Stop everything: `scripts/dev-stop.ps1`
+  - Full teardown: `scripts/dev-stop.ps1 -Down`
+
+Endpoints:
+- UI: http://localhost:5173
+- BFF API: http://localhost:5000 (health: `/healthz`, `/api/readyz`)
+- Temporal: `localhost:7233`
+- Qdrant: http://localhost:6333
+- Neo4j: http://localhost:7474 (bolt `localhost:7687`)
+
+Seeded users:
+- admin / admin1234
+- Mari / mari1234
+- DJay / djay1234
+
+See `docs/HYBRID_DEV.md` for details, `docs/BARE_METAL.md` for a container‑free deployment guide, and `docs/DATAFLOW.md` for architecture diagrams.
