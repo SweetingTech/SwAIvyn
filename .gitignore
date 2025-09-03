@@ -23,6 +23,14 @@ env/
 **/.venv/
 **/venv/
 **/env/
+# Ensure any virtualenv directories (including nested) are ignored
+# (keeps local interpreter environments out of commits)
+
+# Ignore common python virtualenv folders anywhere in the tree
+# (also cover variations like .venv, venv, env)
+/.venv/
+/.venv
+
 .tox/
 .python-version
 
@@ -94,3 +102,12 @@ docker-compose.override.yml
 # Project-specific
 scripts/.dev-state.json
 Services/**/wwwroot/uploads/
+
+# TTS / ML artifacts and local model builds
+# These are large or generated during setup and should not be committed
+speech/TTS/openaudio-s1-mini/fish_speech_env/
+speech/TTS/openaudio-s1-mini/fish_speech_model/
+speech/TTS/openaudio-s1-mini/*.pth
+speech/TTS/openaudio-s1-mini/*.pt
+speech/TTS/openaudio-s1-mini/model*
+
