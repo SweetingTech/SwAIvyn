@@ -97,5 +97,19 @@ if (-not $env:TTS_ADAPTER_URL) { $env:TTS_ADAPTER_URL = 'http://localhost:8082' 
 # Optional local tts fallback
 if (-not $env:FISHSPEECH_URL) { $env:FISHSPEECH_URL = 'http://localhost:8081' }
 
+# Normalize host.docker.internal to localhost for host-dev processes
+function Normalize-HostUrl {
+    param([string]$Url, [string]$Default)
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $Default }
+    return ($Url -replace 'host\.docker\.internal','localhost')
+}
+
+# Ensure local LLM endpoints are reachable from host processes
+$env:OLLAMA_HOST   = Normalize-HostUrl -Url $env:OLLAMA_HOST   -Default 'http://localhost:11434'
+$env:LMSTUDIO_HOST = Normalize-HostUrl -Url $env:LMSTUDIO_HOST -Default 'http://localhost:1234'
+
+# Ensure a model is set (use .env LLM_MODEL if provided, else a sensible default)
+if (-not $env:LLM_MODEL -or [string]::IsNullOrWhiteSpace($env:LLM_MODEL)) { $env:LLM_MODEL = 'llama3' }
+
 Write-Host "Running Orchestrator worker (threads=$ActivityThreads)..." -ForegroundColor Green
 python -m app.worker

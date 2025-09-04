@@ -50,9 +50,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // Fetch folders and sessions on component mount
   useEffect(() => {
     const fetchData = async () => {
-      // IMPORTANT: Skip API calls completely for demo-user-id
-      if (!userId || userId === 'demo-user-id') {
-        console.warn('Demo user ID detected, skipping API calls and using empty data');
+      // Skip until we have a real user id; don't log a demo warning for transient empty values
+      if (!userId) {
+        setFolders([]);
+        setSessions([]);
+        return;
+      }
+      if (userId === 'demo-user-id') {
+        // Silent fallback for demo mode
         setFolders([]);
         setSessions([]);
         return;

@@ -153,21 +153,20 @@ const conversationService = {
     }
 
     try {
-      // First check if user has any conversations to avoid unnecessary 404
+      // Get all conversations for the user
       const allConversations = await this.getConversations(userId);
       if (!allConversations || allConversations.length === 0) {
-        // User has no conversations, return null without making the recent API call
+        // User has no conversations, return null
         return null;
       }
 
-      // User has conversations, now get the most recent one
-      const response = await apiService.get(`/api/conversation/recent/${userId}`);
-      return response;
+      // Find the most recent conversation by lastUpdated timestamp
+      const sortedConversations = allConversations.sort((a, b) => 
+        new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
+      );
+      
+      return sortedConversations[0];
     } catch (error: any) {
-      // If no recent conversation, return null instead of throwing
-      if (error.response && error.response.status === 404) {
-        return null;
-      }
       console.error(`Error getting recent conversation for user ${userId}:`, error);
       return null; // Return null on error instead of throwing
     }

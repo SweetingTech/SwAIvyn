@@ -29,7 +29,14 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue="reply-queue",
-        workflows=[workflows.ReplyWorkflow],
+        workflows=[
+            workflows.ReplyWorkflow,
+            workflows.ReplyWorkflowOllama,
+            workflows.ReplyWorkflowLMStudio,
+            workflows.ReplyWorkflowOpenAI,
+            workflows.ReplyWorkflowClaude,
+            workflows.ReplyWorkflowVLLM,
+        ],
         activities=[
             acts.generate_reply,
             acts.synthesize_tts,

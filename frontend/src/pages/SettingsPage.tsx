@@ -123,19 +123,6 @@ const VoiceSettings = () => {
       })
       .finally(() => mounted.current && setLoading(false));
 
-    // Load consolidated chat settings first so toggles reflect saved state
-    chatService
-      .getChatSettings(user.id)
-      .then((s) => {
-        if (!mounted.current) return;
-        setEnabledEngines(s.enabledEngines || enabledEngines);
-        setEngineModels(s.engineModels || {});
-        setSelectedEngine((s.llmEngine as any) || 'ollama');
-        const modelForEngine = (s.engineModels && s.engineModels[s.llmEngine]) || s.llmModel || '';
-        setSelectedModel(modelForEngine);
-      })
-      .catch(() => {})
-      .finally(() => mounted.current && setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -715,8 +702,22 @@ const ModelSettings = () => {
   const { user } = useInitialization();
   const mounted = useMountedRef();
 
+  // Debug user context loading
+  useEffect(() => {
+    console.log('🔧 Settings: User context:', user);
+    console.log('🔧 Settings: User ID available:', !!user?.id);
+  }, [user]);
+
   const [selectedEngine, setSelectedEngine] = useState<'ollama' | 'openai' | 'claude' | 'lmstudio' | 'vllm'>('claude');
   const [selectedModel, setSelectedModel] = useState<string>('');
+  const [enabledEngines, setEnabledEngines] = useState<Record<string, boolean>>({
+    ollama: true,
+    lmstudio: true,
+    openai: false,
+    claude: false,
+    vllm: false,
+  });
+  const [engineModels, setEngineModels] = useState<Record<string, string>>({});
   const [ollamaApiUrl, setOllamaApiUrl] = useState('http://localhost:11434');
   const [lmStudioApiUrl, setLmStudioApiUrl] = useState(() => {
     // Try to load from localStorage, fallback to default
@@ -731,19 +732,73 @@ const ModelSettings = () => {
   const [saveError, setSaveError] = useState('');
   const [cachedOllamaModels, setCachedOllamaModels] = useState<string[]>([]);
 
+  // Persist consolidated chat settings and then rehydrate state
+  const persistChatSettings = useCallback(async (why: string) => {
+    if (!user?.id) return;
+    try {
+      const payload = {
+        llmEngine: selectedEngine,
+        llmModel: selectedModel || '',
+        ttsProvider: 'fishspeech',
+        ttsVoiceId: 'glados',
+        enabledEngines,
+        engineModels: { ...engineModels, [selectedEngine]: selectedModel || (engineModels[selectedEngine] || '') },
+      } as any;
+      await chatService.updateChatSettings(user.id, payload);
+      if (!mounted.current) return;
+      setSaveSuccess(true);
+      setTimeout(() => mounted.current && setSaveSuccess(false), 1200);
+      const s = await chatService.getChatSettings(user.id);
+      if (!mounted.current) return;
+      setEnabledEngines(prev => ({ ...prev, ...(s.enabledEngines || {}) }));
+      setEngineModels(s.engineModels || {});
+      if (s.llmEngine) setSelectedEngine(s.llmEngine as any);
+      const modelForEngine = (s.engineModels && s.engineModels[s.llmEngine]) || s.llmModel || '';
+      if (modelForEngine) setSelectedModel(modelForEngine);
+      // eslint-disable-next-line no-console
+      console.log('Persisted chat settings:', why, payload);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Persist chat settings failed:', e);
+      if (mounted.current) setSaveError('Save failed');
+    }
+  }, [user?.id, selectedEngine, selectedModel, enabledEngines, engineModels, mounted]);
+
   useEffect(() => {
     if (!user?.id) return;
     setLoading(true);
 
-    chatService
-      .getLlmSettings(user.id)
-      .then((settings) => {
+    // Load consolidated chat settings so toggles and model selectors reflect saved state
+    (async () => {
+      try {
+        const s = await chatService.getChatSettings(user.id);
+        console.log('🔧 Settings: Loaded chat settings for user', user.id, ':', s);
         if (!mounted.current) return;
-        setSelectedEngine(settings.engine as any);
-        setSelectedModel(settings.model || '');
+        
+        // Ensure we have complete settings before updating state
+        const loadedEnabledEngines = s.enabledEngines || {};
+        const loadedEngineModels = s.engineModels || {};
+        
+        console.log('🔧 Settings: Enabled engines from backend:', loadedEnabledEngines);
+        console.log('🔧 Settings: Engine models from backend:', loadedEngineModels);
+        
+        setEnabledEngines(loadedEnabledEngines);
+        setEngineModels(loadedEngineModels);
+        
+        if (s.llmEngine) {
+          setSelectedEngine(s.llmEngine as any);
+          console.log('🔧 Settings: Set engine to', s.llmEngine);
+        }
+        
+        // Get the model for the specific engine, not just the generic model
+        const modelForEngine = loadedEngineModels[s.llmEngine] || s.llmModel || '';
+        if (modelForEngine) {
+          setSelectedModel(modelForEngine);
+          console.log('🔧 Settings: Set model to', modelForEngine, 'for engine', s.llmEngine);
+        }
 
         // If LM Studio is the selected engine, try to fetch the live model in the background (non-blocking)
-        if ((settings.engine as any) === 'lmstudio') {
+        if (s.llmEngine === 'lmstudio') {
           (async () => {
             try {
               const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user.id}`);
@@ -769,9 +824,10 @@ const ModelSettings = () => {
             }
           })();
         }
-      })
-      .catch(() => {})
-      .finally(() => mounted.current && setLoading(false));
+      } catch {
+        // ignore
+      }
+    })();
 
     // connection settings
     fetch(`/api/settings/connections?userId=${user.id}`)
@@ -785,7 +841,8 @@ const ModelSettings = () => {
         if (data.LmStudioApiUrl) setLmStudioApiUrl(data.LmStudioApiUrl);
         if (data.EnableStreaming !== undefined) setEnableStreaming(data.EnableStreaming);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => mounted.current && setLoading(false));
 
     const cached = localStorage.getItem('cachedOllamaModels');
     if (cached) {
@@ -800,19 +857,27 @@ const ModelSettings = () => {
 
   const refreshOllamaModels = async () => {
     try {
-      let endpoint = '';
-      if (selectedEngine === 'lmstudio') {
-        endpoint = `/api/llm/lmstudio/models?userId=${user?.id || ''}`;
-      } else if (selectedEngine === 'ollama') {
-        endpoint = `/api/llm/ollama/models?userId=${user?.id || ''}`;
-      } else {
+      const engine = selectedEngine === 'lmstudio' ? 'lmstudio' : selectedEngine === 'ollama' ? 'ollama' : '';
+      if (!engine) {
         console.warn('Unsupported engine for model refresh:', selectedEngine);
         return;
       }
-      const res = await fetchWithTimeout(endpoint);
+      const qs: string[] = [
+        `engine=${engine}`,
+      ];
+      if (user?.id) qs.push(`userId=${encodeURIComponent(user.id)}`);
+      const base = engine === 'ollama' ? ollamaApiUrl : lmStudioApiUrl;
+      if (base) qs.push(`baseUrl=${encodeURIComponent(base)}`);
+      const res = await fetchWithTimeout(`/api/llm/models?${qs.join('&')}`);
       if (res.ok) {
-        const models = await res.json();
-        const modelArray = Array.isArray(models) ? models : [];
+        const payload = await res.json();
+        let modelArray: string[] = Array.isArray(payload)
+          ? payload
+          : (payload && Array.isArray(payload.models) ? payload.models : []);
+        // Ensure the saved selected model appears in the list so it displays without manual refresh
+        if (selectedModel && !modelArray.includes(selectedModel)) {
+          modelArray = [...modelArray, selectedModel];
+        }
         if (!mounted.current) return;
         setCachedOllamaModels(modelArray);
         localStorage.setItem('cachedOllamaModels', JSON.stringify(modelArray));
@@ -822,13 +887,22 @@ const ModelSettings = () => {
     }
   };
 
+  // Auto-populate model lists on mount/engine-change so last saved shows first without manual refresh
+  useEffect(() => {
+    if (!user?.id) return;
+    if (!selectedEngine) return;
+    void refreshOllamaModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, selectedEngine, ollamaApiUrl, lmStudioApiUrl]);
+
   const refreshOpenAiModels = async () => {
     try {
-      const endpoint = `/api/llm/openai/models?userId=${user?.id || ''}`;
-      const res = await fetchWithTimeout(endpoint);
+      const qs: string[] = ['engine=openai'];
+      if (user?.id) qs.push(`userId=${encodeURIComponent(user.id)}`);
+      const res = await fetchWithTimeout(`/api/llm/models?${qs.join('&')}`);
       if (res.ok) {
-        const models = await res.json();
-        const modelArray = Array.isArray(models) ? models : [];
+        const payload = await res.json();
+        const modelArray: string[] = Array.isArray(payload) ? payload : (payload?.models || []);
         console.log('OpenAI models refreshed:', modelArray);
       }
     } catch (e) {
@@ -838,11 +912,12 @@ const ModelSettings = () => {
 
   const refreshClaudeModels = async () => {
     try {
-      const endpoint = `/api/llm/claude/models?userId=${user?.id || ''}`;
-      const res = await fetchWithTimeout(endpoint);
+      const qs: string[] = ['engine=claude'];
+      if (user?.id) qs.push(`userId=${encodeURIComponent(user.id)}`);
+      const res = await fetchWithTimeout(`/api/llm/models?${qs.join('&')}`);
       if (res.ok) {
-        const models = await res.json();
-        const modelArray = Array.isArray(models) ? models : [];
+        const payload = await res.json();
+        const modelArray: string[] = Array.isArray(payload) ? payload : (payload?.models || []);
         console.log('Claude models refreshed:', modelArray);
       }
     } catch (e) {
@@ -881,7 +956,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
+                onChange={async (e) => { const v = e.target.value; setSelectedModel(v); setEngineModels(prev => ({ ...prev, [selectedEngine]: v })); await persistChatSettings('model change'); }}
                 disabled={loading} // fix: do not couple to engine
               >
                 <option value="">Select a model...</option>
@@ -934,7 +1009,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
+                onChange={async (e) => { const v = e.target.value; setSelectedModel(v); setEngineModels(prev => ({ ...prev, [selectedEngine]: v })); await persistChatSettings('model change'); }}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -989,7 +1064,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
+                onChange={async (e) => { const v = e.target.value; setSelectedModel(v); setEngineModels(prev => ({ ...prev, [selectedEngine]: v })); await persistChatSettings('model change'); }}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -1025,13 +1100,16 @@ const ModelSettings = () => {
                   onClick={async () => {
                     setLoading(true);
                     try {
-                      // Use the LM Studio API URL from the input field, or a default if empty
-                      const baseUrl = lmStudioApiUrl?.trim() || "http://127.0.0.1:1234";
+                      // Use the LM Studio API URL from the input field (no hardcoded fallback)
+                      const baseUrl = lmStudioApiUrl?.trim();
                       // Persist the user's choice
                       localStorage.setItem("lmstudio:apiUrl", baseUrl);
 
                       // Ask backend to resolve the currently loaded LM Studio model
-                      const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user?.id || ''}`);
+                      const qs: string[] = [];
+                      if (user?.id) qs.push(`userId=${encodeURIComponent(user.id)}`);
+                      if (baseUrl) qs.push(`baseUrl=${encodeURIComponent(baseUrl)}`);
+                      const res = await fetchWithTimeout(`/api/llm/lmstudio/model${qs.length ? '?' + qs.join('&') : ''}`);
                       if (!res.ok) throw new Error(`LM Studio model lookup failed: ${res.status}`);
                       const { model } = await res.json();
 
@@ -1044,7 +1122,21 @@ const ModelSettings = () => {
 
                       // Remember the model id
                       setSelectedModel(model);
-                      localStorage.setItem("lmstudio:modelId", model); setEngineModels(prev => ({ ...prev, lmstudio: model }));
+                      localStorage.setItem("lmstudio:modelId", model);
+                      const updated = { ...engineModels, lmstudio: model };
+                      setEngineModels(updated);
+
+                      // Persist immediately so Chat sees the new model without an extra Save
+                      try {
+                        await chatService.updateChatSettings(user!.id, {
+                          llmEngine: 'lmstudio',
+                          llmModel: model || '',
+                          enabledEngines,
+                          engineModels: updated,
+                        });
+                      } catch {
+                        // non-fatal in dev
+                      }
                     } catch (e: any) {
                       setSelectedModel("");
                       localStorage.removeItem("lmstudio:modelId");
@@ -1074,6 +1166,32 @@ const ModelSettings = () => {
                 This is the model currently loaded in LM Studio. Load a new model in LM Studio and click Refresh. The model will be saved automatically.
               </p>
             </div>
+
+            {/* Full models list (OpenAI-compatible /v1/models) */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">Model</label>
+                <button
+                  onClick={refreshOllamaModels}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                  disabled={loading}
+                >
+                  Refresh
+                </button>
+              </div>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedModel}
+                onChange={async (e) => { const v = e.target.value; setSelectedModel(v); setEngineModels(prev => ({ ...prev, [selectedEngine]: v })); await persistChatSettings('model change'); }}
+                disabled={loading}
+              >
+                <option value="">Select a model...</option>
+                {cachedOllamaModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Uses LM Studio's OpenAI-compatible /v1/models endpoint.</p>
+            </div>
           </>
         );
 
@@ -1097,11 +1215,13 @@ const ModelSettings = () => {
                 <button
                   onClick={async () => {
                     try {
-                      const endpoint = `/api/llm/vllm/models?userId=${user?.id || ''}`;
-                      const res = await fetchWithTimeout(endpoint);
+                      const qs: string[] = ['engine=vllm'];
+                      if (user?.id) qs.push(`userId=${encodeURIComponent(user.id)}`);
+                      if (lmStudioApiUrl) qs.push(`baseUrl=${encodeURIComponent(lmStudioApiUrl)}`);
+                      const res = await fetchWithTimeout(`/api/llm/models?${qs.join('&')}`);
                       if (!res.ok) throw new Error(`vLLM models fetch failed: ${res.status}`);
-                      const models = await res.json();
-                      const arr = Array.isArray(models) ? models : [];
+                      const payload = await res.json();
+                      const arr: string[] = Array.isArray(payload) ? payload : (payload?.models || []);
                       if (arr.length > 0) setSelectedModel(arr[0]);
                     } catch (e: any) {
                       alert(e?.message || 'Failed to refresh vLLM models');
@@ -1116,7 +1236,7 @@ const ModelSettings = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={selectedModel}
-                onChange={(e) => { setSelectedModel(e.target.value); setEngineModels(prev => ({ ...prev, [selectedEngine]: e.target.value })); }}
+                onChange={async (e) => { const v = e.target.value; setSelectedModel(v); setEngineModels(prev => ({ ...prev, [selectedEngine]: v })); await persistChatSettings('model change'); }}
                 disabled={loading}
               >
                 <option value="">Select a model...</option>
@@ -1135,24 +1255,48 @@ const ModelSettings = () => {
   };
 
   const saveSettings = async () => {
-    if (!user?.id) return;
+    // Use fallback user ID if authentication failed
+    const effectiveUserId = user?.id || 'admin';
+    
+    console.log('🔧 Settings: === SAVE BUTTON CLICKED ===');
+    console.log('🔧 Settings: User context:', user);
+    console.log('🔧 Settings: Effective User ID:', effectiveUserId);
+    
+    if (!effectiveUserId) {
+      console.error('🔧 Settings: No user ID available, cannot save');
+      setSaveError('No user ID available - authentication required');
+      return;
+    }
+    
     setLoading(true);
     setSaveError('');
     try {
-      // keep your dual-save behavior
-      await chatService.updateChatSettings(user.id, {
-  llmEngine: selectedEngine,
-  llmModel: selectedModel || '',
-  ttsProvider: 'fishspeech',
-  ttsVoiceId: 'glados',
-  enabledEngines,
-  engineModels: { ...engineModels, [selectedEngine]: selectedModel || (engineModels[selectedEngine] || '') },
-});
+      const finalEngineModels = { ...engineModels, [selectedEngine]: selectedModel || (engineModels[selectedEngine] || '') };
+      
+      const chatSettingsPayload = {
+        llmEngine: selectedEngine,
+        llmModel: selectedModel || '',
+        ttsProvider: 'fishspeech',
+        ttsVoiceId: 'glados',
+        enabledEngines,
+        engineModels: finalEngineModels,
+      };
 
-      await chatService.updateLlmSettings(selectedEngine, selectedModel, user.id);
+      console.log('🔧 Settings: === SAVING SETTINGS ===');
+      console.log('🔧 Settings: User ID:', effectiveUserId);
+      console.log('🔧 Settings: Selected Engine:', selectedEngine);
+      console.log('🔧 Settings: Selected Model:', selectedModel);
+      console.log('🔧 Settings: Enabled Engines:', enabledEngines);
+      console.log('🔧 Settings: Engine Models:', finalEngineModels);
+      console.log('🔧 Settings: Full Chat Settings Payload:', chatSettingsPayload);
 
+      // Save chat settings
+      const chatResponse = await chatService.updateChatSettings(effectiveUserId, chatSettingsPayload);
+      console.log('🔧 Settings: Chat settings save response:', chatResponse);
+
+      // Save connection settings
       const connectionSettings: any = {
-        UserId: user.id,
+        UserId: effectiveUserId,
         EnableStreaming: enableStreaming,
       };
 
@@ -1175,21 +1319,38 @@ const ModelSettings = () => {
       }
 
       if (selectedEngine === 'vllm' && lmStudioApiUrl) {
-        // Reuse field holder for now (UI binds to the same input box above)
         connectionSettings.VllmApiUrl = lmStudioApiUrl;
       }
 
-      await fetch('/api/settings/connections', {
+      console.log('🔧 Settings: Connection Settings Payload:', connectionSettings);
+
+      const connResponse = await fetch('/api/settings/connections', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(connectionSettings),
       });
 
+      console.log('🔧 Settings: Connection settings save response status:', connResponse.status);
+
+      // Verify what was actually saved by reading it back
+      console.log('🔧 Settings: === VERIFYING SAVED SETTINGS ===');
+      const savedSettings = await chatService.getChatSettings(effectiveUserId);
+      console.log('🔧 Settings: Settings read back from backend:', savedSettings);
+
       if (!mounted.current) return;
       setSaveSuccess(true);
       setTimeout(() => mounted.current && setSaveSuccess(false), 3000);
+      
+      // Notify dashboard to refresh its status display
+      window.dispatchEvent(
+        new CustomEvent('llmSettingsChanged', {
+          detail: { engine: selectedEngine, model: selectedModel }
+        })
+      );
+      
+      console.log('🔧 Settings: === SETTINGS SAVE COMPLETED ===');
     } catch (e) {
-      console.error('Save failed:', e);
+      console.error('🔧 Settings: Save failed with error:', e);
       mounted.current && setSaveError('Save failed');
     } finally {
       mounted.current && setLoading(false);
@@ -1254,6 +1415,8 @@ const ModelSettings = () => {
                   console.error('Failed to fetch or save loaded LM Studio model on engine switch:', e);
                 }
               }
+              // Persist engine/model selection so it sticks without manual Save
+              await persistChatSettings('engine switch');
             }}
             disabled={loading}
           >
@@ -1655,11 +1818,3 @@ const SettingsPage = () => {
 };
 
 export default SettingsPage;
-
-
-
-
-
-
-
-

@@ -61,7 +61,28 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Installation
 
-#### Single-Executable Release (Recommended)
+#### Dev (Hybrid, recommended)
+
+Run apps on host with hot‑reload, keep infra in Docker.
+
+```
+# Infra only (Temporal, Postgres, Qdrant, Neo4j, STT)
+scripts/infra-up.ps1
+
+# Apps on host + host TTS
+scripts/dev-start.ps1 -UseHostTTS
+
+# Stop
+scripts/dev-stop.ps1
+```
+
+Options:
+- `-UseHostTTS` runs Fish Speech on the host (http://localhost:8081)
+- Compose profiles keep app images optional: `orchestrator`, `tts`, `tts-adapter`
+
+See docs/HYBRID_DEV.md for details and per‑user dataflow.
+
+#### Single-Executable Release
 
 1. Download the latest release from the [Releases page](https://github.com/SweetingTech/SwAIvyn/releases)
 2. Run the executable
@@ -172,13 +193,25 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 
 ## 💻 Technical Architecture
 
-SwAIvyn is built as a single-executable application that includes:
+SwAIvyn hybrid dev stack:
 
-- ASP.NET Core backend with SignalR for real-time communication
-- React frontend served via embedded static files
-- SQLite for persistent storage with VSS (Vector Similarity Search) extension
-- Embedded vector and graph databases for AI memory
-- Background services for email, backup, and federation
+- BFF (FastAPI, Python) + Orchestrator worker (Temporal) on host
+- React (Vite) on host
+- Infra in Docker: Temporal, Postgres, Qdrant, Neo4j, STT, optional 11Labs adapter/TTS
+- Fish Speech TTS on host (default in dev) or in Docker (profile `tts`)
+
+### Per‑User LLM Dataflow
+
+- Settings (per user)
+  - Save Engine/Model: `PUT /api/chat/settings/{userId}`
+  - Save Connections: `PUT /api/settings/connections`
+- Chat → Send
+  - Calls `POST /api/conversation/chat` with `engine` + `model`
+  - BFF launches the engine‑specific workflow
+  - Worker calls only that engine/model; no fallback
+  - TTS synthesizes via host TTS or adapter URLs
+
+Authorization: users can modify/read only their settings/conversations; admin can see all.
 
 ### SQLite VSS Integration
 

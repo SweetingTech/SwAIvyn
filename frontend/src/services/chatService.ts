@@ -15,6 +15,8 @@ export interface UpdateChatSettingsPayload {
   llmModel: string;
   ttsProvider?: string; // Optional as per backend UpdateChatSettingsRequest
   ttsVoiceId?: string;  // Optional as per backend UpdateChatSettingsRequest
+  enabledEngines?: Record<string, boolean>;
+  engineModels?: Record<string, string>;
 }
 
 /**
@@ -106,49 +108,7 @@ const chatService = {
     }
   },
 
-  // Old methods - can be marked @deprecated or removed later if no longer used.
-  /**
-   * @deprecated Use getChatSettings instead.
-   * Gets the current LLM settings
-   * @param userId Optional user ID for user-specific settings
-   * @returns The current LLM settings (engine and model)
-   */
-  async getLlmSettings(userId?: string): Promise<{ engine: string, model: string }> {
-    try {
-      const url = userId ? `/api/settings/llm?userId=${userId}` : '/api/settings/llm';
-      console.log('🔄 Making LLM settings API call to:', url);
-      console.log('🔄 UserId parameter:', userId);
-      console.log('🔄 UserId type:', typeof userId);
-      const response = await apiService.get(url);
-      console.log('🔄 LLM settings API response:', response);
-      return response;
-    } catch (error) {
-      console.error('Error getting LLM settings:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * @deprecated Use updateChatSettings instead.
-   * Updates the LLM settings
-   * @param engine The LLM engine (ollama, lmstudio, openai or claude)
-   * @param model The LLM model (for Ollama)
-   * @param userId Optional user ID for user-specific settings
-   * @returns Success status
-   */
-  async updateLlmSettings(engine: string, model: string, userId?: string): Promise<boolean> {
-    try {
-      const response = await apiService.put('/api/settings/llm', {
-        engine,
-        model,
-        userId
-      });
-      return response && response.success;
-    } catch (error) {
-      console.error('Error updating LLM settings:', error);
-      throw error;
-    }
-  },
+  
 
   async getLlmModels(engine: string) {
     try {

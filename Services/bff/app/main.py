@@ -20,8 +20,8 @@ from .models import users, chat_settings as t_chat_settings, connection_settings
 
 
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "temporal:7233")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
-LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://host.docker.internal:1234")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234")
 DATABASE_URL = os.getenv("DATABASE_URL")
 UPLOADS_DIR = os.getenv("UPLOADS_DIR", "/app/wwwroot/uploads")
 CHAR_UPLOADS_DIR = os.path.join(UPLOADS_DIR, "characters")
@@ -31,6 +31,9 @@ class ChatRequest(BaseModel):
     message: str
     user_id: Optional[str] = None
     session_id: Optional[str] = None
+    # Optional LLM routing hints from the client (persisted settings or overrides)
+    engine: Optional[str] = None
+    model: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -112,6 +115,24 @@ async def _startup_db_seed():
         except Exception as e:
             print(f"DB init/seed failed: {e}", file=sys.stderr, flush=True)
 
+@app.on_event("startup")
+async def _startup_load_connection_settings():
+    # Pre-load all user connection settings from the database into the cache.
+    global _engine
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                res = await conn.execute(select(t_conn_settings))
+                rows = res.fetchall()
+                for row in rows:
+                    m = row._mapping
+                    uid = m["user_id"]
+                    _connections_store[uid] = m
+                print(f"Loaded connection settings for {len(rows)} users into cache.", flush=True)
+        except Exception as e:
+            print(f"Failed to pre-load connection settings: {e}", file=sys.stderr, flush=True)
+
+
 
 @app.get("/healthz")
 async def healthz():
@@ -147,8 +168,12 @@ async def llm_health(userId: Optional[str] = None):
     status = {"ollama": None, "lmstudio": None}
     uid = userId or "default"
     user_conn = _connections_store.get(uid, {})
-    ollama_base = user_conn.get("OllamaApiUrl") or OLLAMA_HOST
-    lmstudio_base = user_conn.get("LmStudioApiUrl") or LMSTUDIO_HOST
+    ollama_base = user_conn.get("OllamaApiUrl")
+    if ollama_base is None:
+        ollama_base = OLLAMA_HOST
+    lmstudio_base = user_conn.get("LmStudioApiUrl")
+    if lmstudio_base is None:
+        lmstudio_base = LMSTUDIO_HOST
     async with httpx.AsyncClient(timeout=3) as client:
         # Ollama: list tags
         try:
@@ -338,23 +363,62 @@ async def update_user(user_id: str, body: UserUpdate, engine: Optional[AsyncEngi
 
 
 @app.get("/api/settings/llm")
-async def get_llm_settings(userId: Optional[str] = None):
-    # Minimal settings for initialization
+async def get_llm_settings(userId: Optional[str] = None, engine: Optional[AsyncEngine] = Depends(get_engine)):
+    # Read from database first, then memory - consistent with chat settings
     uid = userId or "default"
+    
+    # Try database first
+    if engine is not None:
+        try:
+            async with engine.connect() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    return {
+                        "engine": m.get("llm_engine") or "ollama",
+                        "model": m.get("llm_model") or os.getenv("LLM_MODEL", "llama3")
+                    }
+        except Exception as e:
+            print(f"Database read failed in get_llm_settings: {e}", file=sys.stderr, flush=True)
+    
+    # Fallback to memory
     s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
     return {"engine": s.get("llmEngine", "ollama"), "model": s.get("llmModel", os.getenv("LLM_MODEL", "llama3"))}
 
 
 @app.put("/api/settings/llm")
-async def put_llm_settings(payload: dict):
+async def put_llm_settings(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
     uid = payload.get("userId") or "default"
-    s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
-    engine = payload.get("engine") or s.get("llmEngine")
+    engine_name = payload.get("engine") or "ollama"
     model = payload.get("model") or ""
-    s["llmEngine"] = engine
+    
+    # Update memory
+    s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
+    s["llmEngine"] = engine_name
     s["llmModel"] = model
-    s.setdefault("engineModels", {})[engine] = model
+    s.setdefault("engineModels", {})[engine_name] = model
     _chat_settings_store[uid] = s
+    
+    # Sync to database to maintain consistency
+    if engine is not None:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(t_chat_settings.delete().where(t_chat_settings.c.user_id == uid))
+                await conn.execute(
+                    t_chat_settings.insert().values(
+                        user_id=uid,
+                        llm_engine=s.get("llmEngine"),
+                        llm_model=s.get("llmModel"),
+                        tts_provider=s.get("ttsProvider"),
+                        tts_voice_id=s.get("ttsVoiceId"),
+                        enabled_engines=json.dumps(s.get("enabledEngines", {})),
+                        engine_models=json.dumps(s.get("engineModels", {})),
+                    )
+                )
+        except Exception as e:
+            print(f"Database sync failed in put_llm_settings: {e}", file=sys.stderr, flush=True)
+    
     return {"success": True}
 
 
@@ -371,28 +435,39 @@ async def _load_connections(uid: str) -> Dict[str, Any]:
 
 
 @app.get("/api/settings/connections")
-async def get_connections_settings(userId: Optional[str] = None):
-    uid = userId or "default"
+async def get_connections_settings(userId: Optional[str] = None, current=Depends(current_user_dep)):
+    # Resolve uid: allow admin to query other users; otherwise force current user
+    uid = (current or {}).get("id") or "default"
+    if (current or {}).get("role") == "admin" and userId:
+        uid = userId
+    
     s = _connections_store.get(uid, {})
-    if _engine is not None:
-        db = await _load_connections(uid)
-        if db:
-            s = {**s, **db}
+
+    def get_setting(key: str, env_var: str, default: Any = ""):
+        val = s.get(key)
+        if val is not None:
+            return val
+        return os.getenv(env_var, default)
+
     return {
-        "OpenAiApiKey": s.get("OpenAiApiKey", os.getenv("OPENAI_API_KEY", "")),
-        "ClaudeApiKey": s.get("ClaudeApiKey", os.getenv("CLAUDE_API_KEY", "")),
-        "ClaudeApiUrl": s.get("ClaudeApiUrl", os.getenv("CLAUDE_API_URL", "https://api.anthropic.com/v1")),
-        "OllamaApiUrl": s.get("OllamaApiUrl", os.getenv("OLLAMA_HOST", OLLAMA_HOST)),
-        "LmStudioApiUrl": s.get("LmStudioApiUrl", os.getenv("LMSTUDIO_HOST", LMSTUDIO_HOST)),
-        "EnableStreaming": bool(s.get("EnableStreaming", True)),
-        "TtsGpu": s.get("TtsGpu"),
-        "SttGpu": s.get("SttGpu"),
+        "OpenAiApiKey": get_setting("OpenAiApiKey", "OPENAI_API_KEY"),
+        "ClaudeApiKey": get_setting("ClaudeApiKey", "CLAUDE_API_KEY"),
+        "ClaudeApiUrl": get_setting("ClaudeApiUrl", "CLAUDE_API_URL", "https://api.anthropic.com/v1"),
+        "OllamaApiUrl": get_setting("OllamaApiUrl", "OLLAMA_HOST", OLLAMA_HOST),
+        "LmStudioApiUrl": get_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST),
+        "VllmApiUrl": get_setting("VllmApiUrl", "VLLM_API_URL"),
+        "EnableStreaming": bool(get_setting("EnableStreaming", "ENABLE_STREAMING", True)),
+        "TtsGpu": get_setting("TtsGpu", "TTS_GPU_ID"),
+        "SttGpu": get_setting("SttGpu", "STT_GPU_ID"),
     }
 
 
 @app.post("/api/settings/connections")
-async def update_connections_settings(body: dict):
-    uid = str(body.get("UserId") or body.get("userId") or "default")
+async def update_connections_settings(body: dict, current=Depends(current_user_dep)):
+    uid = (current or {}).get("id") or "default"
+    body_uid = str(body.get("UserId") or body.get("userId") or "")
+    if (current or {}).get("role") == "admin" and body_uid:
+        uid = body_uid
     _connections_store[uid] = {**_connections_store.get(uid, {}), **body}
     if _engine is not None:
         async with _engine.begin() as conn:
@@ -406,16 +481,18 @@ async def update_connections_settings(body: dict):
                     OllamaApiUrl=body.get("OllamaApiUrl"),
                     LmStudioApiUrl=body.get("LmStudioApiUrl"),
                     EnableStreaming=bool(body.get("EnableStreaming", True)),
-                    TtsGpu=body.get("TtsGpu"),
-                    SttGpu=body.get("SttGpu"),
+                    # TtsGpu and SttGpu columns removed due to schema mismatch
                 )
             )
     return {"success": True}
 
 
 @app.put("/api/settings/connections")
-async def put_connections_settings(body: dict):
-    uid = str(body.get("UserId") or body.get("userId") or "default")
+async def put_connections_settings(body: dict, current=Depends(current_user_dep)):
+    uid = (current or {}).get("id") or "default"
+    body_uid = str(body.get("UserId") or body.get("userId") or "")
+    if (current or {}).get("role") == "admin" and body_uid:
+        uid = body_uid
     _connections_store[uid] = {**_connections_store.get(uid, {}), **body}
     if _engine is not None:
         async with _engine.begin() as conn:
@@ -429,8 +506,7 @@ async def put_connections_settings(body: dict):
                     OllamaApiUrl=body.get("OllamaApiUrl"),
                     LmStudioApiUrl=body.get("LmStudioApiUrl"),
                     EnableStreaming=bool(body.get("EnableStreaming", True)),
-                    TtsGpu=body.get("TtsGpu"),
-                    SttGpu=body.get("SttGpu"),
+                    # TtsGpu and SttGpu columns removed due to schema mismatch
                 )
             )
     return {"success": True}
@@ -649,14 +725,119 @@ async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = D
 # ------------------------- Chat Routes (compat) -------------------------
 
 @app.post("/api/conversation/chat")
-async def conversation_chat(body: dict):
-    # Map to orchestrated chat
+async def conversation_chat(body: dict, current=Depends(current_user_dep)):
+    # Resolve user and settings
+    uid = (current or {}).get("id") or body.get("userId") or "default"
     msg = body.get("message") or ""
     session_id = body.get("conversationId") or body.get("session_id")
-    req = ChatRequest(message=msg, session_id=session_id)
-    # reuse existing chat workflow logic
-    resp = await chat(req)
-    return {"response": resp.reply_text, "tts_url": resp.tts_url}
+
+    # Load user settings (database first, then memory fallback)
+    user_settings = {}
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    user_settings = {
+                        "llmEngine": m.get("llm_engine") or "ollama",
+                        "llmModel": m.get("llm_model") or "llama3",
+                        "enabledEngines": json.loads(m.get("enabled_engines") or "{}"),
+                        "engineModels": json.loads(m.get("engine_models") or "{}"),
+                    }
+        except Exception:
+            pass
+    
+    if not user_settings:
+        s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
+        user_settings = {
+            "llmEngine": s.get("llmEngine", "ollama"),
+            "llmModel": s.get("llmModel", "llama3"),
+            "enabledEngines": s.get("enabledEngines", {}),
+            "engineModels": s.get("engineModels", {}),
+        }
+
+    # Engine/model: prefer explicit overrides from body, else per-user chat settings
+    engine = (body.get("engine") or "").strip() or None
+    model = (body.get("model") or "").strip() or None
+    if not engine:
+        engine = user_settings.get("llmEngine")
+    if not model:
+        # Prefer specific engine model mapping, then fall back to general model setting
+        engine_models = user_settings.get("engineModels", {})
+        model = engine_models.get(engine) or user_settings.get("llmModel")
+
+    # Validate that the selected engine is enabled and has a configured model
+    enabled_engines = user_settings.get("enabledEngines", {})
+    if engine and not enabled_engines.get(engine):
+        raise HTTPException(status_code=400, detail=f"Engine '{engine}' is not enabled for user. Please enable it in settings first.")
+    
+    if engine and not model:
+        raise HTTPException(status_code=400, detail=f"No model configured for engine '{engine}'. Please configure a model in settings.")
+
+    print(f"🔄 Workflow: User {uid} using engine '{engine}' with model '{model}' (enabled: {enabled_engines.get(engine, False)})")
+
+    # Connections (per user), with env fallbacks
+    conn = _connections_store.get(uid, {})
+
+    def get_conn_setting(key: str, env_var: str, default: Any = ""):
+        val = conn.get(key)
+        if val is not None:
+            return val
+        return os.getenv(env_var, default)
+
+    # Normalize keys the worker expects
+    conn_payload = {
+        "ollama_base": get_conn_setting("OllamaApiUrl", "OLLAMA_HOST", OLLAMA_HOST),
+        "lmstudio_base": get_conn_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST),
+        "openai_base": get_conn_setting("OpenAiApiUrl", "OPENAI_API_BASE", "https://api.openai.com/v1"),
+        "openai_api_key": get_conn_setting("OpenAiApiKey", "OPENAI_API_KEY"),
+        "claude_api_url": get_conn_setting("ClaudeApiUrl", "CLAUDE_API_URL", "https://api.anthropic.com/v1"),
+        "claude_api_key": get_conn_setting("ClaudeApiKey", "CLAUDE_API_KEY"),
+        "vllm_base": get_conn_setting("VllmApiUrl", "VLLM_API_URL"),
+        "vllm_api_key": get_conn_setting("VllmApiKey", "VLLM_API_KEY"),
+    }
+
+    req = ChatRequest(message=msg, session_id=session_id, engine=engine, model=model, user_id=uid)
+    # Attach connections into workflow input
+    payload = req.model_dump()
+    payload["conn"] = conn_payload
+
+    # Start workflow and await lightweight result path
+    global _temporal_client
+    if _temporal_client is None:
+        try:
+            _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Temporal unavailable: {e}")
+    # Choose workflow per engine
+    engine_key = (engine or '').strip().lower()
+    workflow_name_map = {
+        'ollama': 'ReplyWorkflow_Ollama',
+        'lmstudio': 'ReplyWorkflow_LMStudio',
+        'openai': 'ReplyWorkflow_OpenAI',
+        'claude': 'ReplyWorkflow_Claude',
+        'vllm': 'ReplyWorkflow_VLLM',
+    }
+    wf_name = workflow_name_map.get(engine_key)
+    if not wf_name:
+        raise HTTPException(status_code=400, detail=f"Invalid or missing engine: {engine}")
+    try:
+        handle = await _temporal_client.start_workflow(
+            wf_name,
+            payload,
+            id=f"reply-{session_id or 'default'}-{abs(hash(msg)) % 999999}",
+            task_queue="reply-queue",
+            execution_timeout=timedelta(minutes=10),
+        )
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=15)
+        except asyncio.TimeoutError:
+            result = {"reply_text": "(processing)", "tts_url": None}
+        return {"response": result.get("reply_text", ""), "tts_url": result.get("tts_url")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start workflow: {e}")
 
 
 import uuid
@@ -695,9 +876,19 @@ async def conversation_create(body: dict, engine: Optional[AsyncEngine] = Depend
 
 
 @app.put("/api/conversation/{conv_id}/title")
-async def conversation_update_title(conv_id: str, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def conversation_update_title(conv_id: str, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     if engine is not None:
         async with engine.begin() as conn:
+            # AuthZ: owner or admin
+            owner = None
+            try:
+                res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+                row = res.first()
+                owner = row[0] if row else None
+            except Exception:
+                pass
+            if not current or (owner and current.get("id") != owner and current.get("role") != "admin"):
+                raise HTTPException(status_code=403, detail="Forbidden")
             await conn.execute(
                 t_conversations.update().where(t_conversations.c.id == conv_id).values(
                     title=body.get("title") or "New Chat",
@@ -708,9 +899,18 @@ async def conversation_update_title(conv_id: str, body: dict, engine: Optional[A
 
 
 @app.put("/api/conversation/{conv_id}/folder")
-async def conversation_update_folder(conv_id: str, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def conversation_update_folder(conv_id: str, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     if engine is not None:
         async with engine.begin() as conn:
+            owner = None
+            try:
+                res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+                row = res.first()
+                owner = row[0] if row else None
+            except Exception:
+                pass
+            if not current or (owner and current.get("id") != owner and current.get("role") != "admin"):
+                raise HTTPException(status_code=403, detail="Forbidden")
             await conn.execute(
                 t_conversations.update().where(t_conversations.c.id == conv_id).values(
                     folder_id=body.get("folderId"),
@@ -721,20 +921,28 @@ async def conversation_update_folder(conv_id: str, body: dict, engine: Optional[
 
 
 @app.get("/api/conversation/{conv_id}/messages")
-async def conversation_messages(conv_id: str, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def conversation_messages(conv_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     if engine is not None:
         try:
             async with engine.connect() as conn:
+                # AuthZ: ensure requester owns conversation or is admin
+                res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+                row = res.first()
+                owner = row[0] if row else None
+                if not current or (owner and current.get("id") != owner and current.get("role") != "admin"):
+                    raise HTTPException(status_code=403, detail="Forbidden")
                 res = await conn.execute(select(t_messages).where(t_messages.c.conversation_id == conv_id))
                 rows = res.fetchall()
                 return [dict(r._mapping) for r in rows]
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"messages fetch failed: {e}", file=sys.stderr, flush=True)
     return []
 
 
 @app.post("/api/conversation/message")
-async def conversation_append_message(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def conversation_append_message(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     now = datetime.utcnow().isoformat() + "Z"
     mid = str(uuid.uuid4())
     rec = {
@@ -747,6 +955,12 @@ async def conversation_append_message(body: dict, engine: Optional[AsyncEngine] 
     if engine is not None:
         try:
             async with engine.begin() as conn:
+                # AuthZ: ensure requester owns conversation or is admin
+                res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == rec["conversationId"]).limit(1))
+                row = res.first()
+                owner = row[0] if row else None
+                if not current or (owner and current.get("id") != owner and current.get("role") != "admin"):
+                    raise HTTPException(status_code=403, detail="Forbidden")
                 await conn.execute(
                     t_messages.insert().values(
                         id=mid,
@@ -768,7 +982,10 @@ async def list_folders(user_id: str):
 
 
 @app.get("/api/conversation/user/{user_id}")
-async def list_conversations(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def list_conversations(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    # AuthZ: same-user or admin
+    if not current or (current.get("id") != user_id and current.get("role") != "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
     if engine is not None:
         try:
             async with engine.connect() as conn:
@@ -792,9 +1009,152 @@ async def list_conversations(user_id: str, engine: Optional[AsyncEngine] = Depen
 
 
 @app.get("/api/dashboard/status")
-async def dashboard_status():
-    # Minimal status object
-    return {"status": "ok", "services": {"bff": True, "temporal": True}}
+async def dashboard_status(userId: Optional[str] = None, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    # Enhanced status object with LLM and TTS settings
+    uid = (current or {}).get("id") or userId or "default"
+    
+    # Get current LLM settings from database first, then memory
+    llm_engine = "ollama"
+    llm_model = "Not selected"
+    llm_connected = False
+    
+    # Load user settings from database first
+    user_settings = {}
+    if engine is not None:
+        try:
+            async with engine.connect() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    user_settings = {
+                        "llmEngine": m.get("llm_engine") or "ollama",
+                        "llmModel": m.get("llm_model") or "Not selected", 
+                        "engineModels": json.loads(m.get("engine_models") or "{}")
+                    }
+        except Exception as e:
+            print(f"Dashboard status database read failed: {e}", file=sys.stderr, flush=True)
+    
+    # Fallback to memory if database read failed
+    if not user_settings:
+        s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
+        user_settings = {
+            "llmEngine": s.get("llmEngine", "ollama"),
+            "llmModel": s.get("llmModel", "Not selected"),
+            "engineModels": s.get("engineModels", {})
+        }
+    
+    llm_engine = user_settings["llmEngine"]
+    
+    # Get the actual model for the selected engine, not just the saved generic model
+    engine_models = user_settings["engineModels"]
+    if llm_engine in engine_models and engine_models[llm_engine]:
+        llm_model = engine_models[llm_engine]
+    else:
+        llm_model = user_settings["llmModel"]
+    
+    print(f"🔍 Dashboard: User {uid} engine={llm_engine}, model={llm_model}, engine_models={engine_models}")
+    
+    # Test LLM connection and get live model info
+    try:
+        user_conn = _connections_store.get(uid, {})
+
+        def get_conn_setting(key: str, env_var: str, default: Any = ""):
+            val = user_conn.get(key)
+            if val is not None:
+                return val
+            return os.getenv(env_var, default)
+
+        async with httpx.AsyncClient(timeout=3) as client:
+            if llm_engine == "ollama":
+                base = get_conn_setting("OllamaApiUrl", "OLLAMA_HOST", OLLAMA_HOST)
+                r = await client.get(f"{base}/api/tags")
+                llm_connected = r.status_code == 200
+                # Try to get the first available model if no model is specifically set
+                if llm_connected and llm_model == "Not selected":
+                    try:
+                        data = r.json()
+                        models = data.get("models", [])
+                        if models:
+                            llm_model = models[0].get("name", "Unknown")
+                    except:
+                        pass
+                        
+            elif llm_engine == "lmstudio":
+                base = get_conn_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST)
+                r = await client.get(f"{base}/v1/models")
+                llm_connected = r.status_code == 200
+                # Try to get currently loaded model from LM Studio
+                if llm_connected:
+                    try:
+                        # First try the loaded model endpoint
+                        loaded_r = await client.get(f"{base}/api/v0/models")
+                        if loaded_r.status_code == 200:
+                            loaded_data = loaded_r.json()
+                            items = loaded_data if isinstance(loaded_data, list) else loaded_data.get("data", [])
+                            loaded = next((m for m in items if m.get("loaded") or m.get("isLoaded")), None)
+                            if loaded and loaded.get("id"):
+                                llm_model = loaded.get("id")
+                        # Fallback to first available model if no loaded model found
+                        elif llm_model == "Not selected":
+                            data = r.json()
+                            models = data.get("data", [])
+                            if models:
+                                llm_model = models[0].get("id", "Unknown")
+                    except:
+                        pass
+                        
+            elif llm_engine in ["openai", "claude"]:
+                # For cloud services, consider connected if API key is present
+                if llm_engine == "openai":
+                    llm_connected = bool(get_conn_setting("OpenAiApiKey", "OPENAI_API_KEY"))
+                elif llm_engine == "claude":
+                    llm_connected = bool(get_conn_setting("ClaudeApiKey", "CLAUDE_API_KEY"))
+    except Exception as e:
+        print(f"Dashboard connection test failed: {e}", file=sys.stderr, flush=True)
+        llm_connected = False
+    
+    # Get basic metrics (stub for now, can be enhanced later)
+    character_count = 0
+    memory_count = 0
+    conversation_count = 0
+    
+    if engine is not None:
+        try:
+            async with engine.connect() as conn:
+                # Count characters for user
+                res = await conn.execute(
+                    text("SELECT COUNT(*) FROM characters WHERE user_id = :uid OR user_id IS NULL"),
+                    {"uid": uid}
+                )
+                row = res.first()
+                character_count = row[0] if row else 0
+                
+                # Count conversations for user
+                res = await conn.execute(select(t_conversations).where(t_conversations.c.user_id == uid))
+                conversation_count = len(res.fetchall())
+        except Exception:
+            pass
+    
+    return {
+        "status": "ok",
+        "services": {"bff": True, "temporal": True},
+        "llm": {
+            "engine": llm_engine,
+            "model": llm_model,
+            "connected": llm_connected
+        },
+        "tts": {
+            "provider": "fishspeech",  # Default, can be enhanced
+            "voice": "glados",         # Default, can be enhanced
+            "connected": True          # Assume connected for now
+        },
+        "metrics": {
+            "characterCount": character_count,
+            "memoryCount": memory_count,
+            "conversationCount": conversation_count
+        }
+    }
 
 
 @app.get("/api/memorysyncstatus/status/{user_id}")
@@ -911,28 +1271,80 @@ async def delete_agent(agent_id: str):
 
 
 @app.get("/api/llm/models")
-async def list_llm_models(engine: str = "ollama", userId: Optional[str] = None):
+async def list_llm_models(engine: str = "ollama", userId: Optional[str] = None, baseUrl: Optional[str] = None, apiKey: Optional[str] = None, current=Depends(current_user_dep)):
+    """List models for a given engine using configured connections or explicit override.
+    No hardcoded endpoints are used: precedence is baseUrl (if provided) → per-user connection settings → env.
+    Returns 200 with an empty list on failure to avoid breaking the UI.
+    """
+    uid = (current or {}).get("id") or "default"
+    if (current or {}).get("role") == "admin" and userId:
+        uid = userId
+    
+    user_conn = _connections_store.get(uid, {})
+    eng = (engine or "").lower()
+
+    def get_conn_setting(key: str, env_var: str, default: Any = ""):
+        val = user_conn.get(key)
+        if val is not None:
+            return val
+        return os.getenv(env_var, default)
+
     try:
-        uid = userId or "default"
-        user_conn = _connections_store.get(uid, {})
-        ollama_base = user_conn.get("OllamaApiUrl") or OLLAMA_HOST
-        lmstudio_base = user_conn.get("LmStudioApiUrl") or LMSTUDIO_HOST
         async with httpx.AsyncClient(timeout=5) as client:
-            if engine.lower() == "ollama":
-                r = await client.get(f"{ollama_base}/api/tags")
-                r.raise_for_status()
-                data = r.json()
-                models = [m.get("name") for m in data.get("models", []) if m.get("name")]
-                return {"engine": "ollama", "models": models}
-            elif engine.lower() == "lmstudio":
-                r = await client.get(f"{lmstudio_base}/v1/models")
-                r.raise_for_status()
-                data = r.json()
-                models = [m.get("id") for m in data.get("data", []) if m.get("id")]
-                return {"engine": "lmstudio", "models": models}
+            if eng == "ollama":
+                base = baseUrl or get_conn_setting("OllamaApiUrl", "OLLAMA_HOST", OLLAMA_HOST)
+                if not base:
+                    return {"engine": "ollama", "models": []}
+                r = await client.get(f"{base}/api/tags")
+                if r.status_code == 200:
+                    data = r.json()
+                    models = [m.get("name") for m in data.get("models", []) if m.get("name")]
+                    return {"engine": "ollama", "models": models}
+                return {"engine": "ollama", "models": []}
+
+            if eng == "lmstudio":
+                base = baseUrl or get_conn_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST)
+                if not base:
+                    return {"engine": "lmstudio", "models": []}
+                r = await client.get(f"{base}/v1/models")
+                if r.status_code == 200:
+                    data = r.json()
+                    models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                    return {"engine": "lmstudio", "models": models}
+                return {"engine": "lmstudio", "models": []}
+
+            if eng == "vllm":
+                base = baseUrl or get_conn_setting("VllmApiUrl", "VLLM_API_URL")
+                headers = {}
+                key = apiKey or get_conn_setting("VllmApiKey", "VLLM_API_KEY")
+                if key:
+                    headers["Authorization"] = f"Bearer {key}"
+                if not base:
+                    # fall back to a single default model name if configured
+                    default_model = os.getenv("LLM_MODEL", "")
+                    return {"engine": "vllm", "models": [default_model] if default_model else []}
+                r = await client.get(f"{base}/v1/models", headers=headers)
+                if r.status_code == 200:
+                    data = r.json()
+                    models = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
+                    return {"engine": "vllm", "models": models}
+                return {"engine": "vllm", "models": []}
+
+        # For cloud engines, allow env-driven stubs to populate lists when desired
+        if eng == "openai":
+            env_models = os.getenv("OPENAI_MODELS")
+            models = [m.strip() for m in env_models.split(",") if m.strip()] if env_models else []
+            return {"engine": "openai", "models": models}
+        if eng == "claude":
+            env_models = os.getenv("CLAUDE_MODELS")
+            models = [m.strip() for m in env_models.split(",") if m.strip()] if env_models else []
+            return {"engine": "claude", "models": models}
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Model listing failed: {e}")
-    return {"engine": engine, "models": []}
+        # Do not surface 5xx; log and return empty to keep the page responsive
+        print(f"Model listing failed for engine={eng}: {e}", file=sys.stderr, flush=True)
+        return {"engine": eng, "models": [], "error": str(e)}
+
+    return {"engine": eng, "models": []}
 
 
 # Back-compat aliases for LLm routes used by the frontend
@@ -949,27 +1361,41 @@ async def list_lmstudio_models(userId: Optional[str] = None):
 
 
 @app.get("/api/llm/lmstudio/model")
-async def get_lmstudio_selected_model(userId: Optional[str] = None):
+async def get_lmstudio_selected_model(userId: Optional[str] = None, baseUrl: Optional[str] = None, current=Depends(current_user_dep)):
     # Try LM Studio live endpoint first (api/v0/models), fall back to stored/env
     try:
-        uid = userId or "default"
+        uid = (current or {}).get("id") or "default"
+        if (current or {}).get("role") == "admin" and userId:
+            uid = userId
+        
         user_conn = _connections_store.get(uid, {})
-        lmstudio_base = user_conn.get("LmStudioApiUrl") or LMSTUDIO_HOST
-        async with httpx.AsyncClient(timeout=3) as client:
-            r = await client.get(f"{lmstudio_base}/api/v0/models")
-            if r.status_code == 200:
-                data = r.json()
-                items = data if isinstance(data, list) else data.get("data") or []
-                loaded = next((m for m in items if m.get("loaded") or m.get("isLoaded")), None)
-                if loaded and loaded.get("id"):
-                    return {"model": loaded.get("id")}
+        
+        def get_conn_setting(key: str, env_var: str, default: Any = ""):
+            val = user_conn.get(key)
+            if val is not None:
+                return val
+            return os.getenv(env_var, default)
+
+        lmstudio_base = baseUrl or get_conn_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST)
+        
+        if lmstudio_base:
+            async with httpx.AsyncClient(timeout=3) as client:
+                r = await client.get(f"{lmstudio_base}/api/v0/models")
+                if r.status_code == 200:
+                    data = r.json()
+                    items = data if isinstance(data, list) else data.get("data") or []
+                    loaded = next((m for m in items if m.get("loaded") or m.get("isLoaded")), None)
+                    if loaded and loaded.get("id"):
+                        return {"model": loaded.get("id")}
     except Exception:
         pass
+        
     # Fallback to any saved per-user selection or env
-    if userId:
-        s = _chat_settings_store.get(userId)
-        if s and s.get("engineModels", {}).get("lmstudio"):
-            return {"model": s["engineModels"]["lmstudio"]}
+    uid_fallback = userId or (current or {}).get("id") or "default"
+    s = _chat_settings_store.get(uid_fallback)
+    if s and s.get("engineModels", {}).get("lmstudio"):
+        return {"model": s["engineModels"]["lmstudio"]}
+        
     return {"model": os.getenv("LLM_MODEL", "llama3")}
 
 
@@ -998,6 +1424,10 @@ def _default_chat_settings(user_id: str) -> Dict[str, Any]:
 
 @app.get("/api/chat/settings/{user_id}")
 async def get_chat_settings(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine)):
+    # Initialize with defaults first
+    default_settings = _default_chat_settings(user_id)
+    
+    # Try to load from database
     if engine is not None:
         try:
             async with engine.connect() as conn:
@@ -1005,24 +1435,39 @@ async def get_chat_settings(user_id: str, engine: Optional[AsyncEngine] = Depend
                 row = res.first()
                 if row:
                     m = row._mapping
-                    return {
-                        "llmEngine": m.get("llm_engine") or "ollama",
-                        "llmModel": m.get("llm_model") or os.getenv("LLM_MODEL", "llama3"),
-                        "ttsProvider": m.get("tts_provider") or "fishspeech",
-                        "ttsVoiceId": m.get("tts_voice_id") or "glados",
-                        "enabledEngines": json.loads(m.get("enabled_engines") or "{}"),
-                        "engineModels": json.loads(m.get("engine_models") or "{}"),
+                    db_enabled = json.loads(m.get("enabled_engines") or "{}")
+                    db_models = json.loads(m.get("engine_models") or "{}")
+                    
+                    # Merge database settings with defaults to ensure we always have complete settings
+                    result = {
+                        "llmEngine": m.get("llm_engine") or default_settings["llmEngine"],
+                        "llmModel": m.get("llm_model") or default_settings["llmModel"],
+                        "ttsProvider": m.get("tts_provider") or default_settings["ttsProvider"],
+                        "ttsVoiceId": m.get("tts_voice_id") or default_settings["ttsVoiceId"],
+                        "enabledEngines": {**default_settings["enabledEngines"], **db_enabled},
+                        "engineModels": {**default_settings["engineModels"], **db_models},
                     }
-        except Exception:
-            pass
-    s = _chat_settings_store.get(user_id) or _default_chat_settings(user_id)
+                    
+                    # Cache the merged result
+                    _chat_settings_store[user_id] = result
+                    print(f"🔄 Settings: Loaded from DB for user {user_id}: engine={result['llmEngine']}, enabled={result['enabledEngines']}")
+                    return result
+        except Exception as e:
+            print(f"Settings DB read error for user {user_id}: {e}", file=sys.stderr, flush=True)
+    
+    # Fallback to memory or defaults
+    s = _chat_settings_store.get(user_id) or default_settings
     _chat_settings_store[user_id] = s
+    print(f"🔄 Settings: Using defaults for user {user_id}: engine={s['llmEngine']}, enabled={s['enabledEngines']}")
     return s
 
 
 @app.put("/api/chat/settings/{user_id}")
 async def update_chat_settings(user_id: str, payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
     enabled = payload.get("enabledEngines") or {}
+    engine_models = payload.get("engineModels") or {}
+    
+    # Validate API keys for cloud services
     if enabled.get("openai") or payload.get("llmEngine") == "openai":
         conn = await get_connections_settings(userId=user_id)
         if not conn.get("OpenAiApiKey"):
@@ -1032,14 +1477,33 @@ async def update_chat_settings(user_id: str, payload: dict, engine: Optional[Asy
         if not conn.get("ClaudeApiKey"):
             raise HTTPException(status_code=400, detail="Claude requires API key")
 
+    # Validate that the selected primary engine is enabled and has a model
+    selected_engine = payload.get("llmEngine")
+    if selected_engine:
+        # Check if the engine is enabled (either in current enabled list or being enabled now)
+        current_settings = _chat_settings_store.get(user_id) or _default_chat_settings(user_id)
+        current_enabled = current_settings.get("enabledEngines", {})
+        final_enabled = {**current_enabled, **enabled}  # Merge current with new settings
+        
+        if not final_enabled.get(selected_engine):
+            raise HTTPException(status_code=400, detail=f"Cannot select '{selected_engine}' as primary engine: it is not enabled")
+        
+        # Check if the engine has a configured model
+        current_models = current_settings.get("engineModels", {})
+        final_models = {**current_models, **engine_models}  # Merge current with new settings
+        selected_model = payload.get("llmModel") or final_models.get(selected_engine)
+        
+        if not selected_model or not selected_model.strip():
+            raise HTTPException(status_code=400, detail=f"Cannot select '{selected_engine}' as primary engine: no model configured")
+
     s = _chat_settings_store.get(user_id) or _default_chat_settings(user_id)
     for k in ["llmEngine", "llmModel", "ttsProvider", "ttsVoiceId"]:
         if k in payload:
             s[k] = payload[k]
     if isinstance(enabled, dict):
         s.setdefault("enabledEngines", {}).update(enabled)
-    if isinstance(payload.get("engineModels"), dict):
-        s.setdefault("engineModels", {}).update(payload["engineModels"])
+    if isinstance(engine_models, dict):
+        s.setdefault("engineModels", {}).update(engine_models)
     _chat_settings_store[user_id] = s
     if engine is not None:
         try:
@@ -1111,5 +1575,3 @@ async def llm_available(userId: Optional[str] = None):
         "claude": pack("claude"),
         "vllm": pack("vllm"),
     }
-
-

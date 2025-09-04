@@ -6,7 +6,8 @@ param(
     [int]$ActivityThreads = 32,
     [string]$ComposeFile = "$PSScriptRoot/../docker-compose.yml",
     [int]$TimeoutSec = 600,
-    [switch]$NoStopAppContainers = $false
+    [switch]$NoStopAppContainers = $false,
+    [switch]$UseHostTTS = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -151,6 +152,18 @@ if (Test-PortFree -Port $FrontPort) {
     Write-Host "Frontend port $FrontPort is in use; assuming Vite is already running." -ForegroundColor Yellow
 }
 
+# Host TTS (Fish Speech)
+if ($UseHostTTS) {
+    if (Test-PortFree -Port 8081) {
+        $t = Start-HostProc -ScriptPath (Join-Path $PSScriptRoot 'dev-tts.ps1') -Args "-Port 8081" -Title 'SwAIvyn TTS (host)'
+        $pids.tts = $t.Id
+        # Wait up to ~10s for port
+        1..40 | ForEach-Object { if (Test-PortFree -Port 8081) { Start-Sleep -Milliseconds 250 } }
+    } else {
+        Write-Host "TTS port 8081 is in use; assuming host TTS is already running." -ForegroundColor Yellow
+    }
+}
+
 $state = [ordered]@{
     timestamp = (Get-Date).ToString('s')
     includeTTS = [bool]$IncludeTTS
@@ -165,3 +178,4 @@ Write-Host "- BFF API:      http://localhost:$BffPort" -ForegroundColor Green
 Write-Host "- Temporal:     localhost:7233" -ForegroundColor Green
 Write-Host "- Qdrant:       http://localhost:6333" -ForegroundColor Green
 Write-Host "- Postgres:     localhost:5432" -ForegroundColor Green
+if ($UseHostTTS) { Write-Host "- TTS (host):    http://localhost:8081" -ForegroundColor Green }

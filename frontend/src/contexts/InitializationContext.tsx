@@ -7,6 +7,7 @@ import React, {
   ReactNode,
 } from 'react';
 import fetchWithRetry from '../utils/fetchWithRetry';
+import { useAuth } from './AuthContext';
 
 interface User {
   id: string;
@@ -42,6 +43,7 @@ interface InitializationProviderProps {
 }
 
 export const InitializationProvider: React.FC<InitializationProviderProps> = ({ children }) => {
+  const { logout } = useAuth();
   const [state, setState] = useState<InitializationState>({
     isInitialized: false,
     isLoading: false,
@@ -77,19 +79,8 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
     safeSetState({ isLoading: true, error: null });
 
     try {
-      // Step 0: wait for backend readiness to avoid early timeouts during migrations/seed.
-      safeSetState({ currentStep: 'Waiting for backend…' });
-      await fetchWithRetry(
-        '/api/readyz',
-        {},
-        60,   // up to ~6–7 minutes worst‑case
-        500,  // gentle backoff
-        8000, // per‑attempt timeout
-        (a, t) => safeSetAttempt(`(backend ${a}/${t})`)
-      );
-
-      // Step 1: load current user (prefer authenticated). If not authenticated, leave user null and let Auth gate show login.
-      safeSetState({ currentStep: 'Loading user profile…' });
+      // Step 0: determine auth first to avoid blocking login on backend readiness
+      safeSetState({ currentStep: 'Checking session…' });
       let loadedUser: User | null = null;
       const token = localStorage.getItem('auth_token');
       if (token) {
@@ -105,12 +96,12 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
               email: me.email || 'user@example.com'
             };
           } else {
-            // Clear stale/invalid token so subsequent loads don't keep 401-ing
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('auth_user');
+            // Clear stale/invalid token and auth header so UI returns to login
+            try { logout(); } catch { /* ignore */ }
           }
         } catch {
-          // ignore and fall back
+          // Network/ready errors: treat as unauthenticated and show login
+          try { logout(); } catch { /* ignore */ }
         }
       }
       // No fallback default user; require login

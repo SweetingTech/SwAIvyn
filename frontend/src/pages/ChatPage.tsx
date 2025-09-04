@@ -55,6 +55,7 @@ interface ConversationMeta {
 const ChatPage: React.FC = () => {
   /* --------------------------- context / routing ------------------------- */
   const { user } = useInitialization();
+  const [effectiveUserId, setEffectiveUserId] = useState<string | null>(null);
   const { sessionCharacter } = useParams<{ sessionCharacter?: string }>();
   const navigate = useNavigate();
   const urlInfo = parseChatUrl(sessionCharacter);
@@ -84,6 +85,10 @@ const ChatPage: React.FC = () => {
   const [ttsProvider, setTtsProvider] = useState<string | null>(null);
   const [ttsVoiceId, setTtsVoiceId] = useState<string | null>(null);
   const [availableLlms, setAvailableLlms] = useState<LlmOption[]>([]);
+  // Persisted settings snapshot for building options and discovery
+  const [enabledEngines, setEnabledEngines] = useState<Record<string, boolean>>({});
+  const [engineModels, setEngineModels] = useState<Record<string, string>>({});
+  const [connections, setConnections] = useState<{ OllamaApiUrl?: string; LmStudioApiUrl?: string; VllmApiUrl?: string }>({});
   const [notice, setNotice] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement|null>(null);
 
@@ -101,25 +106,64 @@ const ChatPage: React.FC = () => {
     );
   }, [showCharacterImages]);
 
+  // Set effectiveUserId from user context with fallback
+  useEffect(() => {
+    const userId = user?.id || 'admin'; // Use same fallback as Settings page
+    console.log('🔄 Chat: Setting effective user ID to:', userId, '(user context:', user, ')');
+    setEffectiveUserId(userId);
+  }, [user?.id, user]);
+
   /* ---------------------- SYNC FROM DASHBOARD LLM ------------------------ */
   useEffect(() => {
     const syncAllChatSettings = async () => {
-      if (!user?.id) return;
-
-      // Guard against duplicate runs (e.g., React StrictMode) per user
-      if (didLoadSettingsRef.current === user.id) {
+      if (!effectiveUserId) {
+        console.log('🔄 Chat: No effective user ID, skipping settings sync');
         return;
       }
-      didLoadSettingsRef.current = user.id;
+
+      // Guard against duplicate runs (e.g., React StrictMode) per user
+      if (didLoadSettingsRef.current === effectiveUserId) {
+        console.log('🔄 Chat: Settings already loaded for user', effectiveUserId, 'skipping');
+        return;
+      }
+      didLoadSettingsRef.current = effectiveUserId;
+
+      console.log('🔄 Chat: === LOADING CHAT SETTINGS ===');
+      console.log('🔄 Chat: Effective User ID:', effectiveUserId);
+      console.log('🔄 Chat: User object:', user);
 
       try {
-        const settings = await chatService.getChatSettings(user.id);
-        console.log('🔄 Chat: Syncing all chat settings from backend:', settings);
+        const settings = await chatService.getChatSettings(effectiveUserId);
+        console.log('🔄 Chat: Raw settings from backend:', settings);
+        console.log('🔄 Chat: Settings.enabledEngines:', settings.enabledEngines);
+        console.log('🔄 Chat: Settings.engineModels:', settings.engineModels);
 
         setChatEngineOverride(settings.llmEngine || null);
         setChatModelOverride(settings.llmModel || null);
         setTtsProvider(settings.ttsProvider || null);
         setTtsVoiceId(settings.ttsVoiceId || null);
+        setEnabledEngines(settings.enabledEngines || {});
+        setEngineModels(settings.engineModels || {});
+        
+        console.log('🔄 Chat: State updated with:', {
+          engine: settings.llmEngine,
+          model: settings.llmModel, 
+          enabledEngines: settings.enabledEngines,
+          engineModels: settings.engineModels
+        });
+
+        // Load connection settings (base URLs) for discovery without hardcoding
+        try {
+          const resp = await fetch(`/api/settings/connections?userId=${encodeURIComponent(effectiveUserId)}`);
+          if (resp.ok) {
+            const conn = await resp.json();
+            setConnections({
+              OllamaApiUrl: conn.OllamaApiUrl,
+              LmStudioApiUrl: conn.LmStudioApiUrl,
+              VllmApiUrl: conn.VllmApiUrl,
+            });
+          }
+        } catch {}
 
         console.log('🔄 Chat: Chat settings synced → LLM:', settings.llmEngine, settings.llmModel, 'TTS:', settings.ttsProvider, settings.ttsVoiceId);
       } catch (err) {
@@ -129,11 +173,13 @@ const ChatPage: React.FC = () => {
         setChatModelOverride(null);
         setTtsProvider('fishspeech'); // Default TTS
         setTtsVoiceId('glados');
+        setEnabledEngines({ ollama: true, lmstudio: true });
+        setEngineModels({});
       }
     };
 
     syncAllChatSettings();
-  }, [user?.id]); // Only run once when user loads
+  }, [effectiveUserId]); // Only run once when user resolves
 
   /* ----------------------- auto-scroll on change ------------------------- */
   useEffect(() => {
@@ -147,7 +193,7 @@ const ChatPage: React.FC = () => {
 
       try {
         const characters: Character[] = await apiService.get(
-          `/api/character/user/${user.id}`
+          `/api/character/user/${effectiveUserId}`
         );
         console.log('🔄 Chat: Loaded characters:', characters);
 
@@ -174,7 +220,7 @@ const ChatPage: React.FC = () => {
         if (!character) {
           try {
             const res = await fetch(
-              `/api/settings/DefaultCharacterId?userId=${user.id}`
+              `/api/settings/DefaultCharacterId?userId=${effectiveUserId}`
             );
             if (res.ok) {
               const { value } = (await res.json()) as { value: string };
@@ -206,7 +252,7 @@ const ChatPage: React.FC = () => {
 
     bootstrapCharacter();
   }, [
-    user?.id,
+    effectiveUserId,
     navigate,
     urlInfo.characterName,
     urlInfo.conversationId,
@@ -215,29 +261,116 @@ const ChatPage: React.FC = () => {
 
   /* ---------------------------- Build LLM options from saved settings --------------------------- */
   useEffect(() => {
-    const buildFromSettings = async () => {
-      if (!user?.id) return;
-      try {
-        const s = await chatService.getChatSettings(user.id);
-        const llms: LlmOption[] = [
-          { value: 'default', label: 'Default LLM', engine: null, model: null },
-        ];
-        const enabled = s.enabledEngines || {};
-        const engineModels = s.engineModels || {};
-        const add = (engine: string) => {
-          if (!enabled[engine]) return;
-          const m = engineModels[engine];
-          if (m) llms.push({ value: `${engine}:${m}`, label: `${engine}: ${m}`, engine, model: m });
-        };
-        ['ollama', 'lmstudio', 'openai', 'claude', 'vllm'].forEach(add);
-        setAvailableLlms(llms);
-      } catch (err) {
-        console.error('Failed to build model options from settings:', err);
-        setAvailableLlms([{ value: 'default', label: 'Default LLM', engine: null, model: null }]);
-      }
+    const llms: LlmOption[] = [];
+    const seen = new Set<string>();
+    const pushOpt = (engine: string, model: string, label?: string) => {
+      if (!engine || !model) return;
+      const key = `${engine}:${model}`;
+      if (seen.has(key)) return;
+      const displayLabel = label || `${engine.toUpperCase()}: ${model}`;
+      llms.push({ value: key, label: displayLabel, engine, model });
+      seen.add(key);
     };
-    buildFromSettings();
-  }, [user?.id]);
+    
+    // Only include engines that are both enabled AND have a configured model
+    for (const eng of ['ollama', 'lmstudio', 'openai', 'claude', 'vllm']) {
+      if (!enabledEngines[eng]) continue; // Skip disabled engines
+      const m = engineModels[eng];
+      if (m && m.trim()) { // Only include if model is actually configured
+        pushOpt(eng, m);
+      }
+    }
+    
+    setAvailableLlms(llms);
+    
+    // Auto-select first available if no current selection or current selection is invalid
+    if (llms.length > 0) {
+      const currentKey = chatEngineOverride && chatModelOverride ? `${chatEngineOverride}:${chatModelOverride}` : null;
+      const isCurrentValid = currentKey && llms.some(l => l.value === currentKey);
+      
+      if (!isCurrentValid) {
+        // Auto-select the first available option
+        const firstOption = llms[0];
+        setChatEngineOverride(firstOption.engine);
+        setChatModelOverride(firstOption.model);
+        console.log('🔄 Chat: Auto-selected first available LLM:', firstOption.engine, firstOption.model);
+      }
+    } else {
+      // No valid options available, clear selection
+      setChatEngineOverride(null);
+      setChatModelOverride(null);
+    }
+    
+    // Debug log to track what's available
+    console.log('🔄 Chat: Building dropdown options. Enabled engines:', enabledEngines);
+    console.log('🔄 Chat: Engine models:', engineModels);
+    console.log('🔄 Chat: Available LLM options:', llms.map(l => `${l.value} (${l.label})`));
+  }, [enabledEngines, engineModels, chatEngineOverride, chatModelOverride]);
+
+  /* ---------------------------- Live discovery to fill missing models --------------------------- */
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    // If we only have 'default', try to discover per-engine
+    const needDiscovery = Object.keys(enabledEngines).some(k => enabledEngines[k]) &&
+      Object.keys(engineModels).filter(k => enabledEngines[k] && !!engineModels[k]).length === 0;
+    if (!needDiscovery) return;
+
+    let cancelled = false;
+    (async () => {
+      const nextModels: Record<string, string> = { ...engineModels };
+      const trySet = (engine: string, model?: string) => {
+        if (!model) return false;
+        if (!nextModels[engine]) { nextModels[engine] = model; return true; }
+        return false;
+      };
+      try {
+        // LM Studio: prefer loaded model endpoint
+        if (enabledEngines['lmstudio']) {
+          try {
+            const qs: string[] = [`userId=${encodeURIComponent(effectiveUserId)}`];
+            if (connections.LmStudioApiUrl) qs.push(`baseUrl=${encodeURIComponent(connections.LmStudioApiUrl)}`);
+            const res = await fetch(`/api/llm/lmstudio/model?${qs.join('&')}`);
+            if (res.ok) {
+              const { model } = await res.json();
+              trySet('lmstudio', model);
+            }
+          } catch {}
+        }
+        // Ollama / LM Studio / vLLM: use unified models endpoint
+        for (const eng of ['ollama', 'lmstudio', 'vllm']) {
+          if (!enabledEngines[eng]) continue;
+          if (nextModels[eng]) continue; // already set
+          try {
+            const qs: string[] = [`engine=${eng}`, `userId=${encodeURIComponent(effectiveUserId)}`];
+            const base = eng === 'ollama' ? connections.OllamaApiUrl : eng === 'lmstudio' ? connections.LmStudioApiUrl : connections.VllmApiUrl;
+            if (base) qs.push(`baseUrl=${encodeURIComponent(base)}`);
+            const r = await fetch(`/api/llm/models?${qs.join('&')}`);
+            if (r.ok) {
+              const payload = await r.json();
+              const models: string[] = Array.isArray(payload) ? payload : (payload?.models || []);
+              if (models.length) trySet(eng, models[0]);
+            }
+          } catch {}
+        }
+      } finally {
+        if (!cancelled) {
+          // Persist back so future loads have the models
+          setEngineModels(nextModels);
+          try {
+            if (effectiveUserId) {
+              await chatService.updateChatSettings(effectiveUserId, {
+                llmEngine: chatEngineOverride || '',
+                llmModel: chatModelOverride || '',
+                enabledEngines,
+                engineModels: nextModels,
+              });
+            }
+          } catch {}
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, enabledEngines, engineModels, chatEngineOverride, chatModelOverride]);
 
 
   /* 🕵️‍♂️ Debug: track dropdown value + available list */
@@ -262,12 +395,10 @@ const ChatPage: React.FC = () => {
   /* ---------------------- load / resume conversation -------------------- */
   useEffect(() => {
     const loadConversation = async () => {
-      if (!user?.id) return;
+      if (!effectiveUserId) return;
 
       try {
-        const recent = await conversationService.getRecentConversation(
-          user.id
-        );
+        const recent = await conversationService.getRecentConversation(effectiveUserId);
 
         if (recent?.id) {
           console.log('🔄 Chat: Resuming conversation', recent.id);
@@ -312,7 +443,7 @@ const ChatPage: React.FC = () => {
     };
 
     loadConversation();
-  }, [user?.id]);
+  }, [effectiveUserId]);
 
   /* ---------------------------------------------------------------------- */
   /*  Character select handler                                               */
@@ -325,20 +456,20 @@ const ChatPage: React.FC = () => {
 
       if (character) {
         localStorage.setItem('selectedCharacterId', character.id);
-        if (user?.id) {
+        if (effectiveUserId) {
           fetch('/api/settings/DefaultCharacterId', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id, value: character.id })
+            body: JSON.stringify({ userId: effectiveUserId, value: character.id })
           }).catch(() => {});
         }
       } else {
         localStorage.removeItem('selectedCharacterId');
-        if (user?.id) {
+        if (effectiveUserId) {
           fetch('/api/settings/DefaultCharacterId', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id, value: '' })
+            body: JSON.stringify({ userId: effectiveUserId, value: '' })
           }).catch(() => {});
         }
       }
@@ -351,7 +482,7 @@ const ChatPage: React.FC = () => {
         { replace: true }
       );
     },
-    [user?.id, currentConversation.id, navigate]
+    [effectiveUserId, currentConversation.id, navigate]
   );
 
   /* ---------------------------------------------------------------------- */
@@ -470,10 +601,10 @@ const ChatPage: React.FC = () => {
           { replace: true }
         );
 
-        if (selectedCharacter?.systemPrompt && user?.id) {
+        if (selectedCharacter?.systemPrompt && effectiveUserId) {
           await conversationService.setCharacterContext(
             conversationId,
-            user.id,
+            effectiveUserId,
             selectedCharacter.id,
             selectedCharacter.systemPrompt
           );
@@ -492,10 +623,10 @@ const ChatPage: React.FC = () => {
         messageContent: textToSend
       });
 
-      if (user?.id) {
+      if (effectiveUserId) {
         await conversationService.appendMessage(
           conversationId,
-          user.id,
+          effectiveUserId,
           'user',
           textToSend
         );
@@ -526,10 +657,10 @@ const ChatPage: React.FC = () => {
         messageContent: aiResponse
       });
 
-      if (user?.id) {
+      if (effectiveUserId) {
         await conversationService.appendMessage(
           conversationId,
-          user.id,
+          effectiveUserId,
           'assistant',
           aiResponse
         );
@@ -566,7 +697,7 @@ const ChatPage: React.FC = () => {
         {/* --------------- LEFT SIDEBAR (sessions) ----------------------- */}
         <div className="w-64 border-r">
           <ChatSidebar
-            userId={user?.id || ''}
+            userId={effectiveUserId || ''}
             currentSessionId={currentConversation.id || null}
             onSelectSession={handleSelectConversation}
             onNewSession={handleNewConversation}
@@ -619,12 +750,12 @@ const ChatPage: React.FC = () => {
                 provider={ttsProvider}
                 voiceId={ttsVoiceId}
                 onSettingsChange={async (newProvider, newVoiceId) => {
-                  if (!user?.id) return;
+                  if (!effectiveUserId) return;
                   console.log('🔄 Chat: VoiceSelector changed TTS to Provider:', newProvider, 'VoiceID:', newVoiceId);
                   setTtsProvider(newProvider);
                   setTtsVoiceId(newVoiceId);
                   try {
-                    await chatService.updateChatSettings(user.id, {
+                    await chatService.updateChatSettings(effectiveUserId, {
                       llmEngine: chatEngineOverride || '', // Pass current LLM engine or default
                       llmModel: chatModelOverride || '',   // Pass current LLM model or default
                       ttsProvider: newProvider,
@@ -641,16 +772,16 @@ const ChatPage: React.FC = () => {
               <select
                 id="llm-override-select"
                 value={
-                  chatEngineOverride
-                    ? `${chatEngineOverride}:${chatModelOverride || 'default'}`
-                    : 'default'
+                  chatEngineOverride && chatModelOverride
+                    ? `${chatEngineOverride}:${chatModelOverride}`
+                    : ''
                 }
                 onChange={async (e) => {
                   const sel = availableLlms.find(
                     (l) => l.value === e.target.value
                   );
-                  if (!sel || !user?.id) {
-                    console.warn('🔄 Chat: Selected LLM option not found or user ID missing:', e.target.value, user?.id);
+                  if (!sel || !effectiveUserId) {
+                    console.warn('🔄 Chat: Selected LLM option not found or user ID missing:', e.target.value, effectiveUserId);
                     return;
                   }
 
@@ -663,12 +794,22 @@ const ChatPage: React.FC = () => {
 
                   try {
                     console.log('🔄 Chat: Updating all chat settings. New LLM:', newEngine, newModel, 'Current TTS:', ttsProvider, ttsVoiceId);
-                    await chatService.updateChatSettings(user.id, {
-                      llmEngine: newEngine || '', // Ensure empty string if null
-                      llmModel: newModel || '',   // Ensure empty string if null
-                      ttsProvider: ttsProvider || 'fishspeech', // Default if null
-                      ttsVoiceId: ttsVoiceId || 'glados',     // Default if null
-                    });
+                    const updatedEnabled = { ...enabledEngines };
+                    if (newEngine) updatedEnabled[newEngine] = true;
+                    const updatedModels = { ...engineModels };
+                    if (newEngine && newModel) updatedModels[newEngine] = newModel;
+                    setEnabledEngines(updatedEnabled);
+                    setEngineModels(updatedModels);
+                    if (effectiveUserId) {
+                      await chatService.updateChatSettings(effectiveUserId, {
+                        llmEngine: newEngine || '',
+                        llmModel: newModel || '',
+                        ttsProvider: ttsProvider || 'fishspeech',
+                        ttsVoiceId: ttsVoiceId || 'glados',
+                        enabledEngines: updatedEnabled,
+                        engineModels: updatedModels,
+                      });
+                    }
 
                     // Notify dashboard about LLM part of the change
                     window.dispatchEvent(
@@ -687,7 +828,7 @@ const ChatPage: React.FC = () => {
                 disabled={isLoading || availableLlms.length === 0}
               >
                 {availableLlms.length === 0 ? (
-                  <option value="default">Loading models...</option>
+                  <option value="">No activated models - Configure in Settings</option>
                 ) : (
                   availableLlms.map((l) => (
                     <option key={l.value} value={l.value}>

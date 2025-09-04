@@ -26,6 +26,7 @@ if (Test-Path $stateFile) {
         Stop-IfPid -Pid $state.pids.bff -Name 'BFF'
         Stop-IfPid -Pid $state.pids.orchestrator -Name 'Orchestrator'
         Stop-IfPid -Pid $state.pids.frontend -Name 'Frontend'
+        Stop-IfPid -Pid $state.pids.tts -Name 'TTS (host)'
     }
     Remove-Item $stateFile -Force -ErrorAction SilentlyContinue | Out-Null
 }
@@ -43,4 +44,3 @@ if (Get-Command docker -ErrorAction SilentlyContinue) {
 }
 
 Write-Host 'Shutdown complete.' -ForegroundColor Green
-
