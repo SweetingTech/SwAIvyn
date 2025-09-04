@@ -111,3 +111,7 @@ speech/TTS/openaudio-s1-mini/*.pth
 speech/TTS/openaudio-s1-mini/*.pt
 speech/TTS/openaudio-s1-mini/model*
 
+# Sample or test audio files
+test_tts_gpu.wav
+
+
