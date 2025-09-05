@@ -55,32 +55,37 @@ const conversationService = {
     }
   },
   /**
-   * Creates a new conversation
+   * Creates a new conversation for a specific user
    * @param title Conversation title
+   * @param userId User creating the conversation
    * @param folderId Optional folder ID
    * @returns The created conversation
    */
-  async createConversation(title: string, folderId?: string): Promise<Conversation> {
+  async createConversation(
+    title: string,
+    userId: string,
+    folderId?: string
+  ): Promise<Conversation> {
     try {
       const requestData = {
         title,
+        userId,
         folderId
-        // Note: userID removed - backend will use default user automatically
       };
-      
+
       console.log('🔍 CreateConversation Request:', requestData);
-      
+
       const response = await apiService.post('/api/conversation', requestData);
-      
+
       console.log('🔍 CreateConversation Response:', response);
-      
+
       return response;
     } catch (error) {
       console.error('Error creating conversation:', error);
       // Return a mock conversation with a temporary ID on error
       return {
         id: `temp-${Date.now()}`,
-        userId: 'default-user', // Use a default value for mock
+        userId: userId || 'default-user',
         title: title,
         folderId: folderId || null,
         createdAt: new Date().toISOString(),
@@ -126,14 +131,21 @@ const conversationService = {
   },
 
   /**
-   * Deletes a conversation
+   * Deletes a conversation for a specific user
    * @param id Conversation ID
+   * @param userId User ID
    * @returns Success status
    */
-  async deleteConversation(id: string): Promise<boolean> {
+  async deleteConversation(id: string, userId: string): Promise<boolean> {
     try {
-      const response = await apiService.delete(`/api/conversation/${id}`);
-      return response === null; // DELETE returns null on success
+      const response = await apiService.delete(
+        `/api/conversation/${id}?userId=${encodeURIComponent(userId)}`
+      );
+      // Backend responds with { success: true } and Axios returns empty string for 204
+      if (response === null || response === '' || response?.success === true) {
+        return true;
+      }
+      return false;
     } catch (error) {
       console.error(`Error deleting conversation ${id}:`, error);
       throw error;

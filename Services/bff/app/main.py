@@ -731,6 +731,24 @@ async def conversation_chat(body: dict, current=Depends(current_user_dep)):
     msg = body.get("message") or ""
     session_id = body.get("conversationId") or body.get("session_id")
 
+    # If a conversation is specified, ensure the user owns it (unless admin)
+    if session_id and _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                res = await conn.execute(
+                    select(t_conversations.c.user_id)
+                    .where(t_conversations.c.id == session_id)
+                    .limit(1)
+                )
+                row = res.first()
+                owner = row[0] if row else None
+                if owner and uid != owner and (current or {}).get("role") != "admin":
+                    raise HTTPException(status_code=403, detail="Forbidden")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"conversation ownership check failed: {e}", file=sys.stderr, flush=True)
+
     # Load user settings (database first, then memory fallback)
     user_settings = {}
     if _engine is not None:
@@ -1174,6 +1192,20 @@ async def dashboard_status(userId: Optional[str] = None, engine: Optional[AsyncE
                     except:
                         pass
                         
+            elif llm_engine == "vllm":
+                base = get_conn_setting("VllmApiUrl", "VLLM_API_URL")
+                if base:
+                    r = await client.get(f"{base}/v1/models")
+                    llm_connected = r.status_code == 200
+                    if llm_connected and llm_model == "Not selected":
+                        try:
+                            data = r.json()
+                            models = data.get("data", [])
+                            if models:
+                                llm_model = models[0].get("id", "Unknown")
+                        except:
+                            pass
+
             elif llm_engine in ["openai", "claude"]:
                 # For cloud services, consider connected if API key is present
                 if llm_engine == "openai":
