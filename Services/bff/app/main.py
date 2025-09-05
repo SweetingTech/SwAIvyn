@@ -748,6 +748,7 @@ async def conversation_chat(body: dict, current=Depends(current_user_dep)):
             raise
         except Exception as e:
             print(f"conversation ownership check failed: {e}", file=sys.stderr, flush=True)
+            # fail closed if ownership cannot be verified
             raise HTTPException(status_code=500, detail="Internal server error")
 
     # Load user settings (database first, then memory fallback)
