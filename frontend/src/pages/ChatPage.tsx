@@ -805,8 +805,8 @@ const ChatPage: React.FC = () => {
                     setEngineModels(updatedModels);
                     if (effectiveUserId) {
                       await chatService.updateChatSettings(effectiveUserId, {
-                        llmEngine: newEngine,
-                        llmModel: newModel,
+                        llmEngine: newEngine || undefined,
+                        llmModel: newModel || undefined,
                         ttsProvider: ttsProvider || 'fishspeech',
                         ttsVoiceId: ttsVoiceId || 'glados',
                         enabledEngines: updatedEnabled,

@@ -748,6 +748,7 @@ async def conversation_chat(body: dict, current=Depends(current_user_dep)):
             raise
         except Exception as e:
             print(f"conversation ownership check failed: {e}", file=sys.stderr, flush=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     # Load user settings (database first, then memory fallback)
     user_settings = {}
@@ -1165,7 +1166,7 @@ async def dashboard_status(userId: Optional[str] = None, engine: Optional[AsyncE
                         models = data.get("models", [])
                         if models:
                             llm_model = models[0].get("name", "Unknown")
-                    except:
+                    except Exception:
                         pass
                         
             elif llm_engine == "lmstudio":
@@ -1189,9 +1190,9 @@ async def dashboard_status(userId: Optional[str] = None, engine: Optional[AsyncE
                             models = data.get("data", [])
                             if models:
                                 llm_model = models[0].get("id", "Unknown")
-                    except:
+                    except Exception:
                         pass
-                        
+
             elif llm_engine == "vllm":
                 base = get_conn_setting("VllmApiUrl", "VLLM_API_URL")
                 if base:
@@ -1203,7 +1204,7 @@ async def dashboard_status(userId: Optional[str] = None, engine: Optional[AsyncE
                             models = data.get("data", [])
                             if models:
                                 llm_model = models[0].get("id", "Unknown")
-                        except:
+                        except Exception:
                             pass
 
             elif llm_engine in ["openai", "claude"]:

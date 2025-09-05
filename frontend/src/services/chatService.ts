@@ -105,12 +105,9 @@ const chatService = {
     try {
       const url = `/api/chat/settings/${userId}`;
       // Strip undefined or empty values so we don't overwrite existing settings unintentionally
-      const payload: Record<string, any> = {};
-      Object.entries(settings).forEach(([k, v]) => {
-        if (v !== undefined && v !== '') {
-          payload[k] = v;
-        }
-      });
+      const payload = Object.fromEntries(
+        Object.entries(settings).filter(([, v]) => v !== undefined && v !== '')
+      );
 
       console.log('🔄 ChatService: Updating chat settings at:', url, 'with payload:', payload);
       // The backend returns { message: "Chat settings updated successfully." } which apiService should handle.

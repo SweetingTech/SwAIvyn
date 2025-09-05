@@ -210,12 +210,12 @@ SwAIvyn hybrid dev stack:
   - BFF launches the engine‑specific workflow
   - Worker calls only that engine/model; no fallback
   - TTS synthesizes via host TTS or adapter URLs
-- Conversations
-  - Create: `POST /api/conversation` with `title` and `userId`
-  - Delete: `DELETE /api/conversation/{id}?userId={userId}` (handles empty 204 response)
-  - Ownership enforced; admin can manage any conversation
-- Dashboard
-  - Admin-only view that surfaces the active LLM engine and model from provider status checks
+  - Conversations
+    - Create: `POST /api/conversation` with `title` and `userId`
+    - Delete: `DELETE /api/conversation/{id}?userId={userId}` (handles empty 204 response)
+    - Ownership enforced; admin can manage any conversation
+  - Dashboard
+    - Admin-only view that surfaces the active LLM engine and model from provider status checks
 
 Authorization: users can modify/read only their settings/conversations; admin can see all.
 
