@@ -24,7 +24,7 @@ if (-not $FrontendOnly) {
     
     # Start backend
     Write-Host "Starting backend development server..." -ForegroundColor Green
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$rootDir\backend'; dotnet run" -WindowStyle Normal
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$PSScriptRoot\dev-bff.ps1'" -WindowStyle Normal
     Write-Host "Backend dev server starting at http://localhost:5000" -ForegroundColor Green
 }
 

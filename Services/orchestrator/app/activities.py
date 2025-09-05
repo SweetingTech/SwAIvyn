@@ -1,5 +1,6 @@
 import os
 import requests
+import logging
 from typing import Dict, Any, Optional
 from temporalio import activity
 
@@ -36,7 +37,8 @@ def generate_reply(input: Dict[str, Any]) -> Dict[str, Any]:
             if r.ok:
                 data = r.json()
                 return data.get("response", "")
-        except Exception:
+        except Exception as e:
+            logging.error(f"Ollama request failed: {e}")
             pass
         return None
 
@@ -60,7 +62,8 @@ def generate_reply(input: Dict[str, Any]) -> Dict[str, Any]:
                 choices = data.get("choices") or []
                 if choices:
                     return choices[0].get("message", {}).get("content", "")
-        except Exception:
+        except Exception as e:
+            logging.error(f"LM Studio request failed: {e}")
             pass
         return None
 
@@ -90,7 +93,8 @@ def generate_reply(input: Dict[str, Any]) -> Dict[str, Any]:
                 choices = data.get("choices") or []
                 if choices:
                     return choices[0].get("message", {}).get("content", "")
-        except Exception:
+        except Exception as e:
+            logging.error(f"OpenAI-like request failed: {e}")
             pass
         return None
 
@@ -129,7 +133,8 @@ def generate_reply(input: Dict[str, Any]) -> Dict[str, Any]:
                         part = content[0]
                         if isinstance(part, dict):
                             reply = part.get("text") or ""
-        except Exception:
+        except Exception as e:
+            logging.error(f"Claude request failed: {e}")
             reply = None
     elif engine == "vllm":
         reply = try_openai_like(vllm_base, vllm_key)
@@ -150,14 +155,16 @@ def synthesize_tts(input: Dict[str, Any]) -> str:
             r = requests.post(f"{TTS_ADAPTER_URL}/synthesize", json={"text": text}, timeout=20)
             if r.ok:
                 return r.json().get("url", "")
-        except Exception:
+        except Exception as e:
+            logging.error(f"ElevenLabs request failed: {e}")
             pass
     # Fallback to FishSpeech container if available
     try:
         r = requests.post(f"{FISHSPEECH_URL}/tts", json={"text": text}, timeout=25)
         if r.ok:
             return r.json().get("url", "")
-    except Exception:
+    except Exception as e:
+        logging.error(f"FishSpeech request failed: {e}")
         pass
     return ""
 
