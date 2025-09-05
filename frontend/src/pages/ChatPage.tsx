@@ -358,12 +358,13 @@ const ChatPage: React.FC = () => {
           setEngineModels(nextModels);
           try {
             if (effectiveUserId) {
-              await chatService.updateChatSettings(effectiveUserId, {
-                llmEngine: chatEngineOverride || '',
-                llmModel: chatModelOverride || '',
+              const payload: any = {
                 enabledEngines,
                 engineModels: nextModels,
-              });
+              };
+              if (chatEngineOverride) payload.llmEngine = chatEngineOverride;
+              if (chatModelOverride) payload.llmModel = chatModelOverride;
+              await chatService.updateChatSettings(effectiveUserId, payload);
             }
           } catch {}
         }
@@ -586,7 +587,8 @@ const ChatPage: React.FC = () => {
       if (isFirstMessage.current && !conversationId) {
         const title =
           textToSend.length > 30 ? `${textToSend.slice(0, 30)}…` : textToSend;
-        const newConvo = await conversationService.createConversation(title);
+        const uid = effectiveUserId || 'demo-user-id';
+        const newConvo = await conversationService.createConversation(title, uid);
 
         console.log('🔄 Chat: Created conversation', newConvo.id);
 
@@ -636,6 +638,7 @@ const ChatPage: React.FC = () => {
       const aiResponse = await chatService.sendMessage(
         conversationId,
         textToSend,
+        effectiveUserId,
         selectedCharacter?.id || null,
         chatEngineOverride,
         chatModelOverride
@@ -756,8 +759,8 @@ const ChatPage: React.FC = () => {
                   setTtsVoiceId(newVoiceId);
                   try {
                     await chatService.updateChatSettings(effectiveUserId, {
-                      llmEngine: chatEngineOverride || '', // Pass current LLM engine or default
-                      llmModel: chatModelOverride || '',   // Pass current LLM model or default
+                      llmEngine: chatEngineOverride || undefined,
+                      llmModel: chatModelOverride || undefined,
                       ttsProvider: newProvider,
                       ttsVoiceId: newVoiceId,
                     });
@@ -802,8 +805,8 @@ const ChatPage: React.FC = () => {
                     setEngineModels(updatedModels);
                     if (effectiveUserId) {
                       await chatService.updateChatSettings(effectiveUserId, {
-                        llmEngine: newEngine || '',
-                        llmModel: newModel || '',
+                        llmEngine: newEngine || undefined,
+                        llmModel: newModel || undefined,
                         ttsProvider: ttsProvider || 'fishspeech',
                         ttsVoiceId: ttsVoiceId || 'glados',
                         enabledEngines: updatedEnabled,

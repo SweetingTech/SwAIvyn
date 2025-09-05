@@ -115,6 +115,9 @@ const DashboardPage = () => {
             } else if (llmData.engine === 'lmstudio') {
               const testResponse = await fetch('/api/llm/lmstudio/models');
               llmConnected = testResponse.ok;
+            } else if (llmData.engine === 'vllm') {
+              const testResponse = await fetch('/api/llm/models?engine=vllm');
+              llmConnected = testResponse.ok;
             }
           }
         } catch (error) {

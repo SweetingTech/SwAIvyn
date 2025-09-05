@@ -44,7 +44,9 @@ const ConversationManagement: React.FC<ConversationManagementProps> = ({ userId,
 
   // Delete a conversation
   const deleteConversation = async (id: string) => {
-    const response = await fetch(`/api/conversation/${id}`, { method: 'DELETE' });
+    const response = await fetch(`/api/conversation/${id}?userId=${encodeURIComponent(userId)}`, {
+      method: 'DELETE'
+    });
     if (response.ok) {
       setConversations(prev => prev.filter(c => c.id !== id));
     }

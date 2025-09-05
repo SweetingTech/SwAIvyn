@@ -11,8 +11,8 @@ export interface ChatSettings {
 }
 
 export interface UpdateChatSettingsPayload {
-  llmEngine: string;
-  llmModel: string;
+  llmEngine?: string;
+  llmModel?: string;
   ttsProvider?: string; // Optional as per backend UpdateChatSettingsRequest
   ttsVoiceId?: string;  // Optional as per backend UpdateChatSettingsRequest
   enabledEngines?: Record<string, boolean>;
@@ -27,12 +27,20 @@ const chatService = {
    * Sends a message to the AI and gets a response
    * @param conversationId The ID of the conversation
    * @param message The message to send
+   * @param userId The ID of the user sending the message
    * @param characterId Optional character ID to use for this message
    * @param engineOverride Optional engine to override default LLM for this message
    * @param modelOverride Optional model to override default LLM for this message
    * @returns The AI's response
    */
-  async sendMessage(conversationId: string, message: string, characterId?: string | null, engineOverride?: string | null, modelOverride?: string | null): Promise<string> {
+  async sendMessage(
+    conversationId: string,
+    message: string,
+    userId?: string | null,
+    characterId?: string | null,
+    engineOverride?: string | null,
+    modelOverride?: string | null
+  ): Promise<string> {
     try {
       // Skip API call if conversationId is not valid
       if (!conversationId || conversationId.startsWith('temp-')) {
@@ -44,7 +52,7 @@ const chatService = {
       const requestBody: any = {
         conversationId,
         message,
-        userId: null // Backend handles user ID
+        userId: userId || null
       };
 
       if (characterId && characterId !== 'null' && characterId !== 'undefined') {
@@ -96,10 +104,15 @@ const chatService = {
   async updateChatSettings(userId: string, settings: UpdateChatSettingsPayload): Promise<boolean> {
     try {
       const url = `/api/chat/settings/${userId}`;
-      console.log('🔄 ChatService: Updating chat settings at:', url, 'with payload:', settings);
+      // Strip undefined or empty values so we don't overwrite existing settings unintentionally
+      const payload = Object.fromEntries(
+        Object.entries(settings).filter(([, v]) => v !== undefined && v !== '')
+      );
+
+      console.log('🔄 ChatService: Updating chat settings at:', url, 'with payload:', payload);
       // The backend returns { message: "Chat settings updated successfully." } which apiService should handle.
-      // We'll assume success if no error is thrown by apiService.post
-      await apiService.put(url, settings);
+      // We'll assume success if no error is thrown by apiService.put
+      await apiService.put(url, payload);
       console.log('🔄 ChatService: Chat settings updated successfully.');
       return true;
     } catch (error) {
