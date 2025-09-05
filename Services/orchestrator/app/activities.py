@@ -17,6 +17,30 @@ def generate_reply(input: Dict[str, Any]) -> Dict[str, Any]:
     engine = (input.get("engine") or "").strip().lower() or None
     model = input.get("model") or LLM_MODEL
     conn = input.get("conn") or {}
+    def norm(url: str) -> str:
+        try:
+            return url.replace("host.docker.internal", "localhost")
+        except Exception:
+            return url
+
+    def candidates(url: Optional[str]) -> list[str]:
+        if not url:
+            return []
+        url = str(url)
+        cands = [url]
+        # Swap docker-host and localhost in both directions, and add 127.0.0.1 variant
+        cands.append(url.replace("host.docker.internal", "localhost"))
+        cands.append(url.replace("localhost", "host.docker.internal"))
+        cands.append(url.replace("localhost", "127.0.0.1"))
+        # Deduplicate while preserving order
+        seen = set()
+        out: list[str] = []
+        for u in cands:
+            if u and u not in seen:
+                seen.add(u)
+                out.append(u)
+        return out
+
     ollama_base = (conn.get("ollama_base") or OLLAMA_HOST)
     lmstudio_base = (conn.get("lmstudio_base") or LMSTUDIO_HOST)
     openai_base = (conn.get("openai_base") or os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"))
@@ -28,74 +52,80 @@ def generate_reply(input: Dict[str, Any]) -> Dict[str, Any]:
 
     # Helper: Ollama
     def try_ollama() -> Optional[str]:
-        try:
-            r = requests.post(
-                f"{ollama_base}/api/generate",
-                json={"model": model, "prompt": text, "stream": False},
-                timeout=20,
-            )
-            if r.ok:
-                data = r.json()
-                return data.get("response", "")
-        except Exception as e:
-            logging.error(f"Ollama request failed: {e}")
-            pass
+        for base in candidates(ollama_base):
+            try:
+                r = requests.post(
+                    f"{base}/api/generate",
+                    json={"model": model, "prompt": text, "stream": False},
+                    timeout=20,
+                )
+                if r.ok:
+                    data = r.json()
+                    return data.get("response", "")
+                else:
+                    logging.error(f"Ollama non-200 from {base}: {r.status_code}")
+            except Exception as e:
+                logging.error(f"Ollama request failed via {base}: {e}")
         return None
 
     # Helper: LM Studio (OpenAI-compatible)
     def try_lmstudio() -> Optional[str]:
-        try:
-            r = requests.post(
-                f"{lmstudio_base}/v1/chat/completions",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": text},
-                    ],
-                    "stream": False,
-                },
-                timeout=20,
-            )
-            if r.ok:
-                data = r.json()
-                choices = data.get("choices") or []
-                if choices:
-                    return choices[0].get("message", {}).get("content", "")
-        except Exception as e:
-            logging.error(f"LM Studio request failed: {e}")
-            pass
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": text},
+            ],
+            "stream": False,
+        }
+        for base in candidates(lmstudio_base):
+            try:
+                r = requests.post(
+                    f"{base}/v1/chat/completions",
+                    json=payload,
+                    timeout=20,
+                )
+                if r.ok:
+                    data = r.json()
+                    choices = data.get("choices") or []
+                    if choices:
+                        return choices[0].get("message", {}).get("content", "")
+                else:
+                    logging.error(f"LM Studio non-200 from {base}: {r.status_code}")
+            except Exception as e:
+                logging.error(f"LM Studio request failed via {base}: {e}")
         return None
 
     # OpenAI-compatible (OpenAI or vLLM)
     def try_openai_like(base: str, api_key: str = "") -> Optional[str]:
-        if not base:
-            return None
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        try:
-            r = requests.post(
-                f"{base}/chat/completions",
-                headers=headers,
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": text},
-                    ],
-                    "stream": False,
-                },
-                timeout=20,
-            )
-            if r.ok:
-                data = r.json()
-                choices = data.get("choices") or []
-                if choices:
-                    return choices[0].get("message", {}).get("content", "")
-        except Exception as e:
-            logging.error(f"OpenAI-like request failed: {e}")
-            pass
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": text},
+            ],
+            "stream": False,
+        }
+        for b in candidates(base):
+            try:
+                r = requests.post(
+                    f"{b}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=20,
+                )
+                if r.ok:
+                    data = r.json()
+                    choices = data.get("choices") or []
+                    if choices:
+                        return choices[0].get("message", {}).get("content", "")
+                else:
+                    logging.error(f"OpenAI-like non-200 from {b}: {r.status_code}")
+            except Exception as e:
+                logging.error(f"OpenAI-like request failed via {b}: {e}")
         return None
 
     # Routing: honor explicit engine only, no cycling

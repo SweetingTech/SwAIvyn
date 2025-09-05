@@ -787,15 +787,23 @@ async def conversation_chat(body: dict, current=Depends(current_user_dep)):
             return val
         return os.getenv(env_var, default)
 
-    # Normalize keys the worker expects
+    # Normalize keys the worker expects (ensure host URLs are reachable from host-run worker)
+    def _normalize_host(url: Optional[str]) -> Optional[str]:
+        if not url:
+            return url
+        try:
+            return url.replace("host.docker.internal", "localhost")
+        except Exception:
+            return url
+
     conn_payload = {
-        "ollama_base": get_conn_setting("OllamaApiUrl", "OLLAMA_HOST", OLLAMA_HOST),
-        "lmstudio_base": get_conn_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST),
-        "openai_base": get_conn_setting("OpenAiApiUrl", "OPENAI_API_BASE", "https://api.openai.com/v1"),
+        "ollama_base": _normalize_host(get_conn_setting("OllamaApiUrl", "OLLAMA_HOST", OLLAMA_HOST)),
+        "lmstudio_base": _normalize_host(get_conn_setting("LmStudioApiUrl", "LMSTUDIO_HOST", LMSTUDIO_HOST)),
+        "openai_base": _normalize_host(get_conn_setting("OpenAiApiUrl", "OPENAI_API_BASE", "https://api.openai.com/v1")),
         "openai_api_key": get_conn_setting("OpenAiApiKey", "OPENAI_API_KEY"),
         "claude_api_url": get_conn_setting("ClaudeApiUrl", "CLAUDE_API_URL", "https://api.anthropic.com/v1"),
         "claude_api_key": get_conn_setting("ClaudeApiKey", "CLAUDE_API_KEY"),
-        "vllm_base": get_conn_setting("VllmApiUrl", "VLLM_API_URL"),
+        "vllm_base": _normalize_host(get_conn_setting("VllmApiUrl", "VLLM_API_URL")),
         "vllm_api_key": get_conn_setting("VllmApiKey", "VLLM_API_KEY"),
     }
 
@@ -920,6 +928,27 @@ async def conversation_update_folder(conv_id: str, body: dict, engine: Optional[
     return {"success": True}
 
 
+@app.put("/api/conversation/{conv_id}/open")
+async def conversation_touch_open(conv_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    uid = (current or {}).get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    now = datetime.utcnow().isoformat() + "Z"
+    async with engine.begin() as conn:
+        # Ensure the user owns the conversation before updating
+        res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        row = res.first()
+        owner = row[0] if row else None
+        if not owner or (uid != owner and (current or {}).get("role") != "admin"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await conn.execute(
+            t_conversations.update().where(t_conversations.c.id == conv_id).values(last_updated=now)
+        )
+    return {"success": True}
+
+
 @app.get("/api/conversation/{conv_id}/messages")
 async def conversation_messages(conv_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     if engine is not None:
@@ -975,6 +1004,47 @@ async def conversation_append_message(body: dict, engine: Optional[AsyncEngine] 
     return rec
 
 
+@app.get("/api/conversation/{conv_id}")
+async def conversation_get(conv_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_conversations).where(t_conversations.c.id == conv_id).limit(1))
+        row = res.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+        m = row._mapping
+        # AuthZ: same-user or admin
+        if not current or (current.get("id") != m["user_id"] and current.get("role") != "admin"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return {
+            "id": m["id"],
+            "userId": m["user_id"],
+            "title": m["title"],
+            "folderId": m["folder_id"],
+            "createdAt": m["created_at"],
+            "lastUpdated": m["last_updated"],
+        }
+
+@app.delete("/api/conversation/{conv_id}")
+async def conversation_delete(conv_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    uid = (current or {}).get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    async with engine.begin() as conn:
+        # Verify ownership
+        res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        row = res.first()
+        owner = row[0] if row else None
+        if not owner or (uid != owner and (current or {}).get("role") != "admin"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        # Delete messages first
+        await conn.execute(t_messages.delete().where(t_messages.c.conversation_id == conv_id))
+        # Then delete conversation
+        await conn.execute(t_conversations.delete().where(t_conversations.c.id == conv_id))
+    return {"success": True}
 @app.get("/api/folder/user/{user_id}")
 async def list_folders(user_id: str):
     # Stub empty folder list
