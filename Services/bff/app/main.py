@@ -5,7 +5,7 @@ import json
 from typing import Optional, Dict, Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response
 from pydantic import BaseModel
 from temporalio.client import Client
 import httpx
@@ -274,6 +274,55 @@ async def change_password(body: PasswordChange, engine: Optional[AsyncEngine] = 
         pw_hash = _bcrypt.hashpw(body.new_password.encode(), _bcrypt.gensalt()).decode()
         await conn.execute(users.update().where(users.c.id == uid).values(password_hash=pw_hash))
     return {"success": True}
+
+
+# Admin purge: delete conversations/messages (all, by user, or legacy-only)
+@app.delete("/api/admin/conversations")
+async def admin_purge_conversations(
+    confirm: bool = Query(False, description="Must be true to perform delete"),
+    userId: Optional[str] = Query(None, description="Delete only this user's conversations"),
+    legacyOnly: bool = Query(False, description="Delete conversations with missing/invalid owners"),
+    engine: Optional[AsyncEngine] = Depends(get_engine),
+    current=Depends(current_user_dep),
+):
+    # Require admin
+    require_admin(current)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Set confirm=true to perform purge")
+
+    # Build WHERE clause
+    where_sql = ""
+    params: Dict[str, Any] = {}
+    if userId:
+        where_sql = "WHERE user_id = :uid"
+        params["uid"] = userId
+    elif legacyOnly:
+        # Missing/empty owner, fallback owner used by early builds, or orphan (no matching user)
+        where_sql = (
+            "WHERE user_id IS NULL OR user_id = '' "
+            "OR user_id = '00000000-0000-0000-0000-000000000001' "
+            "OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = conversations.user_id)"
+        )
+    # else: all conversations (dangerous)
+
+    # Execute purge in a transaction
+    async with engine.begin() as conn:
+        # Count conversations to be removed for reporting
+        try:
+            sel = await conn.execute(text(f"SELECT COUNT(*) FROM conversations {where_sql}").bindparams(**params))
+            conv_count = sel.scalar_one() if hasattr(sel, "scalar_one") else (sel.first()[0] if sel.first() else 0)
+        except Exception:
+            conv_count = None
+
+        # Delete messages first, then conversations
+        await conn.execute(text(
+            f"DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations {where_sql})"
+        ).bindparams(**params))
+        result = await conn.execute(text(f"DELETE FROM conversations {where_sql}").bindparams(**params))
+
+    return {"success": True, "deletedConversations": conv_count}
 
 
 class UserCreate(BaseModel):
@@ -1051,20 +1100,23 @@ async def conversation_delete(conv_id: str, engine: Optional[AsyncEngine] = Depe
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     uid = (current or {}).get("id")
+    role = (current or {}).get("role")
     if not uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
     async with engine.begin() as conn:
-        # Verify ownership
+        # Verify ownership (idempotent: 204 if already gone)
         res = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
         row = res.first()
-        owner = row[0] if row else None
-        if not owner or (uid != owner and (current or {}).get("role") != "admin"):
+        if not row:
+            return Response(status_code=204)
+        owner = row[0]
+        if role != "admin" and uid != owner:
             raise HTTPException(status_code=403, detail="Forbidden")
         # Delete messages first
         await conn.execute(t_messages.delete().where(t_messages.c.conversation_id == conv_id))
         # Then delete conversation
         await conn.execute(t_conversations.delete().where(t_conversations.c.id == conv_id))
-    return {"success": True}
+    return Response(status_code=204)
 @app.get("/api/folder/user/{user_id}")
 async def list_folders(user_id: str):
     # Stub empty folder list

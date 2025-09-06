@@ -108,6 +108,26 @@ dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained 
 3. Configure your AI's personality and avatar
 4. Connect with other SwAIvyn instances on your network (optional)
 
+### Access from Other Computers (LAN)
+
+During development, both the frontend (Vite) and backend (FastAPI) can be reached from other devices on your LAN.
+
+- Frontend: `http://<your-pc-ip>:5173` (proxies `/api` and `/uploads` to the backend)
+- Backend (optional direct access): `http://<your-pc-ip>:5000`
+
+Already configured in this repo:
+- Vite binds to `0.0.0.0` so LAN clients can connect (see `frontend/vite.config.ts`).
+- Backend runs on `0.0.0.0:5000` (see `scripts/dev-bff.ps1`).
+
+Windows Firewall (PowerShell as Administrator):
+
+```
+netsh advfirewall firewall add rule name="SwAIvyn Vite 5173" dir=in action=allow protocol=TCP localport=5173
+netsh advfirewall firewall add rule name="SwAIvyn BFF 5000" dir=in action=allow protocol=TCP localport=5000
+```
+
+Optional CORS: If you skip the Vite proxy and call the backend directly from a different origin, add your LAN origin (e.g., `http://<your-pc-ip>:5173`) to `allow_origins` in `Services/bff/app/main.py`.
+
 ## 🧩 Features in Detail
 
 ### Text Chat Interface
@@ -212,7 +232,7 @@ SwAIvyn hybrid dev stack:
   - TTS synthesizes via host TTS or adapter URLs
   - Conversations
     - Create: `POST /api/conversation` with `title` and `userId`
-    - Delete: `DELETE /api/conversation/{id}?userId={userId}` (handles empty 204 response)
+    - Delete: `DELETE /api/conversation/{id}` (idempotent: 204 when already deleted)
     - Ownership enforced; admin can manage any conversation
   - Dashboard
     - Admin-only view that surfaces the active LLM engine and model from provider status checks

@@ -182,7 +182,21 @@ const apiService = {
       const response = await axios.delete(url, config);
       return response.data;
     } catch (error) {
-      console.error(`DELETE request failed for ${url}:`, error);
+      try {
+        if ((axios as any).isAxiosError && (axios as any).isAxiosError(error)) {
+          const status = (error as any)?.response?.status;
+          if (status === 404) {
+            console.warn(`DELETE 404 for ${url} (suppressing error log)`);
+          } else {
+            console.error(`DELETE request failed for ${url}:`, error);
+          }
+        } else {
+          console.error(`DELETE request failed for ${url}:`, error);
+        }
+      } catch {
+        // fallback log
+        console.error(`DELETE request failed for ${url}:`, error);
+      }
       throw error;
     }
   }

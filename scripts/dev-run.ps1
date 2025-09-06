@@ -31,5 +31,18 @@ if (-not $FrontendOnly) {
 Write-Host "`nDevelopment servers are starting..." -ForegroundColor Yellow
 Write-Host "Frontend: http://localhost:5173 (with hot reloading)" -ForegroundColor Cyan
 Write-Host "Backend:  http://localhost:5000" -ForegroundColor Cyan
+
+# Also print LAN-access URLs
+try {
+    $lanIPs = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
+        Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
+        ForEach-Object { $_.IPAddressToString }
+    if ($lanIPs) {
+        foreach ($ip in $lanIPs) {
+            Write-Host ("LAN Frontend: http://{0}:5173" -f $ip) -ForegroundColor DarkCyan
+            Write-Host ("LAN Backend:  http://{0}:5000" -f $ip) -ForegroundColor DarkCyan
+        }
+    }
+} catch {}
 Write-Host "`nMake changes to your frontend code and they will automatically refresh!" -ForegroundColor Green
 Write-Host "Press Ctrl+C in the terminal windows to stop the servers." -ForegroundColor Yellow

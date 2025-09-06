@@ -9,6 +9,9 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
+    host: true, // listen on 0.0.0.0 so LAN clients can connect
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/hubs': {
         target: 'http://localhost:5000',
@@ -16,6 +19,11 @@ export default defineConfig({
         ws: true,
       },
       '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      // Serve uploaded/static assets from the backend during dev
+      '/uploads': {
         target: 'http://localhost:5000',
         changeOrigin: true,
       }

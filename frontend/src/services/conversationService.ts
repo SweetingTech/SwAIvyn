@@ -147,6 +147,11 @@ const conversationService = {
       }
       return false;
     } catch (error) {
+      // Treat 404 as already deleted for idempotency
+      const status = (error as any)?.response?.status;
+      if (status === 404) {
+        return true;
+      }
       console.error(`Error deleting conversation ${id}:`, error);
       throw error;
     }
