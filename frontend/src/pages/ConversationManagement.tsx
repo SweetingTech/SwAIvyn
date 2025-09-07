@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 
 interface Conversation {
   id: string;
@@ -16,23 +17,24 @@ interface ConversationManagementProps {
  * Fully commented and designed for integration with backend APIs.
  */
 const ConversationManagement: React.FC<ConversationManagementProps> = ({ userId, onSelectConversation }) => {
+  const eff = useEffectiveUser();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [newTitle, setNewTitle] = useState('');
 
   // Fetch conversations for the user
   useEffect(() => {
-    fetch(`/api/conversation/${userId}`)
+    fetch(`/api/conversation/${userId}`, { headers: eff.headers })
       .then(res => res.json())
       .then(data => setConversations(data))
       .catch(console.error);
-  }, [userId]);
+  }, [userId, eff.headers]);
 
   // Create a new conversation
   const createConversation = async () => {
     if (!newTitle.trim()) return;
     const response = await fetch('/api/conversation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...eff.headers },
       body: JSON.stringify({ userId, title: newTitle }),
     });
     if (response.ok) {
@@ -44,9 +46,7 @@ const ConversationManagement: React.FC<ConversationManagementProps> = ({ userId,
 
   // Delete a conversation
   const deleteConversation = async (id: string) => {
-    const response = await fetch(`/api/conversation/${id}?userId=${encodeURIComponent(userId)}`, {
-      method: 'DELETE'
-    });
+    const response = await fetch(`/api/conversation/${id}?userId=${encodeURIComponent(userId)}`, { method: 'DELETE', headers: eff.headers });
     if (response.ok) {
       setConversations(prev => prev.filter(c => c.id !== id));
     }

@@ -26,6 +26,7 @@ import {
   createDefaultChatUrl
 } from '../utils/chatUrls';
 import { useInitialization } from '../contexts/InitializationContext';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 
 /* -------------------------------------------------------------------------- */
 /*  Helper types                                                              */
@@ -55,6 +56,7 @@ interface ConversationMeta {
 const ChatPage: React.FC = () => {
   /* --------------------------- context / routing ------------------------- */
   const { user } = useInitialization();
+  const eff = useEffectiveUser();
   const [effectiveUserId, setEffectiveUserId] = useState<string | null>(null);
   const { sessionCharacter } = useParams<{ sessionCharacter?: string }>();
   const navigate = useNavigate();
@@ -108,10 +110,10 @@ const ChatPage: React.FC = () => {
 
   // Set effectiveUserId from user context with fallback
   useEffect(() => {
-    const userId = user?.id || 'admin'; // Use same fallback as Settings page
-    console.log('🔄 Chat: Setting effective user ID to:', userId, '(user context:', user, ')');
+    const userId = eff.userId || 'admin';
+    console.log('🔄 Chat: Setting effective user ID to:', userId, '(eff:', eff, ')');
     setEffectiveUserId(userId);
-  }, [user?.id, user]);
+  }, [eff.userId]);
 
   /* ---------------------- SYNC FROM DASHBOARD LLM ------------------------ */
   useEffect(() => {
@@ -154,7 +156,7 @@ const ChatPage: React.FC = () => {
 
         // Load connection settings (base URLs) for discovery without hardcoding
         try {
-          const resp = await fetch(`/api/settings/connections?userId=${encodeURIComponent(effectiveUserId)}`);
+          const resp = await fetch(`/api/settings/connections?userId=${encodeURIComponent(effectiveUserId)}`, { headers: eff.headers });
           if (resp.ok) {
             const conn = await resp.json();
             setConnections({
@@ -220,7 +222,8 @@ const ChatPage: React.FC = () => {
         if (!character) {
           try {
             const res = await fetch(
-              `/api/settings/DefaultCharacterId?userId=${effectiveUserId}`
+              `/api/settings/DefaultCharacterId?userId=${effectiveUserId}`,
+              { headers: eff.headers }
             );
             if (res.ok) {
               const { value } = (await res.json()) as { value: string };
@@ -932,7 +935,7 @@ const ChatPage: React.FC = () => {
                   Array.from(e.target.files).forEach((f) => form.append('files', f));
                   form.append('conversationId', currentConversation.id);
                   try {
-                    const resp = await fetch('/api/upload/files', { method: 'POST', body: form });
+                    const resp = await fetch('/api/upload/files', { method: 'POST', body: form, headers: eff.headers });
                     if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
                     setNotice('Files uploaded and processing started');
                     setTimeout(() => setNotice(''), 2500);

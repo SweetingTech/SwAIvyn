@@ -39,6 +39,13 @@ const isExternalUrl = (url: string): boolean => {
 /**
  * Base API service for making HTTP requests
  */
+const authHeader = (): Record<string, string> => {
+  try {
+    const t = localStorage.getItem('auth_token');
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch { return {}; }
+};
+
 const apiService = {
   /**
    * Makes a GET request to the specified URL
@@ -59,7 +66,7 @@ const apiService = {
     }
 
     try {
-      const response = await axios.get(url, config);
+      const response = await axios.get(url, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       console.error(`GET request failed for ${url}:`, error);
@@ -116,7 +123,7 @@ const apiService = {
     }
 
     try {
-      const response = await axios.post(url, data, config);
+      const response = await axios.post(url, data, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       console.error(`POST request failed for ${url}:`, error);
@@ -152,7 +159,7 @@ const apiService = {
     }
 
     try {
-      const response = await axios.put(url, data, config);
+      const response = await axios.put(url, data, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       console.error(`PUT request failed for ${url}:`, error);
@@ -179,7 +186,7 @@ const apiService = {
     }
 
     try {
-      const response = await axios.delete(url, config);
+      const response = await axios.delete(url, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       try {

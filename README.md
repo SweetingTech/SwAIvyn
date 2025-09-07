@@ -82,6 +82,23 @@ Options:
 
 See docs/HYBRID_DEV.md for details and per‑user dataflow.
 
+### Dev Seed Helpers (Users, Characters, Workflow)
+
+For a quick, consistent dev setup:
+
+```
+# Accounts: admin (admin1234), mari, djay
+SwAIvyn/scripts/dev-seed-accounts.ps1 -Yes
+
+# Characters: import Sam & Sherlock from frontend/AI into DB (global)
+SwAIvyn/scripts/dev-seed-characters.ps1 -Yes
+
+# Default Chat Workflow: upsert canonical workflow definition
+SwAIvyn/scripts/dev-seed-workflows.ps1 -Yes
+```
+
+All scripts read `.env` and, if needed, build `DATABASE_URL` from `POSTGRES_PASSWORD`.
+
 #### Single-Executable Release
 
 1. Download the latest release from the [Releases page](https://github.com/SweetingTech/SwAIvyn/releases)
@@ -167,19 +184,28 @@ Immersive, voice-focused interface:
 - Select LLM backends
 - Install custom agents and workflows
 
+### Default Chat Workflow (New)
+
+Chat execution is driven by a versioned “Default Chat” workflow stored in the DB. This centralizes LLM selection and connection wiring so future enhancements (e.g., search, moderation) are just workflow edits.
+
+- List workflows: `GET /api/workflows`
+- Get default workflow: `GET /api/workflows/default`
+- Get by id: `GET /api/workflows/{id}`
+
+Seed the default workflow with: `SwAIvyn/scripts/dev-seed-workflows.ps1 -Yes`.
+
 ### TTS/Voice Configuration
 
-SwAIvyn supports multiple Text-to-Speech providers:
+SwAIvyn defaults to Fish Speech for TTS (local, privacy‑friendly). A minimal proxy container is included to serve `/health`, `/voices`, `/tts`, and `/tts/clone`:
 
-- **ElevenLabs**: Premium cloud-based TTS with realistic voices
-  - Requires API key configuration in Settings
-  - Support for voice cloning and custom voices
-
-- **Fish Speech**: Open-source TTS with local and cloud options
-  - Local installation support for privacy
-  - API token authentication for cloud service
-  - Custom voice training and cloning capabilities
-  - Configure your Fish Speech API key in Settings for cloud access
+- Build/start TTS proxy: `scripts/tts-docker-build.ps1 -Up`
+- Voices directory (bind‑mounted): `speech/TTS/openaudio-s1-mini/voices`
+  - Supported layouts:
+    - `voices.json` (either `["name"]` or `{ "voices": [{"name":"jazzy"}, ...] }`)
+    - `*.wav` directly under `voices/`
+    - One‑level subfolders containing `*.wav` (folder name used as voice id)
+- Upstream pass‑through: set `UPSTREAM_TTS` (defaults to `http://host.docker.internal:8081`) to forward synth to a full Fish Speech server if available.
+- The Settings → Voice tab lists voices from `/voices`, lets you test, and saves per‑user voice.
 
 ### Federation
 
@@ -238,6 +264,22 @@ SwAIvyn hybrid dev stack:
     - Admin-only view that surfaces the active LLM engine and model from provider status checks
 
 Authorization: users can modify/read only their settings/conversations; admin can see all.
+
+### Effective User Resolution (Frontend)
+
+- Pages use a shared hook `useEffectiveUser` that resolves the active user id in a robust way:
+  1) `useAuth().user?.id`
+  2) `useInitialization().user?.id`
+  3) Fallback to `/api/auth/me` when a token is present
+- The hook also exposes `headers` with `Authorization` automatically, used in fetch()/axios calls throughout the app.
+
+### Agents Integration (Workers)
+
+- Workers orchestrator (Docker) serves the agent catalog: `GET http://localhost:8000/api/agents`.
+- BFF proxies this for the UI at: `GET /api/agents/catalog`.
+- Runtime agent activity (running/completed) remains under BFF `/api/agents` endpoints.
+
+See `docs/AGENTS_AND_WORKFLOWS.md` for how the UI will expose catalog, per‑user enable/disable toggles, and user‑owned YAML uploads.
 
 ### SQLite VSS Integration
 

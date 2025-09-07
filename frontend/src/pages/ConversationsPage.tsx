@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import ConversationSearch from '../components/ConversationSearch';
 
 interface Conversation {
@@ -20,6 +21,7 @@ interface ConversationsPageProps {
 }
 
 const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPageProps) => {
+  const eff = useEffectiveUser();
   // State to hold the list of conversations
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
@@ -31,11 +33,11 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
 
   // Fetch conversations for the user when userId changes
   useEffect(() => {
-    fetch(`/api/conversation/${userId}`)
+    fetch(`/api/conversation/${userId}`, { headers: eff.headers })
       .then(res => res.json())
       .then(data => setConversations(data))
       .catch(console.error);
-  }, [userId]);
+  }, [userId, eff.headers]);
 
   // Filter conversations by search query (title/content)
   const filteredConversations = conversations.filter(c =>
@@ -50,7 +52,7 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
     if (!newTitle.trim()) return;
     const response = await fetch('/api/conversation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...eff.headers },
       body: JSON.stringify({ userId, title: newTitle }),
     });
     if (response.ok) {
@@ -65,9 +67,7 @@ const ConversationsPage = ({ userId, onSelectConversation }: ConversationsPagePr
    * @param id The ID of the conversation to delete.
    */
   const deleteConversation = async (id: string) => {
-    const response = await fetch(`/api/conversation/${id}?userId=${encodeURIComponent(userId)}`, {
-      method: 'DELETE'
-    });
+    const response = await fetch(`/api/conversation/${id}?userId=${encodeURIComponent(userId)}`, { method: 'DELETE', headers: eff.headers });
     if (response.ok) {
       setConversations(prev => prev.filter(c => c.id !== id));
     }

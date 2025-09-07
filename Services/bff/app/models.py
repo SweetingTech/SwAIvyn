@@ -10,13 +10,16 @@ users = Table(
     metadata,
     Column("id", String(64), primary_key=True),
     Column("username", String(100), nullable=False, unique=True),
-    Column("email", String(200), nullable=False, unique=True),
+    # Email can be optional; keep unique so non-null emails remain unique
+    Column("email", String(200), nullable=True, unique=True),
     Column("password_hash", String(200), nullable=True),
     Column("role", String(32), nullable=False, server_default=text("'user'")),
     Column("language", String(8), nullable=False, server_default=text("'en'")),
     Column("theme", String(16), nullable=False, server_default=text("'light'")),
     Column("default_character", String(100), nullable=True),
     Column("is_default", Boolean, nullable=False, server_default=text("false")),
+    Column("pin_hash", String(200), nullable=True),
+    Column("recovery_codes_hash", Text, nullable=True),
 )
 
 # Per-user chat settings (persisted)
@@ -80,4 +83,14 @@ messages = Table(
     Column("role", String(32), nullable=False),
     Column("content", Text, nullable=False),
     Column("timestamp", String(40), nullable=False),
+)
+
+# Workflow definitions (global)
+workflows = Table(
+    "workflows",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("name", String(200), nullable=False),
+    Column("version", String(32), nullable=False, server_default=text("'1'")),
+    Column("definition", Text, nullable=False),  # JSON or YAML as text
 )

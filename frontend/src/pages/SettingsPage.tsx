@@ -19,12 +19,16 @@ import {
 import chatService from '../services/chatService';
 import ttsService, { VoiceDetails } from '../services/ttsService';
 import { useInitialization } from '../contexts/InitializationContext';
+import { useAuth } from '../contexts/AuthContext';
 import fetchWithTimeout from '../utils/fetchWithTimeout';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 
 // ----------------------------- helpers ---------------------------------
 
 const useMountedRef = () => {
   const mounted = useRef(true);
+  const eff = useEffectiveUser();
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -58,7 +62,6 @@ const CLAUDE_MODELS = [
 ];
 
 const tabs = [
-  { id: 'account', label: 'Account', icon: <User size={16} /> },
   { id: 'invocation', label: 'Invocation', icon: <Speech size={16} /> },
   { id: 'model', label: 'AI Model', icon: <Database size={16} /> },
   { id: 'voice', label: 'Voice', icon: <Volume2 size={16} /> },
@@ -73,16 +76,20 @@ const tabs = [
 
 const VoiceSettings = () => {
   const { user } = useInitialization();
+  const { user: authUser, token } = useAuth();
   const mounted = useMountedRef();
 
   const [apiKey, setApiKey] = useState('');
-  const [voiceId, setVoiceId] = useState('Rachel');
+  const [voiceId, setVoiceId] = useState('');
   const [fishSpeechApiKey, setFishSpeechApiKey] = useState('');
-  const [ttsProvider, setTtsProvider] = useState('elevenlabs');
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [ttsProvider, setTtsProvider] = useState('fishspeech');
+  const [providers, setProviders] = useState<Provider[]>([
+    { id: 'fishspeech', name: 'Fish Speech', available: true },
+  ]);
   const [availableVoices, setAvailableVoices] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [effectiveUserId, setEffectiveUserId] = useState<string | null>(null);
 
   // Fish Speech management
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -96,35 +103,52 @@ const VoiceSettings = () => {
   const [voiceDetails, setVoiceDetails] = useState<VoiceDetails[]>([]);
   const [showVoiceDetails, setShowVoiceDetails] = useState<string | null>(null);
 
-  // initial load
+  // Resolve effective user id like UserProfilePage does
   useEffect(() => {
-    if (!user?.id) return;
+    const uid = authUser?.id || user?.id || null;
+    if (uid) { setEffectiveUserId(uid); return; }
+    // fallback: try /api/auth/me if token exists
+    (async () => {
+      try {
+        const tok = token || localStorage.getItem('auth_token') || '';
+        if (!tok) return;
+        const resp = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${tok}` } });
+        if (resp.ok) {
+          const me = await resp.json();
+          if (me?.id) setEffectiveUserId(me.id);
+        }
+      } catch {}
+    })();
+  }, [authUser?.id, user?.id, token]);
+
+  // load settings once we have an effective user id (or proceed without for voices)
+  useEffect(() => {
     setLoading(true);
     ttsService
-      .getSettings(user.id)
+      .getSettings(effectiveUserId || undefined)
       .then((result) => {
         if (!mounted.current) return;
         setApiKey(result.apiKey || '');
-        setVoiceId(result.voiceId || 'Rachel');
+        setVoiceId(result.voiceId || '');
         setFishSpeechApiKey(result.fishSpeechApiKey || '');
-        const nextProvider = result.ttsProvider || 'elevenlabs';
+        const nextProvider = result.ttsProvider || 'fishspeech';
         setTtsProvider(nextProvider);
-        setProviders((result.providers as Provider[]) || []);
+        const provs = (Array.isArray(result.providers) ? (result.providers as Provider[]) : [])
+          .filter(Boolean);
+        setProviders(provs.length ? provs : [{ id: 'fishspeech', name: 'Fish Speech', available: true }]);
         // load voices for current provider
-        return loadVoices(nextProvider, result.voiceId || 'Rachel');
+        return loadVoices(nextProvider, result.voiceId || '');
       })
       .catch(() => {
         if (!mounted.current) return;
         // make sure UI stays usable even if provider list failed
         setProviders((prev) => prev.length ? prev : [
-          { id: 'elevenlabs', name: 'ElevenLabs', available: true },
           { id: 'fishspeech', name: 'Fish Speech', available: true },
         ]);
       })
       .finally(() => mounted.current && setLoading(false));
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [effectiveUserId]);
 
   const loadVoiceDetails = useCallback(async (voices: string[]) => {
     try {
@@ -176,19 +200,21 @@ const VoiceSettings = () => {
       console.error('Failed to load voices:', error);
       if (!mounted.current) return [];
       // fallback by provider
-      if (provider === 'elevenlabs') {
-        const fallback = ['Rachel', 'Domi', 'Bella', 'Antoni'];
-        setAvailableVoices(fallback);
-        ensureValidVoiceSelection(fallback, preferredVoice);
-      } else {
-        const fallback = ['default'];
-        setAvailableVoices(fallback);
-        ensureValidVoiceSelection(fallback, preferredVoice);
-      }
+      const fallback = ['default'];
+      setAvailableVoices(fallback);
+      ensureValidVoiceSelection(fallback, preferredVoice);
       setVoiceDetails([]);
       return [];
     }
   }, [ensureValidVoiceSelection, loadVoiceDetails, mounted, user?.id]);
+
+  // Ensure voices are loaded at least once on mount even before user context is ready
+  useEffect(() => {
+    if (availableVoices.length === 0) {
+      void loadVoices('fishspeech');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleProviderChange = async (newProvider: string) => {
     setTtsProvider(newProvider);
@@ -252,11 +278,11 @@ const VoiceSettings = () => {
   };
 
   const save = () => {
-    if (!user?.id) return;
+    if (!effectiveUserId) return;
     setLoading(true);
 
     const settings = {
-      userId: user.id,
+      userId: effectiveUserId,
       apiKey: apiKey || undefined,
       voiceId: voiceId || undefined,
       fishSpeechApiKey: fishSpeechApiKey || undefined,
@@ -268,6 +294,7 @@ const VoiceSettings = () => {
       .then(() => {
         if (!mounted.current) return;
         setSaveSuccess(true);
+        try { console.log('Voice settings saved:', { provider: ttsProvider, voiceId }); } catch {}
         setTimeout(() => mounted.current && setSaveSuccess(false), 3000);
       })
       .catch(() => {})
@@ -314,40 +341,47 @@ const VoiceSettings = () => {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Voice</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={voiceId}
-            onChange={(e) => setVoiceId(e.target.value)}
-            disabled={loading || availableVoices.length === 0}
-            aria-label="Voice"
-          >
-            {availableVoices.length === 0 ? (
-              <option value="">Loading voices...</option>
-            ) : (
-              availableVoices.map((voice) => (
-                <option key={voice} value={voice}>
-                  {voice}
-                </option>
-              ))
-            )}
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              className="w-full border rounded px-3 py-2"
+              value={voiceId}
+              onChange={(e) => setVoiceId(e.target.value)}
+              disabled={loading || availableVoices.length === 0}
+              aria-label="Voice"
+            >
+              {availableVoices.length === 0 ? (
+                <option value="">Loading voices...</option>
+              ) : (
+                availableVoices.map((voice) => (
+                  <option key={voice} value={voice}>
+                    {voice}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              type="button"
+              className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              onClick={async () => {
+                try {
+                  const phrase = 'This is how my voice sounds. do you like it?';
+                  const blob = await ttsService.synthesize(phrase, user?.id, voiceId || undefined);
+                  const audio = new Audio(URL.createObjectURL(blob));
+                  audio.play();
+                } catch (e) {
+                  console.error('TTS test failed', e);
+                }
+              }}
+              aria-label="Test voice"
+            >
+              Test
+            </button>
+          </div>
         </div>
 
         {ttsProvider === 'fishspeech' && (
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Fish Speech API Key</label>
-              <input
-                type="password"
-                className="w-full border rounded px-3 py-2"
-                value={fishSpeechApiKey}
-                onChange={(e) => setFishSpeechApiKey(e.target.value)}
-                disabled={loading}
-                placeholder="Enter your Fish Speech API key (optional)"
-                aria-label="Fish Speech API Key"
-              />
-              <p className="text-xs text-gray-500 mt-1">Leave blank to use local Fish Speech service without authentication.</p>
-            </div>
+            {/* Local Fish Speech: no API key required */}
 
             <div className="bg-blue-50 p-3 rounded">
               <p className="text-sm text-blue-700">
@@ -510,192 +544,6 @@ const VoiceSettings = () => {
   );
 };
 
-// ============================ Account Settings ==========================
-
-const AccountSettings = () => {
-  const { user } = useInitialization();
-  const mounted = useMountedRef();
-
-  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
-  const [pin, setPin] = useState('');
-  const [pinSet, setPinSet] = useState(false);
-  const [userInfo, setUserInfo] = useState({
-    username: '',
-    email: '',
-    createdAt: '',
-    lastLogin: '',
-  });
-  const [loading, setLoading] = useState(true);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState('');
-
-  useEffect(() => {
-    const loadUserInfo = async () => {
-      setLoading(true);
-      try {
-        if (!user?.id) throw new Error('No user');
-        const response = await fetch(`/api/user/${user.id}`);
-        if (!response.ok) throw new Error('Fetch failed');
-        const userData = await response.json();
-        if (!mounted.current) return;
-        setUserInfo({
-          username: userData.username || 'Default User',
-          email: userData.email || 'user@example.com',
-          createdAt: userData.createdAt || new Date().toISOString(),
-          lastLogin: userData.lastLogin || new Date().toISOString(),
-        });
-      } catch {
-        if (!mounted.current) return;
-        setUserInfo({
-          username: 'Error Loading',
-          email: 'error@example.com',
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-        });
-      } finally {
-        mounted.current && setLoading(false);
-      }
-    };
-    loadUserInfo();
-  }, [mounted, user?.id]);
-
-  const formatDate = (dateString: string) => {
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return 'Unknown';
-    }
-  };
-
-  return loading ? (
-    <div className="flex items-center justify-center h-32">
-      <InlineSpinner />
-    </div>
-  ) : (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-medium text-gray-800">Account Settings</h2>
-        <p className="text-sm text-gray-600">Manage your account information and security settings</p>
-      </div>
-
-      {saveSuccess && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
-          Account settings updated successfully!
-        </div>
-      )}
-      {saveError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
-          {saveError}
-        </div>
-      )}
-
-      <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-        <h3 className="text-lg font-medium text-gray-900 mb-3">Account Information</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Username</label>
-            <p className="text-sm text-gray-900 mt-1">{userInfo.username}</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
-            <p className="text-sm text-gray-900 mt-1">{userInfo.email}</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Account Created</label>
-            <p className="text-sm text-gray-900 mt-1">{formatDate(userInfo.createdAt)}</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Last Login</label>
-            <p className="text-sm text-gray-900 mt-1">{formatDate(userInfo.lastLogin)}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-          <button className="btn btn-ghost border border-gray-300 text-sm">Change Password</button>
-        </div>
-
-        <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-1">PIN Code</h3>
-          {pinSet ? (
-            <p className="text-sm text-green-600">
-              A PIN is already set.&nbsp;
-              <button className="text-primary-600 underline" onClick={() => setPinSet(false)}>
-                Change it
-              </button>
-            </p>
-          ) : (
-            <div className="flex items-center">
-              <input
-                type="password"
-                maxLength={4}
-                placeholder="4-digit PIN"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/, ''))}
-                className="w-24 px-2 py-1 border border-gray-300 rounded-md"
-              />
-              <button
-                className="ml-2 btn btn-ghost border text-sm"
-                onClick={() => setPinSet(true)}
-                disabled={pin.length !== 4}
-              >
-                Save PIN
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Recovery Phrases</h3>
-          {!recoveryCodes ? (
-            <button
-              className="btn btn-ghost border border-gray-300 text-sm"
-              onClick={() =>
-                setRecoveryCodes([
-                  'alpha-bravo-charlie',
-                  'delta-echo-foxtrot',
-                  'golf-hotel-india',
-                  'juliet-kilo-lima',
-                  'mike-november-oscar',
-                ])
-              }
-            >
-              Generate Recovery Phrases
-            </button>
-          ) : (
-            <>
-              <textarea
-                readOnly
-                rows={5}
-                className="w-full font-mono p-2 border border-gray-300 rounded-md bg-gray-50"
-                value={recoveryCodes.join('\n')}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                These phrases can be used once each to reset your password. Store them securely.
-              </p>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="pt-4 flex justify-end">
-        <button className="btn btn-primary flex items-center">
-          <Save size={16} className="mr-1.5" />
-          Save Changes
-        </button>
-      </div>
-    </div>
-  );
-};
-
 // ============================ Model Settings ============================
 
 const ModelSettings = () => {
@@ -801,7 +649,7 @@ const ModelSettings = () => {
         if (s.llmEngine === 'lmstudio') {
           (async () => {
             try {
-              const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${user.id}`);
+              const res = await fetchWithTimeout(`/api/llm/lmstudio/model?userId=${eff.userId || user.id}`, 10000, { headers: eff.headers });
               if (res.ok) {
                 const { model } = await res.json();
                 if (!mounted.current) return;
@@ -810,9 +658,9 @@ const ModelSettings = () => {
                 // Optionally, persist the new model to backend, but do not block UI
                 fetch('/api/settings/llm', {
                   method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 'Content-Type': 'application/json', ...eff.headers },
                   body: JSON.stringify({
-                    userId: user.id,
+                    userId: eff.userId || user.id,
                     engine: 'lmstudio',
                     model: model || ''
                   })
@@ -830,7 +678,7 @@ const ModelSettings = () => {
     })();
 
     // connection settings
-    fetch(`/api/settings/connections?userId=${user.id}`)
+    fetch(`/api/settings/connections?userId=${eff.userId || user.id}`, { headers: eff.headers })
       .then((response) => response.json())
       .then((data) => {
         if (!mounted.current) return;
@@ -853,7 +701,7 @@ const ModelSettings = () => {
         // ignore bad cache
       }
     }
-  }, [mounted, user?.id]);
+  }, [mounted, user?.id, eff.userId]);
 
   const refreshOllamaModels = async () => {
     try {
@@ -865,10 +713,10 @@ const ModelSettings = () => {
       const qs: string[] = [
         `engine=${engine}`,
       ];
-      if (user?.id) qs.push(`userId=${encodeURIComponent(user.id)}`);
+      if (eff.userId || user?.id) qs.push(`userId=${encodeURIComponent(eff.userId || user!.id)}`);
       const base = engine === 'ollama' ? ollamaApiUrl : lmStudioApiUrl;
       if (base) qs.push(`baseUrl=${encodeURIComponent(base)}`);
-      const res = await fetchWithTimeout(`/api/llm/models?${qs.join('&')}`);
+      const res = await fetchWithTimeout(`/api/llm/models?${qs.join('&')}`, 10000, { headers: eff.headers });
       if (res.ok) {
         const payload = await res.json();
         let modelArray: string[] = Array.isArray(payload)
@@ -1522,7 +1370,7 @@ const CharacterSettings = () => {
     try {
       await fetch(`/api/user/${encodeURIComponent(user.id)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...eff.headers },
         body: JSON.stringify({ default_character: id })
       });
       setDefaultId(id);
@@ -1539,7 +1387,7 @@ const CharacterSettings = () => {
     try {
       const resp = await fetch('/api/character', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...eff.headers },
         body: JSON.stringify({ name: form.name.trim() || 'New Character', imagePath: form.imagePath.trim(), systemPrompt: form.systemPrompt, shared: false })
       });
       if (!resp.ok) throw new Error('Create failed');
@@ -1562,7 +1410,7 @@ const CharacterSettings = () => {
       if (editForm.imagePath) body.imagePath = editForm.imagePath;
       const resp = await fetch(`/api/character/${encodeURIComponent(editingId)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...eff.headers },
         body: JSON.stringify(body)
       });
       if (!resp.ok) throw new Error('Update failed');
@@ -1580,7 +1428,7 @@ const CharacterSettings = () => {
     if (!confirm('Delete this character?')) return;
     setLoading(true);
     try {
-      const resp = await fetch(`/api/character/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const resp = await fetch(`/api/character/${encodeURIComponent(id)}`, { method: 'DELETE', headers: eff.headers });
       if (!resp.ok) throw new Error('Delete failed');
       await load();
       setSaved(true); setTimeout(() => setSaved(false), 1500);
@@ -1637,7 +1485,7 @@ const CharacterSettings = () => {
                 try {
                   const resp = await fetch('/api/character/import-yaml', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...eff.headers },
                     body: JSON.stringify({ yaml: text })
                   });
                   if (!resp.ok) throw new Error('Import failed');
@@ -1708,7 +1556,7 @@ const CharacterSettings = () => {
                   const fd = new FormData();
                   fd.append("file", e.target.files[0]);
                   fd.append("character_id", c.id);
-                  const r = await fetch("/api/character/image", { method: "POST", body: fd });
+                  const r = await fetch("/api/character/image", { method: "POST", body: fd, headers: eff.headers });
                   if (r.ok) { await load(); } else { alert("Upload failed"); }
                 }} />
               </label>
@@ -1758,7 +1606,7 @@ const NetworkSettings = () => (
 // ============================== page shell ==============================
 
 const SettingsPage = () => {
-  const [activeTab, setActiveTab] = useState('account');
+  const [activeTab, setActiveTab] = useState('invocation');
 
   return (
     <motion.div
@@ -1800,7 +1648,6 @@ const SettingsPage = () => {
             </div>
 
             <div className="flex-grow p-6">
-              {activeTab === 'account' && <AccountSettings />}
               {activeTab === 'invocation' && <InvocationSettings />}
               {activeTab === 'model' && <ModelSettings />}
               {activeTab === 'voice' && <VoiceSettings />}

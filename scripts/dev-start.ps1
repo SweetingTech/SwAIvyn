@@ -1,7 +1,7 @@
 # Hybrid startup script: ensures infra containers are running/healthy, then launches BFF, Orchestrator, Frontend on host.
 param(
-    [switch]$IncludeTTS = $false,
-    [int]$BffPort = 5000,
+    [switch]$IncludeTTS = $true,
+    [int]$BffPort = 5100,
     [int]$FrontPort = 5173,
     [int]$ActivityThreads = 32,
     [string]$ComposeFile = "$PSScriptRoot/../docker-compose.yml",
@@ -18,6 +18,15 @@ function Test-Command {
     param([Parameter(Mandatory)][string]$Name)
     try { Get-Command $Name -ErrorAction Stop | Out-Null; return $true } catch { return $false }
 }
+
+function Require-Docker {
+    try {
+        $null = docker info -f '{{.ServerVersion}}' 2>$null
+    } catch {
+        throw 'Docker Desktop is not running or not reachable. Please start Docker Desktop and retry.'
+    }
+}
+
 
 function Get-ContainerId {
     param([Parameter(Mandatory)][string]$Service)
@@ -99,32 +108,41 @@ function Start-HostProc {
 }
 
 if (-not (Test-Command docker)) { throw 'Docker is not available in PATH. Install/Start Docker Desktop first.' }
+Require-Docker
 
 Write-Host '=== Ensuring infra is up ===' -ForegroundColor Cyan
-
 # Ensure containerized app-tier services are stopped to free ports for host apps (can be disabled)
 if (-not $NoStopAppContainers) {
     try {
-        Write-Host 'Stopping containerized app services (bff, orchestrator, frontend) to free ports...' -ForegroundColor DarkGray
-        docker compose -f $ComposeFile stop bff orchestrator frontend | Out-Null
+        $services = @()
+        try { $services = (docker compose -f $ComposeFile config --services 2>$null) } catch { $services = @() }
+        $toStop = @()
+        foreach ($svc in @('bff','orchestrator','frontend')) {
+            if ($services -contains $svc) { $toStop += $svc }
+        }
+        if ($toStop.Count -gt 0) {
+            Write-Host ('Stopping containerized app services to free ports: ' + ($toStop -join ', ')) -ForegroundColor DarkGray
+            docker compose -f $ComposeFile stop @toStop | Out-Null
+        }
     } catch { }
 }
 
-$infra = @(
-    @{ Name='swai-db'; Port=5432; HasHealth=$true },
-    @{ Name='temporal'; Port=7233; HasHealth=$false },
-    @{ Name='qdrant'; Port=6333; HasHealth=$false },
-    @{ Name='neo4j'; Port=7474; HasHealth=$true },
-    @{ Name='stt'; Port=9000; HasHealth=$true; HttpUrl='http://localhost:9000/docs' },
-    @{ Name='tts-11labs-adapter'; Port=8082; HasHealth=$false; HttpUrl='http://localhost:8082/docs' }
-)
-if ($IncludeTTS) {
-    $infra += @{ Name='tts'; Port=8081; HasHealth=$true; HttpUrl='http://localhost:8081/health' }
-}
+    $infra = @(
+        @{ Name='swai-db'; Port=5432; HasHealth=$true },
+        @{ Name='temporal'; Port=7233; HasHealth=$false },
+        @{ Name='qdrant'; Port=6333; HasHealth=$false },
+        @{ Name='neo4j'; Port=7474; HasHealth=$true },
+        @{ Name='stt'; Port=9000; HasHealth=$true; HttpUrl='http://localhost:9000/docs' }
+    )
+    # Removed ElevenLabs adapter from the default infra list
+    if ($IncludeTTS) {
+        $infra += @{ Name='tts'; Port=8081; HasHealth=$true; HttpUrl='http://localhost:8081/health' }
+    }
 
-foreach ($s in $infra) {
-    Ensure-Service-Up -Service $s.Name -Port $s.Port -HasHealth:$($s.HasHealth) -HttpUrl $s.HttpUrl
-}
+    foreach ($s in $infra) {
+        Ensure-Service-Up -Service $s.Name -Port $s.Port -HasHealth:$($s.HasHealth) -HttpUrl $s.HttpUrl
+    }
+ 
 
 Write-Host '=== Launching host services ===' -ForegroundColor Cyan
 

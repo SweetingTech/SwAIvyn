@@ -1,0 +1,28 @@
+{
+  "voices": [
+    {
+      "name": "jazzy",
+      "displayName": "Jazzy",
+      "description": "A smooth, jazzy voice perfect for casual conversations",
+      "audioFile": "jazzy/jazzy.wav",
+      "textFile": "jazzy/jazzy.txt",
+      "enabled": true
+    },
+    {
+      "name": "glados",
+      "displayName": "GLaDOS",
+      "description": "The iconic AI voice from Portal - cold, calculating, and sarcastic",
+      "audioFile": "glados/glados.wav",
+      "textFile": "glados/glados.txt",
+      "enabled": true
+    },
+    {
+      "name": "scarlet",
+      "displayName": "Scarlet",
+      "description": "A warm, friendly voice with a slight accent",
+      "audioFile": "scarlet/scarlet.wav",
+      "textFile": "scarlet/scarlet.txt",
+      "enabled": true
+    }
+  ]
+}

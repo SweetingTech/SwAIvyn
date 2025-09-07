@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 
 interface MemoryItem {
   id: string;
@@ -18,6 +19,7 @@ interface MemoryBrowserProps {
  * Fully commented and designed for integration with backend APIs.
  */
 const MemoryBrowser: React.FC<MemoryBrowserProps> = ({ userId }) => {
+  const eff = useEffectiveUser();
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState('');
@@ -25,18 +27,18 @@ const MemoryBrowser: React.FC<MemoryBrowserProps> = ({ userId }) => {
 
   // Fetch memories for the user
   useEffect(() => {
-    fetch(`/api/memory/${userId}`)
+    fetch(`/api/memory/${userId}`, { headers: eff.headers })
       .then(res => res.json())
       .then(data => setMemories(data))
       .catch(console.error);
-  }, [userId]);
+  }, [userId, eff.headers]);
 
   // Create a new memory
   const createMemory = async () => {
     if (!newContent.trim()) return;
     const response = await fetch('/api/memory', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...eff.headers },
       body: JSON.stringify({
         userId,
         content: newContent,
@@ -55,7 +57,7 @@ const MemoryBrowser: React.FC<MemoryBrowserProps> = ({ userId }) => {
 
   // Delete a memory
   const deleteMemory = async (id: string) => {
-    const response = await fetch(`/api/memory/${id}`, { method: 'DELETE' });
+    const response = await fetch(`/api/memory/${id}`, { method: 'DELETE', headers: eff.headers });
     if (response.ok) {
       setMemories(prev => prev.filter(m => m.id !== id));
     }

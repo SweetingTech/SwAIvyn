@@ -49,11 +49,12 @@ services:
       context: .
       dockerfile: speech/TTS/openaudio-s1-mini/Dockerfile
     environment:
-      - CUDA_VISIBLE_DEVICES=${TTS_CUDA_VISIBLE_DEVICES:-0}
-      - NVIDIA_VISIBLE_DEVICES=${TTS_GPU_ID:-0}
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://host.docker.internal:8081}
+      - VOICES_DIR=/app/voices
     ports:
       - "8081:8081"
+    volumes:
+      - ./speech/TTS/openaudio-s1-mini/voices:/app/voices:ro
     networks:
       - swai-network
     healthcheck:

@@ -1,21 +1,20 @@
 import { useTranslation as useI18nTranslation } from 'react-i18next';
+import useEffectiveUser from './useEffectiveUser';
 
 export const useTranslation = () => {
   const { t, i18n } = useI18nTranslation();
+  const eff = useEffectiveUser();
 
   const changeLanguage = async (language: string) => {
     await i18n.changeLanguage(language);
 
     // Save language preference to database
     try {
-      // Use the default and only user ID for this application
-      const userId = '00000000-0000-0000-0000-000000000001';
+      const userId = eff.userId || '00000000-0000-0000-0000-000000000001';
 
       await fetch('/api/settings', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', ...eff.headers },
         body: JSON.stringify({
           UserId: userId,
           Settings: {
