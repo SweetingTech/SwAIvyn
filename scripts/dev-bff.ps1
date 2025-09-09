@@ -1,6 +1,6 @@
 # Runs the BFF (FastAPI) on host with hot reload, wired to local infra
 param(
-    [int]$Port = 5100,
+    [int]$Port = 5000,
     [string]$Python = 'py'
 )
 

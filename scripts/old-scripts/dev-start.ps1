@@ -197,3 +197,4 @@ Write-Host "- Temporal:     localhost:7233" -ForegroundColor Green
 Write-Host "- Qdrant:       http://localhost:6333" -ForegroundColor Green
 Write-Host "- Postgres:     localhost:5432" -ForegroundColor Green
 if ($UseHostTTS) { Write-Host "- TTS (host):    http://localhost:8081" -ForegroundColor Green }
+

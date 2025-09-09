@@ -61,26 +61,28 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Installation
 
-#### Dev (Hybrid, recommended)
+#### Dev (Hybrid + Traefik, recommended)
 
-Run apps on host with hot‑reload, keep infra in Docker.
+Run apps on host with hot‑reload; route Docker services via Traefik in Docker Swarm.
+
+Quick start:
 
 ```
-# Infra only (Temporal, Postgres, Qdrant, Neo4j, STT)
-scripts/infra-up.ps1
+# Build images (all or targeted)
+SwAIvyn\scripts\build-stack.ps1 -All -Pull
+# or build specific parts: tts, infra, kanban, app
+SwAIvyn\scripts\build-stack.ps1 -Target tts,infra -Pull
 
-# Apps on host + host TTS
-scripts/dev-start.ps1 -UseHostTTS
-
-# Stop
-scripts/dev-stop.ps1
+# Start dev (auto-inits Swarm, deploys Traefik + TTS proxy)
+SwAIvyn\scripts\run_dev.ps1
 ```
 
-Options:
-- `-UseHostTTS` runs Fish Speech on the host (http://localhost:8081)
-- Compose profiles keep app images optional: `orchestrator`, `tts`, `tts-adapter`
-
-See docs/HYBRID_DEV.md for details and per‑user dataflow.
+Notes:
+- `build-stack.ps1 -List` shows all targets and groups.
+- Dev backend points to Traefik routes by default:
+  - `FISHSPEECH_URL=http://tts.localhost`
+  - `TTS_ADAPTER_URL=http://elevenlabs.localhost`
+- Databases and non-HTTP services remain on localhost ports by default.
 
 ### Dev Seed Helpers (Users, Characters, Workflow)
 
@@ -196,15 +198,31 @@ Seed the default workflow with: `SwAIvyn/scripts/dev-seed-workflows.ps1 -Yes`.
 
 ### TTS/Voice Configuration
 
-SwAIvyn defaults to Fish Speech for TTS (local, privacy‑friendly). A minimal proxy container is included to serve `/health`, `/voices`, `/tts`, and `/tts/clone`:
+SwAIvyn defaults to Fish Speech for TTS (local, privacy‑friendly). A minimal proxy container is deployed behind Traefik and serves `/health`, `/voices`, `/tts`, and `/tts/clone`:
 
-- Build/start TTS proxy: `scripts/tts-docker-build.ps1 -Up`
-- Voices directory (bind‑mounted): `speech/TTS/openaudio-s1-mini/voices`
+- Start via dev script: `SwAIvyn\scripts\run_dev.ps1`
+- Build images: `SwAIvyn\scripts\build-stack.ps1 -Target tts -Pull`
+- Voices directory (bind‑mounted): `SwAIvyn/speech/TTS/openaudio-s1-mini/voices`
   - Supported layouts:
     - `voices.json` (either `["name"]` or `{ "voices": [{"name":"jazzy"}, ...] }`)
     - `*.wav` directly under `voices/`
     - One‑level subfolders containing `*.wav` (folder name used as voice id)
-- Upstream pass‑through: set `UPSTREAM_TTS` (defaults to `http://host.docker.internal:8081`) to forward synth to a full Fish Speech server if available.
+- Upstream pass‑through: set `UPSTREAM_TTS` (defaults to `http://host.docker.internal:8080`) to forward synth to a full Fish Speech server if available.
+
+### Build Targets (Swarm)
+
+Use `SwAIvyn\scripts\build-stack.ps1` to rebuild images for the Swarm stack.
+
+- List targets: `-List`
+- Build all: `-All -Pull`
+- Build groups: `-Target tts,infra,kanban,app`
+- Build individual: `-Target wekan`, `-Target postgres`, `-Target tts-proxy`
+
+Groups:
+- `tts`: tts-proxy, tts-11labs-adapter, stt (pulls remote)
+- `infra`: postgres, qdrant, neo4j, temporal (pulls remote)
+- `kanban`: wekan, mongo, postgres:15 (pulls remote)
+- `app`: bff, frontend, orchestrator, workers (local Dockerfiles)
 - The Settings → Voice tab lists voices from `/voices`, lets you test, and saves per‑user voice.
 
 ### Federation

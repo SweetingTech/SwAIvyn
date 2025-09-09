@@ -1,0 +1,155 @@
+version: "3.8"
+
+networks:
+  swai-public:
+    driver: overlay
+    attachable: true
+
+volumes:
+  qdrant_data: {}
+  neo4j_data: {}
+  swai_data: {}
+
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --log.level=INFO
+      - --api.dashboard=true
+      - --entrypoints.web.address=:80
+      - --providers.swarm=true
+      - --providers.swarm.exposedbydefault=false
+      - --providers.swarm.network=swai-public
+    ports:
+      - target: 80
+        published: ${TRAEFIK_PORT:-80}
+        protocol: tcp
+        mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - swai-public
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.traefik.rule=Host(`traefik.localhost`)
+        - traefik.http.routers.traefik.entrypoints=web
+        - traefik.http.routers.traefik.service=api@internal
+
+  tts:
+    image: swai/tts-proxy:local
+    environment:
+      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://host.docker.internal:8080}
+      - VOICES_DIR=/app/voices
+    volumes:
+      - type: bind
+        source: ${SWAI_ROOT_POSIX}
+        target: /app/voices
+        read_only: true
+    networks:
+      - swai-public
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.tts.rule=Host(`tts.localhost`)
+        - traefik.http.routers.tts.entrypoints=web
+        - traefik.http.services.tts.loadbalancer.server.port=8081
+
+  tts-11labs-adapter:
+    image: swai/tts-11labs-adapter:local
+    environment:
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    networks:
+      - swai-public
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.tts11.rule=Host(`elevenlabs.localhost`)
+        - traefik.http.routers.tts11.entrypoints=web
+        - traefik.http.services.tts11.loadbalancer.server.port=8082
+
+  stt:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    environment:
+      - ASR_MODEL=tiny
+      - CUDA_VISIBLE_DEVICES=${STT_CUDA_VISIBLE_DEVICES:-0}
+      - NVIDIA_VISIBLE_DEVICES=${STT_GPU_ID:-0}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    networks:
+      - swai-public
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.stt.rule=Host(`stt.localhost`)
+        - traefik.http.routers.stt.entrypoints=web
+        - traefik.http.services.stt.loadbalancer.server.port=9000
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - swai-public
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.qdrant.rule=Host(`qdrant.localhost`)
+        - traefik.http.routers.qdrant.entrypoints=web
+        - traefik.http.services.qdrant.loadbalancer.server.port=6333
+
+  neo4j:
+    image: neo4j:5
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - swai-public
+    ports:
+      - target: 7687
+        published: 7687
+        protocol: tcp
+        mode: host
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.neo4j.rule=Host(`graph.localhost`)
+        - traefik.http.routers.neo4j.entrypoints=web
+        - traefik.http.services.neo4j.loadbalancer.server.port=7474
+
+  temporal:
+    image: temporalio/auto-setup:1.23
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - DB_HOST=swai-db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=temporal
+    networks:
+      - swai-public
+    ports:
+      - target: 7233
+        published: 7233
+        protocol: tcp
+        mode: host
+
+  swai-db:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=swai
+    volumes:
+      - swai_data:/var/lib/postgresql/data
+    networks:
+      - swai-public
+    ports:
+      - target: 5432
+        published: 5432
+        protocol: tcp
+        mode: host
