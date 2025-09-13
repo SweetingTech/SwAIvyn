@@ -176,15 +176,19 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
-      - POSTGRES_SEEDS=swai-db
     networks:
       - swai-public
     ports:
       - target: 7233
         published: 7233
         protocol: tcp
-        mode: ingress
+        mode: host
     deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
+        parallelism: 1
+        failure_action: rollback
       placement:
         constraints:
           - node.role == manager
