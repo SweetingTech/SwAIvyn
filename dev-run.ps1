@@ -326,7 +326,7 @@ function Wait-TemporalService {
     try {
       # Try using tctl from temporalio/admin-tools to check cluster health
       $checkCmd = "docker run --rm --network ${StackName}_swai-public temporalio/admin-tools:1.23 tctl --address temporal:7233 cluster health"
-      Write-Host "Attempt $attempt/$maxAttempts: Checking Temporal cluster health..." -ForegroundColor DarkGray
+      Write-Host "Attempt $attempt/${maxAttempts}: Checking Temporal cluster health..." -ForegroundColor DarkGray
       
       $result = & cmd /c $checkCmd 2>$null
       if ($LASTEXITCODE -eq 0) {
