@@ -45,7 +45,7 @@ function Stop-HostDevProcs {
             $p = Get-Process -Id $procId -ErrorAction Stop
             if ($allowedProcesses -contains $p.Name.ToLower()) {
                 Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-                Write-Host ("  ✓ Stopped PID {0} ({1})" -f $procId, $p.Name) -ForegroundColor Green
+                Write-Host ("  [OK] Stopped PID {0} ({1})" -f $procId, $p.Name) -ForegroundColor Green
             }
         } catch {}
     }
@@ -67,7 +67,7 @@ function Stop-FromStateFile {
                     try { 
                         $p = Get-Process -Id $procId -ErrorAction Stop
                         Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-                        Write-Host ("  ✓ Stopped {0} (PID {1})" -f $serviceName, $procId) -ForegroundColor Green
+                        Write-Host ("  [OK] Stopped {0} (PID {1})" -f $serviceName, $procId) -ForegroundColor Green
                     } catch {
                         Write-Host ("  ⚠ Process {0} (PID {1}) not found" -f $serviceName, $procId) -ForegroundColor DarkGray
                     }
@@ -81,7 +81,7 @@ function Stop-FromStateFile {
     # Clean up state file
     try { 
         Remove-Item $stateFile -Force -ErrorAction SilentlyContinue | Out-Null
-        Write-Host "  ✓ Cleaned up state file" -ForegroundColor Green
+        Write-Host "  [OK] Cleaned up state file" -ForegroundColor Green
     } catch {}
 }
 
@@ -103,14 +103,14 @@ function Remove-SwarmStack {
             try {
                 $services = (& docker stack services $Name 2>$null)
                 if (-not $services -or $services.Count -eq 0) { 
-                    Write-Host ("  ✓ Stack '{0}' removed successfully" -f $Name) -ForegroundColor Green
+                    Write-Host ("  [OK] Stack '{0}' removed successfully" -f $Name) -ForegroundColor Green
                     break 
                 }
                 if ($i -eq $maxWait) {
                     Write-Warning "Stack removal timed out after $maxWait seconds"
                 }
             } catch { 
-                Write-Host ("  ✓ Stack '{0}' removed successfully" -f $Name) -ForegroundColor Green
+                Write-Host ("  [OK] Stack '{0}' removed successfully" -f $Name) -ForegroundColor Green
                 break 
             }
             Start-Sleep -Seconds 1
@@ -132,12 +132,12 @@ function Stop-ComposeInfra {
         if ($DownCompose) {
             Write-Host '-> Running docker compose down (complete removal)...' -ForegroundColor Yellow
             & docker compose -f $composeFile down --remove-orphans
-            Write-Host "  ✓ Docker Compose services removed" -ForegroundColor Green
+            Write-Host "  [OK] Docker Compose services removed" -ForegroundColor Green
         } else {
             Write-Host '-> Stopping Docker Compose infrastructure services...' -ForegroundColor Yellow
             $infraServices = @('swai-db', 'temporal', 'qdrant', 'neo4j', 'stt', 'tts', 'tts-11labs-adapter')
             & docker compose -f $composeFile stop @infraServices
-            Write-Host "  ✓ Infrastructure services stopped" -ForegroundColor Green
+            Write-Host "  [OK] Infrastructure services stopped" -ForegroundColor Green
         }
     } catch {
         Write-Warning "Failed to stop Docker Compose services: $($_.Exception.Message)"
@@ -153,13 +153,13 @@ function Stop-KnownContainers {
     foreach ($containerName in $knownContainers) {
         try { 
             & docker stop $containerName 2>$null | Out-Null
-            Write-Host ("  ✓ Stopped container: {0}" -f $containerName) -ForegroundColor Green
+            Write-Host ("  [OK] Stopped container: {0}" -f $containerName) -ForegroundColor Green
         } catch {}
         
         if ($DownCompose) {
             try { 
                 & docker rm $containerName 2>$null | Out-Null 
-                Write-Host ("  ✓ Removed container: {0}" -f $containerName) -ForegroundColor Green
+                Write-Host ("  [OK] Removed container: {0}" -f $containerName) -ForegroundColor Green
             } catch {}
         }
     }
@@ -172,7 +172,7 @@ function Cleanup-Networks {
     try { 
         Write-Host '-> Pruning unused Docker networks...' -ForegroundColor Yellow
         & docker network prune -f 2>$null | Out-Null
-        Write-Host "  ✓ Unused networks pruned" -ForegroundColor Green
+        Write-Host "  [OK] Unused networks pruned" -ForegroundColor Green
     } catch {
         Write-Warning "Failed to prune networks: $($_.Exception.Message)"
     }
@@ -199,7 +199,7 @@ if ($Aggressive -and (Test-Command 'docker')) {
     Write-Host '-> Aggressive cleanup mode...' -ForegroundColor Yellow
     try {
         & docker system prune -f 2>$null | Out-Null
-        Write-Host "  ✓ Docker system pruned" -ForegroundColor Green
+        Write-Host "  [OK] Docker system pruned" -ForegroundColor Green
     } catch {}
 }
 
