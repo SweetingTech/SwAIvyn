@@ -48,7 +48,28 @@ const DashboardPage = () => {
   });
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<{ running: any[]; completed: number; failed: number; pending: number }>({ running: [], completed: 0, failed: 0, pending: 0 });
-  const traefikUrl = useMemo(() => (import.meta as any).env?.VITE_TRAEFIK_URL || 'http://localhost:8080/dashboard/', []);
+  const traefikUrl = useMemo(() => {
+    // Check environment variable first
+    const envUrl = (import.meta as any).env?.VITE_TRAEFIK_URL;
+    if (envUrl) return envUrl;
+    
+    // Dynamic detection based on current host
+    const currentHost = window.location.hostname;
+    const currentPort = window.location.port;
+    
+    // If we're on localhost:5000 (development), Traefik is likely on port 80
+    if (currentHost === 'localhost' && currentPort === '5000') {
+      return 'http://traefik.localhost:80';
+    }
+    
+    // If we're on a different host (like Replit), try the same port
+    if (currentPort && currentPort !== '80' && currentPort !== '443') {
+      return `http://traefik.${currentHost}:${currentPort}`;
+    }
+    
+    // Default fallback for localhost development
+    return 'http://traefik.localhost:80';
+  }, []);
 
   useEffect(() => {
     loadSystemStatus();
