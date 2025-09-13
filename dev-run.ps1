@@ -242,10 +242,7 @@ function Deploy-Stack {
   $voicesWin = Join-Path $rootDir 'speech/TTS/openaudio-s1-mini/voices'
   $env:SWAI_ROOT_POSIX = Convert-ToDockerHostPath -WinPath $voicesWin
   # Export .env-derived secrets for substitution
-  $dotenv = Import-DotEnv (Join-Path $rootDir '.env')
-  if (-not $env:POSTGRES_PASSWORD -and $dotenv.POSTGRES_PASSWORD) { $env:POSTGRES_PASSWORD = $dotenv.POSTGRES_PASSWORD }
-  if (-not $env:NEO4J_PASSWORD -and $dotenv.NEO4J_PASSWORD) { $env:NEO4J_PASSWORD = $dotenv.NEO4J_PASSWORD }
-  if (-not $env:ELEVENLABS_API_KEY -and $dotenv.ELEVENLABS_API_KEY) { $env:ELEVENLABS_API_KEY = $dotenv.ELEVENLABS_API_KEY }
+  Import-DotEnv (Join-Path $rootDir '.env')
   if ($TraefikPort -and $TraefikPort -gt 0) { $env:TRAEFIK_PORT = "$TraefikPort" }
   
   Write-Host ("Deploying stack '{0}' from {1}" -f $Name, $File) -ForegroundColor Cyan
@@ -380,22 +377,31 @@ function Start-ServiceScript {
   param([string]$ScriptPath, [string]$ServiceName, [hashtable]$ExtraEnv = @{})
   
   Write-Host "Starting $ServiceName..." -ForegroundColor Green
-  
-  # Prepare environment variables as command arguments
-  $envArgs = @()
-  foreach ($key in $ExtraEnv.Keys) {
-    $envArgs += "`$env:$key = '$($ExtraEnv[$key])'"
+
+  # Create a temp wrapper script to avoid -Command quoting and '&' parsing issues
+  $tmpDir = Join-Path $PSScriptRoot '.dev-tmp'
+  if (-not (Test-Path $tmpDir)) { New-Item -ItemType Directory -Path $tmpDir | Out-Null }
+
+  $safeName = ($ServiceName -replace '[^A-Za-z0-9_.-]','_')
+  $stubPath = Join-Path $tmpDir ("start-{0}-{1}.ps1" -f $safeName, [Guid]::NewGuid().ToString('N'))
+
+  $lines = @()
+  $lines += "# Auto-generated wrapper for $ServiceName"
+  foreach ($kv in $ExtraEnv.GetEnumerator()) {
+    $val = "$($kv.Value)".Replace("'", "''")
+    $lines += "`$env:{0} = '{1}'" -f $kv.Key, $val
   }
-  $envSetup = if ($envArgs.Count -gt 0) { ($envArgs -join '; ') + '; ' } else { '' }
-  
-  $fullCommand = $envSetup + "& '$ScriptPath'"
-  
+  # Ensure script path is quoted correctly
+  $quotedScript = $ScriptPath.Replace("'", "''")
+  $lines += "& '{0}'" -f $quotedScript
+
+  Set-Content -Path $stubPath -Value ($lines -join "`r`n") -Encoding UTF8
+
   try {
     $proc = Start-Process powershell -ArgumentList @(
-      "-NoExit", 
-      "-ExecutionPolicy", "Bypass", 
-      "-Command", 
-      $fullCommand
+      "-NoExit",
+      "-ExecutionPolicy","Bypass",
+      "-File", $stubPath
     ) -WindowStyle Normal -PassThru
     
     if ($proc) { 
@@ -418,7 +424,7 @@ Write-Host "Starting SwAIvyn in development mode..." -ForegroundColor Cyan
 Import-DotEnv
 
 # --- START OF BACKGROUND SERVICES (Docker, etc.) ---
-Write-Host "`nStarting background services (Docker, etc.)...`n" -ForegroundColor "Cyan"
+Write-Host "`nStarting background services (Docker, etc.)...`n" -ForegroundColor Cyan
 if (-not (Test-Command 'docker')) { throw 'Docker CLI not found. Please install/start Docker Desktop.' }
 
 $stackFile = Join-Path $rootDir 'docker-stack.yml'
@@ -633,7 +639,7 @@ if ($appReady) {
 Write-Host ("`n" + "="*60) -ForegroundColor Yellow
 
 if ($pids.Count -gt 0) {
-    Write-Host "`nSaving process IDs to state file for cleanup..." -ForegroundColor "DarkGray"
+    Write-Host "`nSaving process IDs to state file for cleanup..." -ForegroundColor DarkGray
     $stateObj = @{ pids = $pids }
     $stateObj | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 }
