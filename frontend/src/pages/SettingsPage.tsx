@@ -549,6 +549,7 @@ const VoiceSettings = () => {
 const ModelSettings = () => {
   const { user } = useInitialization();
   const mounted = useMountedRef();
+  const eff = useEffectiveUser();
 
   // Debug user context loading
   useEffect(() => {

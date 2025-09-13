@@ -1,0 +1,45 @@
+
+Console.js:61 The above error occurred in the <ModelSettings> component:
+
+    at ModelSettings (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/src/pages/SettingsPage.tsx:882:20)
+    at div
+    at div
+    at div
+    at div
+    at div
+    at MotionComponent (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/framer-motion.js?v=17c4f36d:945:40)
+    at SettingsPage (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/src/pages/SettingsPage.tsx:2630:37)
+    at RenderedRoute (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=17c4f36d:4089:5)
+    at Outlet (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=17c4f36d:4495:26)
+    at PresenceChild (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/framer-motion.js?v=17c4f36d:121:24)
+    at AnimatePresence (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/framer-motion.js?v=17c4f36d:210:26)
+    at main
+    at div
+    at Layout (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/src/components/layout/Layout.tsx:24:20)
+    at RenderedRoute (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=17c4f36d:4089:5)
+    at Routes (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=17c4f36d:4559:5)
+    at Suspense
+    at AppContent (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/src/App.tsx:49:78)
+    at InitializationProvider (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/src/contexts/InitializationContext.tsx:37:42)
+    at AuthProvider (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/src/contexts/AuthContext.tsx:28:32)
+    at App
+    at QueryClientProvider (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/@tanstack_react-query.js?v=17c4f36d:2932:3)
+    at Router (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=17c4f36d:4502:15)
+    at BrowserRouter (https://50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=17c4f36d:5248:5)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+Mt.forEach.n.<computed>	@	Console.js:61
+chunk-T2SWDQEL.js?v=17c4f36d:9129 Uncaught ReferenceError: eff is not defined
+    at ModelSettings (SettingsPage.tsx:704:26)
+    at renderWithHooks (chunk-T2SWDQEL.js?v=17c4f36d:11548:26)
+    at mountIndeterminateComponent (chunk-T2SWDQEL.js?v=17c4f36d:14926:21)
+    at beginWork (chunk-T2SWDQEL.js?v=17c4f36d:15914:22)
+    at beginWork$1 (chunk-T2SWDQEL.js?v=17c4f36d:19753:22)
+    at performUnitOfWork (chunk-T2SWDQEL.js?v=17c4f36d:19198:20)
+    at workLoopSync (chunk-T2SWDQEL.js?v=17c4f36d:19137:13)
+    at renderRootSync (chunk-T2SWDQEL.js?v=17c4f36d:19116:15)
+    at recoverFromConcurrentError (chunk-T2SWDQEL.js?v=17c4f36d:18736:28)
+    at performSyncWorkOnRoot (chunk-T2SWDQEL.js?v=17c4f36d:18879:28)
+﻿
+
