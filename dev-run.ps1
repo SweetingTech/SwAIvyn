@@ -171,8 +171,70 @@ function Ensure-StackNetwork {
   }
 }
 
+function Get-StackInfo {
+  param([string]$Name)
+  try {
+    $services = & docker stack services $Name --format "{{.Name}}" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $services) {
+      return @{ Exists = $true; Services = $services }
+    }
+  } catch {}
+  return @{ Exists = $false; Services = @() }
+}
+
+function Get-FileHash-Quick {
+  param([string]$Path)
+  try {
+    return (Get-FileHash -Path $Path -Algorithm SHA256).Hash
+  } catch {
+    return $null
+  }
+}
+
+function Should-UpdateStack {
+  param([string]$Name, [string]$File)
+  
+  # Check if stack exists
+  $stackInfo = Get-StackInfo -Name $Name
+  if (-not $stackInfo.Exists) {
+    Write-Host "Stack '$Name' does not exist - will create" -ForegroundColor DarkGray
+    return $true
+  }
+  
+  # Check if configuration file has changed
+  $hashFile = Join-Path $rootDir ".stack-$Name.hash"
+  $currentHash = Get-FileHash-Quick -Path $File
+  
+  if (Test-Path $hashFile) {
+    $previousHash = (Get-Content -Raw $hashFile -ErrorAction SilentlyContinue).Trim()
+    if ($previousHash -eq $currentHash) {
+      # Check if all services are actually running
+      $runningServices = & docker stack services $Name --filter "desired-state=running" --format "{{.Name}}" 2>$null
+      $expectedCount = ($stackInfo.Services | Measure-Object).Count
+      $runningCount = ($runningServices | Measure-Object).Count
+      
+      if ($runningCount -eq $expectedCount -and $expectedCount -gt 0) {
+        Write-Host "Stack '$Name' is up-to-date and all $runningCount services are running - skipping deployment" -ForegroundColor Green
+        return $false
+      } else {
+        Write-Host "Stack '$Name' configuration unchanged, but only $runningCount/$expectedCount services running - will update" -ForegroundColor Yellow
+        return $true
+      }
+    }
+  }
+  
+  Write-Host "Stack '$Name' configuration has changed - will update" -ForegroundColor Yellow
+  return $true
+}
+
 function Deploy-Stack {
   param([string]$Name, [string]$File)
+  
+  # Check if we need to deploy/update
+  if (-not (Should-UpdateStack -Name $Name -File $File)) {
+    return
+  }
+  
   # Export env for variable substitution in stack yaml
   $env:STACK_NAME = $Name
   if ($TTSUpstream) { $env:UPSTREAM_TTS = $TTSUpstream }
@@ -185,10 +247,19 @@ function Deploy-Stack {
   if (-not $env:NEO4J_PASSWORD -and $dotenv.NEO4J_PASSWORD) { $env:NEO4J_PASSWORD = $dotenv.NEO4J_PASSWORD }
   if (-not $env:ELEVENLABS_API_KEY -and $dotenv.ELEVENLABS_API_KEY) { $env:ELEVENLABS_API_KEY = $dotenv.ELEVENLABS_API_KEY }
   if ($TraefikPort -and $TraefikPort -gt 0) { $env:TRAEFIK_PORT = "$TraefikPort" }
+  
   Write-Host ("Deploying stack '{0}' from {1}" -f $Name, $File) -ForegroundColor Cyan
   Push-Location $rootDir
   try {
     & docker stack deploy -c $File $Name --detach=false
+    if ($LASTEXITCODE -eq 0) {
+      # Save hash of successfully deployed configuration
+      $hashFile = Join-Path $rootDir ".stack-$Name.hash"
+      $currentHash = Get-FileHash-Quick -Path $File
+      if ($currentHash) {
+        Set-Content -Path $hashFile -Value $currentHash -Encoding ASCII -NoNewline
+      }
+    }
   } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) { throw 'docker stack deploy failed' }
 }
@@ -321,6 +392,8 @@ if (-not (Test-Path $stackFile)) { throw "Stack file not found: $stackFile" }
 Ensure-SwarmActive
 Ensure-Images
 Ensure-StackNetwork -StackName $StackName
+
+# Smart deployment - only deploy if needed
 Deploy-Stack -Name $StackName -File $stackFile
 
 Write-Host ("Waiting on TTS via Traefik (http://tts.localhost:{0}/health)..." -f $TraefikPort) -ForegroundColor DarkGray
