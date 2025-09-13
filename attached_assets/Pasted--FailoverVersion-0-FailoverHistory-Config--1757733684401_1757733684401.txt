@@ -1,0 +1,73 @@
+  FailoverVersion                       0
+
+  FailoverHistory                       []
+
+  Config.HistoryArchivalUri              
+
+  Config.VisibilityArchivalUri           
+
+Default namespace default already registered.
+
+             Name                Type    
+
+  BuildIds                    KeywordList
+
+  BatcherUser                 Keyword    
+
+  WorkflowId                  Keyword    
+
+  StateTransitionCount        Int        
+
+  ExecutionStatus             Keyword    
+
+  BatcherNamespace            Keyword    
+
+  ParentWorkflowId            Keyword    
+
+  TemporalNamespaceDivision   Keyword    
+
+  TemporalScheduledStartTime  Datetime   
+
+  TemporalSchedulePaused      Bool       
+
+  ExecutionDuration           Int        
+
+  WorkflowType                Keyword    
+
+  CloseTime                   Datetime   
+
+  StartTime                   Datetime   
+
+  TaskQueue                   Keyword    
+
+  HistorySizeBytes            Int        
+
+  TemporalChangeVersion       KeywordList
+
+  ExecutionTime               Datetime   
+
+  HistoryLength               Int        
+
+  BinaryChecksums             KeywordList
+
+  RunId                       Keyword    
+
+  TemporalScheduledById       Keyword    
+
+  ParentRunId                 Keyword    
+
+Namespace cache refreshed.
+
+Adding Custom*Field search attributes.
+
+{"level":"error","ts":"2025-09-13T03:19:36.082Z","msg":"Cannot add search attributes in standard visibility.","service":"frontend","pluginName":"postgres","logging-call-at":"operator_handler.go:223","stacktrace":"go.temporal.io/server/common/log.(*zapLogger).Error\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/log/zap_logger.go:156\ngo.temporal.io/server/service/frontend.(*OperatorHandlerImpl).addSearchAttributesInternal\n\t/home/runner/work/docker-builds/docker-builds/temporal/service/frontend/operator_handler.go:223\ngo.temporal.io/server/service/frontend.(*OperatorHandlerImpl).AddSearchAttributes\n\t/home/runner/work/docker-builds/docker-builds/temporal/service/frontend/operator_handler.go:203\ngo.temporal.io/api/operatorservice/v1._OperatorService_AddSearchAttributes_Handler.func1\n\t/home/runner/go/pkg/mod/go.temporal.io/api@v1.29.2/operatorservice/v1/service_grpc.pb.go:317\ngo.temporal.io/server/common/rpc/interceptor.(*RetryableInterceptor).Intercept.func1\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/retry.go:63\ngo.temporal.io/server/common/backoff.ThrottleRetryContext\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/backoff/retry.go:143\ngo.temporal.io/server/common/rpc/interceptor.(*RetryableInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/retry.go:67\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*CallerInfoInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/caller_info.go:80\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*SDKVersionInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/sdk_version.go:69\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*RateLimitInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/rate_limit.go:88\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*NamespaceRateLimitInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/namespace_rate_limit.go:93\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*ConcurrentRequestLimitInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/concurrent_request_limit.go:121\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*NamespaceValidatorInterceptor).StateValidationIntercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/namespace_validator.go:196\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*TelemetryInterceptor).UnaryIntercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/telemetry.go:165\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/service/frontend.(*RedirectionInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/service/frontend/redirection_interceptor.go:184\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/authorization.(*interceptor).Interceptor\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/authorization/interceptor.go:162\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/service/frontend.GrpcServerOptionsProvider.NewServerMetricsContextInjectorInterceptor.func1\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/metrics/grpc.go:66\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc.UnaryServerInterceptor.func1\n\t/home/runner/go/pkg/mod/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc@v0.51.0/interceptor.go:315\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*NamespaceLogInterceptor).Intercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/namespace_logger.go:84\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc/interceptor.(*NamespaceValidatorInterceptor).NamespaceValidateIntercept\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/interceptor/namespace_validator.go:113\ngoogle.golang.org/grpc.getChainUnaryHandler.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1186\ngo.temporal.io/server/common/rpc.ServiceErrorInterceptor\n\t/home/runner/work/docker-builds/docker-builds/temporal/common/rpc/grpc.go:145\ngoogle.golang.org/grpc.NewServer.chainUnaryServerInterceptors.chainUnaryInterceptors.func1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1177\ngo.temporal.io/api/operatorservice/v1._OperatorService_AddSearchAttributes_Handler\n\t/home/runner/go/pkg/mod/go.temporal.io/api@v1.29.2/operatorservice/v1/service_grpc.pb.go:319\ngoogle.golang.org/grpc.(*Server).processUnaryRPC\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1369\ngoogle.golang.org/grpc.(*Server).handleStream\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1780\ngoogle.golang.org/grpc.(*Server).serveStreams.func2.1\n\t/home/runner/go/pkg/mod/google.golang.org/grpc@v1.63.2/server.go:1019"}
+
+Search attributes have been added
+
+{"level":"info","ts":"2025-09-13T03:19:45.002Z","msg":"Current reachable members","component":"service-resolver","service":"frontend","addresses":["10.0.1.199:7233"],"logging-call-at":"service_resolver.go:275"}
+
+{"level":"info","ts":"2025-09-13T03:19:45.002Z","msg":"Current reachable members","component":"service-resolver","service":"worker","addresses":["10.0.1.199:7239"],"logging-call-at":"service_resolver.go:275"}
+
+{"level":"info","ts":"2025-09-13T03:19:45.002Z","msg":"Current reachable members","component":"service-resolver","service":"matching","addresses":["10.0.1.199:7235"],"logging-call-at":"service_resolver.go:275"}
+
+
