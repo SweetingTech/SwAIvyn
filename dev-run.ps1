@@ -316,29 +316,39 @@ function Wait-TemporalService {
     return $false
   }
   
-  # Then wait additional time for Temporal to fully initialize
-  Write-Host "TCP port ready, waiting for Temporal service initialization..." -ForegroundColor DarkGray
-  Start-Sleep -Seconds 15  # Give Temporal time to fully start after port opens
+  # Now wait for Temporal gRPC services to be ready using proper health check
+  Write-Host "TCP port ready, checking Temporal gRPC service readiness..." -ForegroundColor DarkGray
   
-  # Check if we can see any Temporal containers running
-  try {
-    $containers = & docker ps --filter "name=temporal" --format "{{.Names}}" 2>$null
-    if ($containers) {
-      Write-Host "Temporal container(s) running: $($containers -join ', ')" -ForegroundColor Green
+  $maxAttempts = [Math]::Min($Retries, 60)  # Cap at 60 attempts (2 minutes)
+  $currentDelay = 2
+  
+  for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    try {
+      # Try using tctl from temporalio/admin-tools to check cluster health
+      $checkCmd = "docker run --rm --network ${StackName}_swai-public temporalio/admin-tools:1.23 tctl --address temporal:7233 cluster health"
+      Write-Host "Attempt $attempt/$maxAttempts: Checking Temporal cluster health..." -ForegroundColor DarkGray
       
-      # Additional wait for service readiness
-      Write-Host "Allowing additional time for Temporal service readiness..." -ForegroundColor DarkGray
-      Start-Sleep -Seconds 10
-      
-      Write-Host "Temporal service should now be ready for connections" -ForegroundColor Green
-      return $true
+      $result = & cmd /c $checkCmd 2>$null
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ Temporal cluster health check passed!" -ForegroundColor Green
+        return $true
+      }
+    } catch {
+      Write-Host "Health check attempt $attempt failed: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
-  } catch {
-    Write-Warning "Could not check Temporal container status: $($_.Exception.Message)"
+    
+    if ($attempt -lt $maxAttempts) {
+      Write-Host "Waiting $currentDelay seconds before next attempt..." -ForegroundColor DarkGray
+      Start-Sleep -Seconds $currentDelay
+      
+      # Exponential backoff (cap at 10 seconds)
+      $currentDelay = [Math]::Min($currentDelay * 1.2, 10)
+    }
   }
   
-  Write-Host "Temporal service readiness check completed" -ForegroundColor Green
-  return $true
+  Write-Warning "Temporal gRPC health check did not pass after $($maxAttempts * $DelaySec) seconds"
+  Write-Warning "Temporal may still be initializing. Orchestrator startup may fail but will retry."
+  return $false
 }
 
 function Start-ServiceScript {
@@ -404,18 +414,29 @@ Write-Host ("Traefik dashboard: http://traefik.localhost:{0}" -f $TraefikPort) -
 # --- Wait for critical services ---
 Write-Host "`nWaiting for critical infrastructure services...`n" -ForegroundColor Yellow
 
-# Wait for Temporal (critical for orchestrator) - enhanced check
-$temporalReady = Wait-TemporalService -HostName 'localhost' -Port 7233
-
-# Wait for PostgreSQL (critical for BFF)
+# Wait for PostgreSQL first (Temporal depends on it)
 $pgReady = Wait-TcpPort -HostName 'localhost' -Port 5432 -Retries 30 -DelaySec 2
 
-if (-not $temporalReady) {
-    Write-Warning "Temporal is not ready. Orchestrator may fail to start."
+if (-not $pgReady) {
+    Write-Warning "PostgreSQL is not ready. Both BFF and Temporal may fail to start."
+} else {
+    Write-Host "✅ PostgreSQL is ready" -ForegroundColor Green
 }
 
-if (-not $pgReady) {
-    Write-Warning "PostgreSQL is not ready. BFF may fail to start."
+# Verify POSTGRES_PASSWORD is set (required for Temporal to connect to DB)
+if (-not $env:POSTGRES_PASSWORD) {
+    Write-Warning "POSTGRES_PASSWORD not found in environment. Temporal may fail to initialize."
+    Write-Host "Please ensure your .env file contains POSTGRES_PASSWORD=<your-password>" -ForegroundColor Yellow
+} else {
+    Write-Host "✅ POSTGRES_PASSWORD is set" -ForegroundColor Green
+}
+
+# Wait for Temporal (critical for orchestrator) with proper gRPC health check
+$temporalReady = Wait-TemporalService -HostName 'localhost' -Port 7233
+
+if (-not $temporalReady) {
+    Write-Warning "Temporal gRPC services are not ready. Orchestrator startup will be attempted but may fail and retry."
+    Write-Host "💡 Tip: Temporal may still be initializing its database. This is normal on first startup." -ForegroundColor Yellow
 }
 
 # --- START OF FRONTEND/BFF/ORCHESTRATOR ---
