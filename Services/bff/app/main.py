@@ -24,7 +24,7 @@ TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234")
 DATABASE_URL = os.getenv("DATABASE_URL")
-UPLOADS_DIR = os.getenv("UPLOADS_DIR", "/app/wwwroot/uploads")
+UPLOADS_DIR = os.getenv("UPLOADS_DIR", "./wwwroot/uploads")
 CHAR_UPLOADS_DIR = os.path.join(UPLOADS_DIR, "characters")
 WORKERS_ORCH_URL = os.getenv("WORKERS_ORCH_URL", os.getenv("ORCHESTRATOR_URL", "http://localhost:8000"))
 
@@ -56,7 +56,7 @@ except Exception:
     pass
 app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=["http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:5173", "http://127.0.0.1:5173"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
