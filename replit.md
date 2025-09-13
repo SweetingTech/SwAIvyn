@@ -2,6 +2,20 @@
 
 SwAIvyn is a privacy-focused, federated AI assistant with dual interfaces and Tamagotchi-like features. It runs entirely on your local network with no external data transmission. The application features both traditional text-based chat and an immersive voice-first interface, supporting AI-to-AI communication across instances and customizable personalities through character cards.
 
+# Recent Changes
+
+**September 13, 2025 - Replit Environment Setup**
+- Successfully imported SwAIvyn from GitHub and configured for Replit environment
+- Fixed frontend TypeScript errors and installed missing dependencies (@types/node)
+- Configured Vite development server for port 5000 with 0.0.0.0 binding (Replit requirement)
+- Set up backend FastAPI service on port 8000 with proper localhost binding
+- Resolved PostgreSQL connectivity with asyncpg drivers for async database operations
+- Added CORS support for Replit domains (*.repl.co) in addition to localhost development
+- Configured production deployment to serve frontend and backend from single process on port 5000
+- Added API health endpoints to handle proxy connection probes
+- Disabled noisy Temporal connection attempts (not needed in Replit environment)
+- Both frontend and backend workflows running successfully with database connectivity working
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
