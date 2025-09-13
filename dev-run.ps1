@@ -388,7 +388,7 @@ function Start-ServiceScript {
   }
   $envSetup = if ($envArgs.Count -gt 0) { ($envArgs -join '; ') + '; ' } else { '' }
   
-  $fullCommand = "${envSetup}& '$ScriptPath'"
+  $fullCommand = "${envSetup}" + "& '$ScriptPath'"
   
   try {
     $proc = Start-Process powershell -ArgumentList @(
@@ -633,7 +633,7 @@ if ($appReady) {
 Write-Host "`n" + "="*60 -ForegroundColor Yellow
 
 if ($pids.Count -gt 0) {
-    Write-Host "`nSaving process IDs to state file for cleanup..."
+    Write-Host "`nSaving process IDs to state file for cleanup..." -ForegroundColor DarkGray
     $stateObj = @{ pids = $pids }
     $stateObj | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 }
