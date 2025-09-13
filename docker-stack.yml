@@ -176,6 +176,8 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
+      - SERVICES_FRONTEND_RPC_BIND_ON_IP=0.0.0.0
+      - SERVICES_FRONTEND_RPC_GRPC_PORT=7233
     networks:
       - swai-public
     ports:
@@ -183,12 +185,21 @@ services:
         published: 7233
         protocol: tcp
         mode: host
+    healthcheck:
+      test: ["CMD", "sh", "-c", "temporal operator cluster health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     deploy:
       replicas: 1
       update_config:
         order: stop-first
         parallelism: 1
         failure_action: rollback
+      restart_policy:
+        condition: any
+        delay: 5s
       placement:
         constraints:
           - node.role == manager

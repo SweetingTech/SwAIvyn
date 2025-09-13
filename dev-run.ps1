@@ -437,6 +437,23 @@ Ensure-StackNetwork -StackName $StackName
 # Smart deployment - only deploy if needed
 Deploy-Stack -Name $StackName -File $stackFile
 
+# --- Enforce Temporal Startup Ordering ---
+Write-Host "Ensuring Temporal starts after PostgreSQL..." -ForegroundColor DarkGray
+try {
+  # Scale Temporal to 0 to stop any failed instances
+  & docker service scale "${StackName}_temporal=0" | Out-Null
+  Start-Sleep -Seconds 3
+  
+  # Wait for PostgreSQL to be ready
+  Wait-TcpPort -HostName localhost -Port 5432 -Retries 30
+  
+  # Scale Temporal back to 1
+  & docker service scale "${StackName}_temporal=1" | Out-Null
+  Write-Host "Temporal startup ordering complete" -ForegroundColor Green
+} catch {
+  Write-Warning "Failed to enforce Temporal startup ordering: $($_.Exception.Message)"
+}
+
 Write-Host ("Waiting on TTS via Traefik (http://tts.localhost:{0}/health)..." -f $TraefikPort) -ForegroundColor DarkGray
 if (Wait-Health -HostName 'tts.localhost') { Write-Host 'TTS ready.' -ForegroundColor Green } else { Write-Warning 'TTS did not report healthy in time.' }
 
