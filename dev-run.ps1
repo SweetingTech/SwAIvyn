@@ -388,7 +388,7 @@ function Start-ServiceScript {
   }
   $envSetup = if ($envArgs.Count -gt 0) { ($envArgs -join '; ') + '; ' } else { '' }
   
-  $fullCommand = "${envSetup}& `"$ScriptPath`""
+  $fullCommand = $envSetup + "& '$ScriptPath'"
   
   try {
     $proc = Start-Process powershell -ArgumentList @(
@@ -531,9 +531,9 @@ if (-not $FrontendOnly) {
 }
 
 # --- FINALIZATION ---
-Write-Host "`n" + "="*60 -ForegroundColor Yellow
+Write-Host ("`n" + "="*60) -ForegroundColor Yellow
 Write-Host "🚀 SwAIvyn Development Environment Ready!" -ForegroundColor Green
-Write-Host "="*60 -ForegroundColor Yellow
+Write-Host ("="*60) -ForegroundColor Yellow
 
 Write-Host "`n📱 APPLICATION ACCESS:" -ForegroundColor Cyan
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor White
@@ -576,7 +576,7 @@ Write-Host "• Use Traefik URLs for testing production-like routing" -Foregroun
 Write-Host "• Check individual PowerShell windows for service-specific logs" -ForegroundColor White
 Write-Host "• Press Ctrl+C in service windows to stop individual services" -ForegroundColor White
 
-Write-Host "`n" + "="*60 -ForegroundColor Yellow
+Write-Host ("`n" + "="*60) -ForegroundColor Yellow
 
 # --- AUTOMATIC BROWSER OPENING ---
 function Test-Url {
@@ -630,7 +630,7 @@ if ($appReady) {
     Write-Warning "Application not ready yet. Please wait a moment and visit: $primaryUrl"
 }
 
-Write-Host "`n" + "="*60 -ForegroundColor Yellow
+Write-Host ("`n" + "="*60) -ForegroundColor Yellow
 
 if ($pids.Count -gt 0) {
     Write-Host "`nSaving process IDs to state file for cleanup..." -ForegroundColor "DarkGray"
