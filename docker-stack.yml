@@ -183,7 +183,7 @@ services:
       - target: 7233
         published: 7233
         protocol: tcp
-        mode: host
+        mode: ingress
     deploy:
       placement:
         constraints:

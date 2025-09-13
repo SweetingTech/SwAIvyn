@@ -319,8 +319,8 @@ function Wait-TemporalService {
   # Wait additional time for Temporal to fully initialize after port opens
   Write-Host "TCP port ready, waiting for Temporal service initialization..." -ForegroundColor DarkGray
   
-  # Check if Temporal container is running and healthy
-  $maxAttempts = [Math]::Min($Retries, 30)  # Cap at 30 attempts (1 minute)
+  # Check if Temporal container is running and properly initialized
+  $maxAttempts = [Math]::Min($Retries, 150)  # Cap at 150 attempts (5 minutes)
   $currentDelay = 2
   
   for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -328,18 +328,26 @@ function Wait-TemporalService {
       # Check if temporal container is running and ready
       $containerCheck = & docker ps --filter "name=temporal" --filter "status=running" --format "{{.Names}}" 2>$null
       if ($containerCheck) {
-        Write-Host "Attempt $attempt/${maxAttempts}: Temporal container running, checking readiness..." -ForegroundColor DarkGray
+        Write-Host "Attempt $attempt/${maxAttempts}: Temporal container running, checking cluster health..." -ForegroundColor DarkGray
         
-        # Try to exec tctl health check directly in the running container
-        $healthCmd = "docker exec $($containerCheck | Select-Object -First 1) tctl --address localhost:7233 cluster health"
+        # Use the proper temporal operator cluster health check
+        $healthCmd = "docker exec $($containerCheck | Select-Object -First 1) temporal operator cluster health"
         $healthResult = & cmd /c $healthCmd 2>$null
         
         if ($LASTEXITCODE -eq 0) {
           Write-Host "✅ Temporal cluster health check passed!" -ForegroundColor Green
           return $true
+        } else {
+          # Try fallback tctl check
+          $fallbackCmd = "docker exec $($containerCheck | Select-Object -First 1) tctl --address localhost:7233 cluster health"
+          $fallbackResult = & cmd /c $fallbackCmd 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Temporal cluster health check passed (via tctl)!" -ForegroundColor Green
+            return $true
+          }
         }
         
-        Write-Host "Temporal container running but not yet ready (attempt $attempt/$maxAttempts)" -ForegroundColor DarkGray
+        Write-Host "Temporal container running but cluster not yet healthy (attempt $attempt/$maxAttempts)" -ForegroundColor DarkGray
       } else {
         Write-Host "Attempt $attempt/${maxAttempts}: Waiting for Temporal container to start..." -ForegroundColor DarkGray
       }
@@ -356,13 +364,16 @@ function Wait-TemporalService {
     }
   }
   
-  # If health check fails, give Temporal more time and proceed anyway
-  Write-Warning "Temporal health check did not pass within $maxAttempts attempts"
-  Write-Host "💡 Giving Temporal additional startup time (30 seconds)..." -ForegroundColor Yellow
-  Start-Sleep -Seconds 30
-  
-  Write-Host "✅ Temporal service should now be ready (proceeding with startup)" -ForegroundColor Green
-  return $true
+  # If health check fails after 5 minutes, show logs and fail hard
+  Write-Error "❌ Temporal cluster health check failed after 5 minutes!"
+  Write-Host "📋 Checking Temporal service logs for errors..." -ForegroundColor Yellow
+  try {
+    & docker service logs swaivyn_temporal --tail 50 2>$null
+  } catch {
+    Write-Warning "Could not retrieve Temporal service logs"
+  }
+  Write-Error "Temporal is required for Orchestrator. Please check the logs above and ensure POSTGRES_PASSWORD is set correctly in your .env file."
+  return $false
 }
 
 function Start-ServiceScript {
@@ -531,7 +542,7 @@ Write-Host "Backend API: http://localhost:5000" -ForegroundColor White
 if ($UseTraefik) {
     # Set UTF-8 encoding to handle emoji properly
     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-    Write-Host "`n🌐 TRAEFIK ROUTING (recommended for production-like testing):" -ForegroundColor Cyan
+    Write-Host "`nTRAEFIK ROUTING (recommended for production-like testing):" -ForegroundColor Cyan
     Write-Host "Frontend (via Traefik): http://app.localhost:$TraefikPort" -ForegroundColor White
     Write-Host "Backend API (via Traefik): http://bff.localhost:$TraefikPort" -ForegroundColor White
 }
