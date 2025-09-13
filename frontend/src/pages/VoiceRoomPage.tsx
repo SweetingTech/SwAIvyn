@@ -8,19 +8,24 @@ import MiniChat from '../components/voice-room/MiniChat';
 interface VoiceConfig {
   apiKey: string;
   voice: string;
+  ttsProvider: string;
 }
 
 const VoiceRoomPage = () => {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({ apiKey: '', voice: 'Rachel' });
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({ apiKey: '', voice: 'glados', ttsProvider: 'fishspeech' });
 
-  // Load saved ElevenLabs TTS settings on mount
+  // Load saved TTS settings on mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const cfg = await ttsService.getSettings();
-        setVoiceConfig({ apiKey: cfg.apiKey || '', voice: cfg.voice || 'Rachel' });
+        setVoiceConfig({ 
+          apiKey: cfg.apiKey || '', 
+          voice: cfg.voiceId || 'glados',
+          ttsProvider: cfg.ttsProvider || 'fishspeech'
+        });
       } catch (err) {
         console.error('Failed to load TTS settings', err);
       }
@@ -43,6 +48,7 @@ const VoiceRoomPage = () => {
         text,
         voiceId: voiceConfig.voice,
         apiKey: voiceConfig.apiKey,
+        ttsProvider: voiceConfig.ttsProvider,
       };
       const resp = await fetch('/api/tts/synthesize', {
         method: 'POST',

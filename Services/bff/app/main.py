@@ -943,16 +943,37 @@ async def list_tts_voices(provider: str = "fishspeech", userId: Optional[str] = 
     base = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
     if provider.lower() != "fishspeech":
         provider = "fishspeech"
+    
+    # Load custom voices from voices.json
+    custom_voices = []
+    try:
+        import json
+        # Use absolute path from workspace root
+        workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        voices_json_path = os.path.join(workspace_root, "speech/TTS/openaudio-s1-mini/voices/voices.json")
+        if os.path.exists(voices_json_path):
+            with open(voices_json_path, 'r') as f:
+                voices_data = json.load(f)
+                custom_voices = [voice["name"] for voice in voices_data.get("voices", []) if voice.get("enabled", True)]
+    except Exception as e:
+        print(f"Warning: Could not load custom voices from voices.json: {e}")
+    
+    # Try to get default Fish Speech voices from service
+    fishspeech_voices = []
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(f"{base}/voices")
             if r.status_code == 200:
                 data = r.json()
-                voices = data if isinstance(data, list) else data.get("voices", [])
-                return {"provider": "fishspeech", "voices": voices}
+                fishspeech_voices = data if isinstance(data, list) else data.get("voices", [])
     except Exception:
-        pass
-    return {"provider": "fishspeech", "voices": ["glados"]}
+        # If Fish Speech service is not available, use default voices
+        fishspeech_voices = ["glados", "alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+    
+    # Combine custom voices and Fish Speech voices, removing duplicates
+    all_voices = list(dict.fromkeys(custom_voices + fishspeech_voices))
+    
+    return {"provider": "fishspeech", "voices": all_voices}
 
 
 @app.get("/api/tts/voices/{voice_name}/details")
