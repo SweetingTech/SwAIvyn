@@ -1,0 +1,45 @@
+PS D:\project\SwAIvyn> d:\project\SwAIvyn\dev-run.ps1
+Starting SwAIvyn in development mode...
+
+Starting background services (Docker, etc.)...
+
+Deploying stack 'swaivyn' from D:\project\SwAIvyn\docker-stack.yml
+Creating service swaivyn_weaviate
+Creating service swaivyn_tts-11labs-adapter
+Creating service swaivyn_swai-db
+Creating service swaivyn_stt
+Creating service swaivyn_qna-transformers
+Creating service swaivyn_text-spellcheck
+Creating service swaivyn_bff-proxy
+Creating service swaivyn_temporal
+Creating service swaivyn_sum-transformers
+Creating service swaivyn_frontend-proxy
+Creating service swaivyn_neo4j
+Creating service swaivyn_tts
+Creating service swaivyn_multi2vec-clip
+Creating service swaivyn_reranker-transformers
+Creating service swaivyn_traefik
+Creating service swaivyn_qdrant
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service p5ayo1zesafpru1vh119c11yl converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service riujh3jjbneobmciaju5w9ayh converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service ym22x4z8bbreu8gh7uljp21ht converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service lwj5djft8q6xwyzmv26icyvry converged
+overall progress: 1 out of 1 tasks
+1/1: running   [==================================================>]                                                                                                         
+verify: Service m4dt6oxizmo6qgy5y19o64b1e converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service 3qh3y2abnohq5cdy0k3bt5x8u converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service 2ptz5h027hyh331tq4vhjsypv converged
+overall progress: 0 out of 1 tasks
+1/1: starting  [============================================>      ]
