@@ -191,6 +191,11 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       replicas: 1
       update_config:
@@ -198,8 +203,10 @@ services:
         parallelism: 1
         failure_action: rollback
       restart_policy:
-        condition: any
-        delay: 5s
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 1m
       placement:
         constraints:
           - node.role == manager
