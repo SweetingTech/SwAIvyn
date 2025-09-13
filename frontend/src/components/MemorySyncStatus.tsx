@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import { motion } from 'framer-motion';
 import { Database, RefreshCw, AlertCircle, CheckCircle, Wrench, Info } from 'lucide-react';
 
@@ -60,6 +61,7 @@ interface MemorySyncStatusProps {
 }
 
 const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
+  const eff = useEffectiveUser();
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [fullSyncing, setFullSyncing] = useState(false);
@@ -70,7 +72,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
   const loadSyncStatus = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/memorysyncstatus/status/${userId}`);
+      const response = await fetch(`/api/memorysyncstatus/status/${userId}`, { headers: eff.headers });
       if (response.ok) {
         const data = await response.json();
         setSyncStatus(data);
@@ -88,9 +90,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
       setFullSyncing(true);
       setRepairResult(null);
       setFullSyncResult(null);
-      const response = await fetch(`/api/memorysyncstatus/repair/${userId}`, {
-        method: 'POST',
-      });
+      const response = await fetch(`/api/memorysyncstatus/repair/${userId}`, { method: 'POST', headers: eff.headers });
       if (response.ok) {
         const data = await response.json();
         setRepairResult(data);
@@ -111,9 +111,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
       setFullSyncing(true);
       setRepairResult(null);
       setFullSyncResult(null);
-      const response = await fetch(`/api/memorysyncstatus/full/${userId}`, {
-        method: 'POST',
-      });
+      const response = await fetch(`/api/memorysyncstatus/full/${userId}`, { method: 'POST', headers: eff.headers });
       if (response.ok) {
         const data = await response.json();
         setFullSyncResult(data);
@@ -130,7 +128,7 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
 
   useEffect(() => {
     loadSyncStatus();
-  }, [userId]);
+  }, [userId, eff.headers]);
 
   const getSyncStatusColor = () => {
     if (!syncStatus) return 'text-gray-500';

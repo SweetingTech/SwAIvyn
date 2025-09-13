@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Activity,
   Database,
@@ -16,16 +16,15 @@ import {
   Play
 } from 'lucide-react';
 import { useInitialization } from '../contexts/InitializationContext';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ttsService from '../services/ttsService';
 
 interface SystemStatus {
   llmEngine: string;
   llmModel: string;
-  llmConnected: boolean;
   ttsProvider: string;
   ttsVoice: string;
-  ttsConnected: boolean;
   charactersLoaded: number;
   memoryItems: number;
   chatSessions: number;
@@ -35,13 +34,12 @@ interface SystemStatus {
 
 const DashboardPage = () => {
   const { user } = useInitialization();
+  const eff = useEffectiveUser();
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     llmEngine: 'Loading...',
     llmModel: 'Loading...',
-    llmConnected: false,
     ttsProvider: 'Loading...',
     ttsVoice: 'Loading...',
-    ttsConnected: false,
     charactersLoaded: 0,
     memoryItems: 0,
     chatSessions: 0,
@@ -49,44 +47,36 @@ const DashboardPage = () => {
     lastActivity: 'Never'
   });
   const [loading, setLoading] = useState(true);
+  const [agents, setAgents] = useState<{ running: any[]; completed: number; failed: number; pending: number }>({ running: [], completed: 0, failed: 0, pending: 0 });
+  const traefikUrl = useMemo(() => (import.meta as any).env?.VITE_TRAEFIK_URL || 'http://localhost:8080/dashboard/', []);
 
   useEffect(() => {
     loadSystemStatus();
     // Refresh status every 30 seconds
     const interval = setInterval(loadSystemStatus, 30000);
 
-    // Listen for LLM settings changes from chat page
-    const handleLlmSettingsChange = (event: CustomEvent) => {
-      console.log('🔍 Dashboard: LLM settings changed, refreshing status:', event.detail);
-      loadSystemStatus();
-    };
-
-    window.addEventListener('llmSettingsChanged', handleLlmSettingsChange as EventListener);
-
     return () => {
       clearInterval(interval);
-      window.removeEventListener('llmSettingsChanged', handleLlmSettingsChange as EventListener);
     };
-  }, []);
+  }, [eff.userId]);
 
   const loadSystemStatus = async () => {
     try {
       console.log('🔍 Dashboard: Loading system status...');
 
-      // Get comprehensive system status from new dashboard API
-      const statusResponse = await fetch('/api/dashboard/status');
+      const uid = eff.userId ? encodeURIComponent(eff.userId) : '';
+      const url = uid ? `/api/dashboard/status?userId=${uid}` : '/api/dashboard/status';
+      const statusResponse = await fetch(url, { headers: eff.headers });
 
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
         console.log('🔍 Dashboard: Status data received:', statusData);
-
+        setAgents(statusData.agents || { running: [], completed: 0, failed: 0, pending: 0 });
         setSystemStatus({
           llmEngine: statusData.llm?.engine || 'Unknown',
           llmModel: statusData.llm?.model || 'Not selected',
-          llmConnected: statusData.llm?.connected || false,
           ttsProvider: statusData.tts?.provider || 'Unknown',
           ttsVoice: statusData.tts?.voice || 'Not selected',
-          ttsConnected: statusData.tts?.connected || false,
           charactersLoaded: statusData.metrics?.characterCount || 0,
           memoryItems: statusData.metrics?.memoryCount || 0,
           chatSessions: statusData.metrics?.conversationCount || 0,
@@ -94,58 +84,7 @@ const DashboardPage = () => {
           lastActivity: new Date().toLocaleTimeString()
         });
       } else {
-        console.error('🔍 Dashboard: Failed to load status, falling back to individual APIs');
-
-        // Fallback to individual API calls if dashboard API fails
-        const userId = user?.id || '00000000-0000-0000-0000-000000000001';
-
-        // Get LLM settings
-        let llmData = { engine: 'Unknown', model: 'Unknown' };
-        let llmConnected = false;
-
-        try {
-          const llmResponse = await fetch(`/api/settings/llm?userId=${userId}`);
-          if (llmResponse.ok) {
-            llmData = await llmResponse.json();
-
-            // Test LLM connection
-            if (llmData.engine === 'ollama') {
-              const testResponse = await fetch('/api/llm/ollama/models');
-              llmConnected = testResponse.ok;
-            } else if (llmData.engine === 'lmstudio') {
-              const testResponse = await fetch('/api/llm/lmstudio/models');
-              llmConnected = testResponse.ok;
-            }
-          }
-        } catch (error) {
-          console.error('Failed to get LLM settings:', error);
-        }
-
-        // Get character count
-        let charactersLoaded = 0;
-        try {
-          const charResponse = await fetch(`/api/character/user/${userId}`);
-          if (charResponse.ok) {
-            const characters = await charResponse.json();
-            charactersLoaded = Array.isArray(characters) ? characters.length : 0;
-          }
-        } catch (error) {
-          console.error('Failed to get character count:', error);
-        }
-
-        setSystemStatus({
-          llmEngine: llmData.engine,
-          llmModel: llmData.model,
-          llmConnected,
-          ttsProvider: 'Unknown', // Fallback when dashboard API fails
-          ttsVoice: 'Unknown',
-          ttsConnected: false,
-          charactersLoaded,
-          memoryItems: 0, // Will be available when dashboard API works
-          chatSessions: 0, // Will be available when dashboard API works
-          uptime: calculateUptime(),
-          lastActivity: new Date().toLocaleTimeString()
-        });
+        console.error('🔍 Dashboard: Failed to load status');
       }
     } catch (error) {
       console.error('Error loading system status:', error);
@@ -154,10 +93,8 @@ const DashboardPage = () => {
       setSystemStatus({
         llmEngine: 'Error',
         llmModel: 'Error',
-        llmConnected: false,
         ttsProvider: 'Error',
         ttsVoice: 'Error',
-        ttsConnected: false,
         charactersLoaded: 0,
         memoryItems: 0,
         chatSessions: 0,
@@ -214,18 +151,16 @@ const DashboardPage = () => {
               value={systemStatus.llmEngine}
               subtitle={systemStatus.llmModel}
               icon={<Bot size={24} />}
-              status={systemStatus.llmConnected ? 'connected' : 'disconnected'}
-              statusIcon={systemStatus.llmConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
+              status={'info'}
             />
 
-            {/* TTS Status */}
+            {/* TTS Selection (persisted) */}
             <StatusCard
               title="TTS Provider"
               value={systemStatus.ttsProvider}
               subtitle={systemStatus.ttsVoice}
               icon={<Mic size={24} />}
-              status={systemStatus.ttsConnected ? 'connected' : 'disconnected'}
-              statusIcon={systemStatus.ttsConnected ? <CheckCircle size={16} /> : <XCircle size={16} />}
+              status={'info'}
             />
 
             {/* Characters */}
@@ -274,40 +209,38 @@ const DashboardPage = () => {
             />
           </div>        )}
 
-        {/* Voice Settings Section */}
+        {/* Agents Summary (reported by workers) */}
         <div className="mt-8">
-          <h2 className="text-lg font-medium text-gray-800 mb-4">Voice Settings</h2>
-          <VoiceSettingsCard userId={user?.id} />
+          <h2 className="text-lg font-medium text-gray-800 mb-4">Agents</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatusCard title="Running" value={String(agents.running.length)} subtitle="Active agents" icon={<Bot size={24} />} status="info" />
+            <StatusCard title="Completed" value={String(agents.completed)} subtitle="Finished runs" icon={<CheckCircle size={24} />} status="info" />
+            <StatusCard title="Failed" value={String(agents.failed)} subtitle="Error runs" icon={<XCircle size={24} />} status="info" />
+            <StatusCard title="Pending" value={String(agents.pending)} subtitle="Queued runs" icon={<Clock size={24} />} status="info" />
+          </div>
+          {agents.running.length > 0 && (
+            <div className="mt-4 bg-white rounded-lg border border-gray-200">
+              <div className="p-4 border-b text-sm font-medium text-gray-700">Currently Running</div>
+              <ul className="divide-y">
+                {agents.running.map((a:any) => (
+                  <li key={a.id} className="p-4 text-sm flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-gray-800">{a.name || a.id}</div>
+                      <div className="text-gray-500">Started {a.startedAt || ''}</div>
+                    </div>
+                    <span className="px-2 py-1 text-xs rounded bg-green-50 text-green-700">running</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
-        {/* Quick Actions */}
+        {/* Traefik Dashboard */}
         <div className="mt-8">
-          <h2 className="text-lg font-medium text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <QuickActionCard
-              title="Start Chat"
-              description="Begin a new conversation"
-              icon={<MessageSquare size={20} />}
-              href="/chat/new"
-            />
-            <QuickActionCard
-              title="Manage Characters"
-              description="Edit AI personalities"
-              icon={<Bot size={20} />}
-              href="/settings"
-            />
-            <QuickActionCard
-              title="View Memory"
-              description="Browse stored memories"
-              icon={<Brain size={20} />}
-              href="/memory"
-            />
-            <QuickActionCard
-              title="System Settings"
-              description="Configure the system"
-              icon={<Database size={20} />}
-              href="/settings"
-            />
+          <h2 className="text-lg font-medium text-gray-800 mb-4">Traefik</h2>
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <iframe src={traefikUrl} title="Traefik" className="w-full" style={{ height: '600px', border: '0' }} />
           </div>
         </div>
       </div>

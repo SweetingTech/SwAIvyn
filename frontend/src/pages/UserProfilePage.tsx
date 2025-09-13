@@ -1,8 +1,7 @@
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   User,
-  Mail,
   Calendar,
   Shield,
   Edit3,
@@ -12,6 +11,10 @@ import {
   Key,
   Clock
 } from 'lucide-react';
+import fetchWithRetry from '../utils/fetchWithRetry';
+import apiService from '../services/apiService';
+import { useInitialization } from '../contexts/InitializationContext';
+import { useAuth } from '../contexts/AuthContext';
 import InlineSpinner from '../components/ui/InlineSpinner';
 
 interface UserProfile {
@@ -23,7 +26,9 @@ interface UserProfile {
   profileImage?: string;
 }
 
-const UserProfilePage = () => {
+const UserProfilePage = () => {; 
+  const { user: initUser } = useInitialization();
+  const { user: authUser, token } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -33,24 +38,65 @@ const UserProfilePage = () => {
   });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinSet, setPinSet] = useState(false);
 
-  useEffect(() => {
-    loadUserProfile();
-  }, []);
-
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Use the default and only user ID for this application
-      const defaultUserId = '00000000-0000-0000-0000-000000000001';
-      const response = await fetch(`/api/user/${defaultUserId}`);
-      if (response.ok) {
+      const effectiveUserId = authUser?.id || initUser?.id || undefined;
+      console.log("effectiveUserId", effectiveUserId);
+      if (!effectiveUserId) {
+        // Try to resolve from /api/auth/me if token exists
+        try {
+          if (token) {
+            const me = await fetchWithRetry('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } }, 2, 250, 5000);
+            if (me && me.ok) {
+              const meJson = await me.json();
+              const uid = meJson?.id;
+              if (uid) {
+                // Re-run using discovered user id
+                const resp = await fetchWithRetry(`/api/user/${encodeURIComponent(uid)}`, { headers: { 'Authorization': `Bearer ${token}` } }, 4, 250, 8000);
+                if (resp && resp.ok) {
+                  const userData = await resp.json();
+                  const userProfile: UserProfile = {
+                    id: userData.id || uid,
+                    username: (userData.username ?? '').toString() || uid,
+                    email: (userData.email ?? '').toString(),
+                    createdAt: userData.createdAt || new Date().toISOString(),
+                    lastLogin: userData.lastLogin || new Date().toISOString(),
+                    profileImage: userData.profileImage
+                  };
+                  setProfile(userProfile);
+                  setEditForm({ username: userProfile.username, email: userProfile.email });
+                  return;
+                }
+              }
+            }
+          }
+        } catch {}
+        setProfile(null);
+        return;
+      }
+
+      void fetchWithRetry('/healthz', {}, 1, 0, 8000).catch(() => {});
+
+      const authToken = (() => { try { return localStorage.getItem('auth_token'); } catch { return null; } })();
+      const response = await fetchWithRetry(
+        `/api/user/${encodeURIComponent(effectiveUserId)}`,
+        authToken ? { headers: { 'Authorization': `Bearer ${authToken}` } } : {},
+        6,
+        500,
+        8000
+      );
+      if (response && response.ok) {
         const userData = await response.json();
         const userProfile: UserProfile = {
-          id: userData.id || defaultUserId,
-          username: userData.username || 'Default User',
-          email: userData.email || 'user@example.com',
+          id: userData.id || effectiveUserId,
+          username: (userData.username ?? '').toString() || effectiveUserId,
+          email: (userData.email ?? '').toString(),
           createdAt: userData.createdAt || new Date().toISOString(),
           lastLogin: userData.lastLogin || new Date().toISOString(),
           profileImage: userData.profileImage
@@ -62,23 +108,18 @@ const UserProfilePage = () => {
           email: userProfile.email
         });
       } else {
-        // Fallback to default data
-        const defaultProfile: UserProfile = {
-          id: defaultUserId,
-          username: 'Default User',
-          email: 'user@example.com',
+        const fallback: UserProfile = {
+          id: effectiveUserId,
+          username: effectiveUserId,
+          email: '',
           createdAt: new Date().toISOString(),
           lastLogin: new Date().toISOString()
         };
-        setProfile(defaultProfile);
-        setEditForm({
-          username: defaultProfile.username,
-          email: defaultProfile.email
-        });
+        setProfile(fallback);
+        setEditForm({ username: fallback.username, email: fallback.email });
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
-      // Set fallback profile
       const fallbackProfile: UserProfile = {
         id: 'error-user-id',
         username: 'Unknown User',
@@ -94,28 +135,27 @@ const UserProfilePage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authUser?.id, initUser?.id, token]);
+
+  useEffect(() => {
+    loadUserProfile();
+  }, [loadUserProfile]);
 
   const handleSave = async () => {
     try {
       setSaveError('');
       setSaveSuccess(false);
-
-      // TODO: Implement actual save to backend
-      // For now, just update local state
-      if (profile) {
-        setProfile({
-          ...profile,
-          username: editForm.username,
-          email: editForm.email
-        });
-      }
-
+      if (!profile) return;
+      await apiService.put(`/api/user/${encodeURIComponent(profile.id)}` , {
+        username: editForm.username || undefined,
+        email: editForm.email || undefined,
+      });
+      setProfile({ ...profile, username: editForm.username, email: editForm.email });
       setEditing(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
-      console.error('Error saving profile:', error);
+      console.error('Failed to save profile:', error);
       setSaveError('Failed to save profile. Please try again.');
     }
   };
@@ -186,7 +226,6 @@ const UserProfilePage = () => {
           <p className="text-gray-600">Manage your account information and preferences</p>
         </div>
 
-        {/* Success/Error Messages */}
         {saveSuccess && (
           <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
             Profile updated successfully!
@@ -199,7 +238,6 @@ const UserProfilePage = () => {
         )}
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          {/* Profile Header */}
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center space-x-4">
               <div className="relative">
@@ -254,10 +292,8 @@ const UserProfilePage = () => {
             </div>
           </div>
 
-          {/* Profile Details */}
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Basic Information */}
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Basic Information</h3>
                 <div className="space-y-4">
@@ -294,7 +330,6 @@ const UserProfilePage = () => {
                 </div>
               </div>
 
-              {/* Account Information */}
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Account Information</h3>
                 <div className="space-y-4">
@@ -317,24 +352,75 @@ const UserProfilePage = () => {
             </div>
           </div>
 
-          {/* Security Section */}
           <div className="border-t border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Security</h3>
-            <div className="space-y-3">
-              <button className="flex items-center space-x-3 text-left hover:bg-gray-50 p-3 rounded-md w-full">
-                <Key size={16} className="text-gray-500" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Change Password</p>
-                  <p className="text-xs text-gray-500">Update your account password</p>
-                </div>
-              </button>
-              <button className="flex items-center space-x-3 text-left hover:bg-gray-50 p-3 rounded-md w-full">
-                <Shield size={16} className="text-gray-500" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Two-Factor Authentication</p>
-                  <p className="text-xs text-gray-500">Add an extra layer of security</p>
-                </div>
-              </button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <button className="btn btn-ghost border border-gray-300 text-sm">Change Password</button>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-1">PIN Code</h3>
+                {pinSet ? (
+                  <p className="text-sm text-green-600">
+                    A PIN is already set.&nbsp;
+                    <button className="text-primary-600 underline" onClick={() => setPinSet(false)}>
+                      Change it
+                    </button>
+                  </p>
+                ) : (
+                  <div className="flex items-center">
+                    <input
+                      type="password"
+                      maxLength={4}
+                      placeholder="4-digit PIN"
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value.replace(/\D/, ''))}
+                      className="w-24 px-2 py-1 border border-gray-300 rounded-md"
+                    />
+                    <button
+                      className="ml-2 btn btn-ghost border text-sm"
+                      onClick={() => setPinSet(true)}
+                      disabled={pin.length !== 4}
+                    >
+                      Save PIN
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Recovery Phrases</h3>
+                {!recoveryCodes ? (
+                  <button
+                    className="btn btn-ghost border border-gray-300 text-sm"
+                    onClick={() =>
+                      setRecoveryCodes([
+                        'alpha-bravo-charlie',
+                        'delta-echo-foxtrot',
+                        'golf-hotel-india',
+                        'juliet-kilo-lima',
+                        'mike-november-oscar',
+                      ])
+                    }
+                  >
+                    Generate Recovery Phrases
+                  </button>
+                ) : (
+                  <>
+                    <textarea
+                      readOnly
+                      rows={5}
+                      className="w-full font-mono p-2 border border-gray-300 rounded-md bg-gray-50"
+                      value={recoveryCodes.join('\n')}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      These phrases can be used once each to reset your password. Store them securely.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

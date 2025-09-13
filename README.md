@@ -61,7 +61,66 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Installation
 
-#### Single-Executable Release (Recommended)
+#### Development (Recommended)
+
+SwAIvyn now includes two development startup scripts for different use cases:
+
+**1. Full Development (Traefik + Docker Swarm) - Recommended**
+
+Production-like environment with Traefik routing and full Docker infrastructure:
+
+```powershell
+# Start the full development environment (Traefik enabled by default)
+.\SwAIvyn\scripts\dev-run.ps1
+
+# Disable Traefik if needed
+.\SwAIvyn\scripts\dev-run.ps1 -DisableTraefik
+```
+
+**2. Simple Development (Host Services Only)**
+
+Lightweight development without Docker infrastructure:
+
+```powershell
+# Start simple development environment
+.\SwAIvyn\scripts\dev-run-simple.ps1
+```
+
+**Key Features of the Fixed Development Environment:**
+
+✅ **Resolved Temporal Connectivity Issues** - Fixed "broken pipe" errors
+✅ **Enhanced Startup Orchestration** - Proper service dependency checking  
+✅ **Remote Access Support** - Services accessible from other devices on your network
+✅ **Traefik Integration** - Full routing with *.localhost domains
+✅ **Improved Error Handling** - Clear status messages and helpful warnings
+
+**Available URLs (Full Development):**
+- Frontend: http://localhost:5173 or http://app.localhost
+- Backend API: http://localhost:5000 or http://bff.localhost
+- Traefik Dashboard: http://traefik.localhost
+- Infrastructure services via Traefik routing
+
+**Remote Access:**
+Both scripts configure services to be accessible from other devices on your network via your machine's IP address.
+
+### Dev Seed Helpers (Users, Characters, Workflow)
+
+For a quick, consistent dev setup:
+
+```
+# Accounts: admin (admin1234), mari, djay
+SwAIvyn/scripts/dev-seed-accounts.ps1 -Yes
+
+# Characters: import Sam & Sherlock from frontend/AI into DB (global)
+SwAIvyn/scripts/dev-seed-characters.ps1 -Yes
+
+# Default Chat Workflow: upsert canonical workflow definition
+SwAIvyn/scripts/dev-seed-workflows.ps1 -Yes
+```
+
+All scripts read `.env` and, if needed, build `DATABASE_URL` from `POSTGRES_PASSWORD`.
+
+#### Single-Executable Release
 
 1. Download the latest release from the [Releases page](https://github.com/SweetingTech/SwAIvyn/releases)
 2. Run the executable
@@ -86,6 +145,26 @@ dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained 
 2. You'll need to set a password and generate recovery phrases
 3. Configure your AI's personality and avatar
 4. Connect with other SwAIvyn instances on your network (optional)
+
+### Access from Other Computers (LAN)
+
+During development, both the frontend (Vite) and backend (FastAPI) can be reached from other devices on your LAN.
+
+- Frontend: `http://<your-pc-ip>:5173` (proxies `/api` and `/uploads` to the backend)
+- Backend (optional direct access): `http://<your-pc-ip>:5000`
+
+Already configured in this repo:
+- Vite binds to `0.0.0.0` so LAN clients can connect (see `frontend/vite.config.ts`).
+- Backend runs on `0.0.0.0:5000` (see `scripts/dev-bff.ps1`).
+
+Windows Firewall (PowerShell as Administrator):
+
+```
+netsh advfirewall firewall add rule name="SwAIvyn Vite 5173" dir=in action=allow protocol=TCP localport=5173
+netsh advfirewall firewall add rule name="SwAIvyn BFF 5000" dir=in action=allow protocol=TCP localport=5000
+```
+
+Optional CORS: If you skip the Vite proxy and call the backend directly from a different origin, add your LAN origin (e.g., `http://<your-pc-ip>:5173`) to `allow_origins` in `Services/bff/app/main.py`.
 
 ## 🧩 Features in Detail
 
@@ -126,19 +205,44 @@ Immersive, voice-focused interface:
 - Select LLM backends
 - Install custom agents and workflows
 
+### Default Chat Workflow (New)
+
+Chat execution is driven by a versioned “Default Chat” workflow stored in the DB. This centralizes LLM selection and connection wiring so future enhancements (e.g., search, moderation) are just workflow edits.
+
+- List workflows: `GET /api/workflows`
+- Get default workflow: `GET /api/workflows/default`
+- Get by id: `GET /api/workflows/{id}`
+
+Seed the default workflow with: `SwAIvyn/scripts/dev-seed-workflows.ps1 -Yes`.
+
 ### TTS/Voice Configuration
 
-SwAIvyn supports multiple Text-to-Speech providers:
+SwAIvyn defaults to Fish Speech for TTS (local, privacy‑friendly). A minimal proxy container is deployed behind Traefik and serves `/health`, `/voices`, `/tts`, and `/tts/clone`:
 
-- **ElevenLabs**: Premium cloud-based TTS with realistic voices
-  - Requires API key configuration in Settings
-  - Support for voice cloning and custom voices
+- Start via dev script: `SwAIvyn\scripts\run_dev.ps1`
+- Build images: `SwAIvyn\scripts\build-stack.ps1 -Target tts -Pull`
+- Voices directory (bind‑mounted): `SwAIvyn/speech/TTS/openaudio-s1-mini/voices`
+  - Supported layouts:
+    - `voices.json` (either `["name"]` or `{ "voices": [{"name":"jazzy"}, ...] }`)
+    - `*.wav` directly under `voices/`
+    - One‑level subfolders containing `*.wav` (folder name used as voice id)
+- Upstream pass‑through: set `UPSTREAM_TTS` (defaults to `http://host.docker.internal:8080`) to forward synth to a full Fish Speech server if available.
 
-- **Fish Speech**: Open-source TTS with local and cloud options
-  - Local installation support for privacy
-  - API token authentication for cloud service
-  - Custom voice training and cloning capabilities
-  - Configure your Fish Speech API key in Settings for cloud access
+### Build Targets (Swarm)
+
+Use `SwAIvyn\scripts\build-stack.ps1` to rebuild images for the Swarm stack.
+
+- List targets: `-List`
+- Build all: `-All -Pull`
+- Build groups: `-Target tts,infra,kanban,app`
+- Build individual: `-Target wekan`, `-Target postgres`, `-Target tts-proxy`
+
+Groups:
+- `tts`: tts-proxy, tts-11labs-adapter, stt (pulls remote)
+- `infra`: postgres, qdrant, neo4j, temporal (pulls remote)
+- `kanban`: wekan, mongo, postgres:15 (pulls remote)
+- `app`: bff, frontend, orchestrator, workers (local Dockerfiles)
+- The Settings → Voice tab lists voices from `/voices`, lets you test, and saves per‑user voice.
 
 ### Federation
 
@@ -172,13 +276,47 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 
 ## 💻 Technical Architecture
 
-SwAIvyn is built as a single-executable application that includes:
+SwAIvyn hybrid dev stack:
 
-- ASP.NET Core backend with SignalR for real-time communication
-- React frontend served via embedded static files
-- SQLite for persistent storage with VSS (Vector Similarity Search) extension
-- Embedded vector and graph databases for AI memory
-- Background services for email, backup, and federation
+- BFF (FastAPI, Python) + Orchestrator worker (Temporal) on host
+- React (Vite) on host
+- Infra in Docker: Temporal, Postgres, Qdrant, Neo4j, STT, optional 11Labs adapter/TTS
+- Fish Speech TTS on host (default in dev) or in Docker (profile `tts`)
+
+### Per‑User LLM Dataflow
+
+- Settings (per user)
+  - Save Engine/Model: `PUT /api/chat/settings/{userId}`
+  - Save Connections: `PUT /api/settings/connections`
+- Chat → Send
+  - Calls `POST /api/conversation/chat` with `engine` + `model`
+  - BFF launches the engine‑specific workflow
+  - Worker calls only that engine/model; no fallback
+  - TTS synthesizes via host TTS or adapter URLs
+  - Conversations
+    - Create: `POST /api/conversation` with `title` and `userId`
+    - Delete: `DELETE /api/conversation/{id}` (idempotent: 204 when already deleted)
+    - Ownership enforced; admin can manage any conversation
+  - Dashboard
+    - Admin-only view that surfaces the active LLM engine and model from provider status checks
+
+Authorization: users can modify/read only their settings/conversations; admin can see all.
+
+### Effective User Resolution (Frontend)
+
+- Pages use a shared hook `useEffectiveUser` that resolves the active user id in a robust way:
+  1) `useAuth().user?.id`
+  2) `useInitialization().user?.id`
+  3) Fallback to `/api/auth/me` when a token is present
+- The hook also exposes `headers` with `Authorization` automatically, used in fetch()/axios calls throughout the app.
+
+### Agents Integration (Workers)
+
+- Workers orchestrator (Docker) serves the agent catalog: `GET http://localhost:8000/api/agents`.
+- BFF proxies this for the UI at: `GET /api/agents/catalog`.
+- Runtime agent activity (running/completed) remains under BFF `/api/agents` endpoints.
+
+See `docs/AGENTS_AND_WORKFLOWS.md` for how the UI will expose catalog, per‑user enable/disable toggles, and user‑owned YAML uploads.
 
 ### SQLite VSS Integration
 
@@ -259,3 +397,34 @@ A new **Agents** tab is available in the SwAIvyn frontend. This tab allows you t
 *   See when an agent was last run and how many tasks it has completed.
 *   Start and Stop agents.
 *   The status of agents is polled periodically to reflect updates from the worker.
+
+---
+
+## Developer Quickstart (Hybrid Dev)
+
+Run app tiers (BFF, Orchestrator, Frontend) on the host with hot reload, and keep infra in Docker (Postgres, Temporal, Qdrant, Neo4j, STT, ElevenLabs adapter).
+
+Prereqs:
+- Docker Desktop
+- Python 3.11+ (`python --version`)
+- Node 18+
+
+Scripts:
+- Start everything: `scripts/dev-start.ps1`
+  - Options: `-IncludeTTS` (builds heavy TTS image), `-ActivityThreads 64`, `-NoStopAppContainers`
+- Stop everything: `scripts/dev-stop.ps1`
+  - Full teardown: `scripts/dev-stop.ps1 -Down`
+
+Endpoints:
+- UI: http://localhost:5173
+- BFF API: http://localhost:5000 (health: `/healthz`, `/api/readyz`)
+- Temporal: `localhost:7233`
+- Qdrant: http://localhost:6333
+- Neo4j: http://localhost:7474 (bolt `localhost:7687`)
+
+Seeded users:
+- admin / admin1234
+- Mari / mari1234
+- DJay / djay1234
+
+See `docs/HYBRID_DEV.md` for details, `docs/BARE_METAL.md` for a container‑free deployment guide, and `docs/DATAFLOW.md` for architecture diagrams.

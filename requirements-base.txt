@@ -31,6 +31,12 @@ numpy>=1.24.0                 # Numerical computing
 soundfile>=0.12.0             # Audio file I/O
 librosa>=0.10.0               # Audio analysis
 
+# PyTorch and related dependencies for TTS
+torch>=2.0.0                  # PyTorch for neural networks
+torchaudio>=2.0.0            # PyTorch audio processing
+transformers>=4.30.0         # Hugging Face transformers
+accelerate>=0.20.0           # Hugging Face acceleration library
+
 # data formats
 pyyaml>=6.0                   # YAML parsing for character files
 python-multipart>=0.0.6      # File upload support for FastAPI

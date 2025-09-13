@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Message } from '../../types/chat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ttsService from '../../services/ttsService';
 import { useInitialization } from '../../contexts/InitializationContext';
 
@@ -24,25 +24,26 @@ const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
   };
 
   const handlePlayAudio = async () => {
-    if (!user || !user.id) {
-      console.error("User ID not available for TTS");
-      return;
-    }
-
+    // Prefer authenticated user context, but fall back to anonymous settings
+    const userId = user?.id;
     setIsPlaying(true);
     try {
-      // Fetch user's TTS settings to get the selected voiceId
-      const ttsSettings = await ttsService.getSettings(user.id);
+      // Fetch TTS settings (works without userId as backend provides defaults)
+      const ttsSettings = await ttsService.getSettings(userId);
       if (!ttsSettings || !ttsSettings.voiceId) {
-        console.error("Could not retrieve TTS settings or voiceId for the user.");
+        console.error("Could not retrieve TTS settings or voiceId.");
         setIsPlaying(false);
         return;
       }
       const voiceIdToUse = ttsSettings.voiceId;
 
-      console.log(`Requesting TTS for text: "${message.text}" with user ID: ${user.id} and voice ID: ${voiceIdToUse}`);
-      
-      const audioBlob = await ttsService.synthesize(message.text, user.id, voiceIdToUse);
+      console.log(
+        `Requesting TTS for text: "${message.text}"` +
+          (userId ? ` with user ID: ${userId}` : '') +
+          ` and voice ID: ${voiceIdToUse}`
+      );
+
+      const audioBlob = await ttsService.synthesize(message.text, userId, voiceIdToUse);
       
       if (audioBlob && audioBlob.size > 0) {
         const audio = new Audio(URL.createObjectURL(audioBlob));
@@ -68,6 +69,19 @@ const ChatMessage = ({ message, characterImage }: ChatMessageProps) => {
     // Note: setIsPlaying(false) is primarily handled by audio.onended or onerror
     // to ensure it's set after playback finishes or fails.
   };
+
+  // Auto-play on mount for AI messages when enabled
+  // Read a simple toggle from localStorage so no backend setting is required
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (isAI) {
+      try {
+        const auto = localStorage.getItem('auto_tts') === 'true';
+        if (auto) { void handlePlayAudio(); }
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const formatTime = (ts: string) => {
     const d = new Date(ts);

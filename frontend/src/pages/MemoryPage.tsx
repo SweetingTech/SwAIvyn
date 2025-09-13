@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import { Search, Plus, BookOpen, User, Calendar, Globe, Filter } from 'lucide-react';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import MemorySyncStatus from '../components/MemorySyncStatus';
@@ -25,6 +26,7 @@ interface MemoryItemFromAPI {
 }
 
 const MemoryPage = () => {
+  const eff = useEffectiveUser();
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,17 +39,14 @@ const MemoryPage = () => {
 
   useEffect(() => {
     loadMemories();
-  }, []);
+  }, [eff.userId]);
 
   const loadMemories = async () => {
     try {
       setLoading(true);
 
-      // Use the default and only user ID for this application
-      const userId = '00000000-0000-0000-0000-000000000001';
-
-      // Load memories from API
-      const response = await fetch(`/api/memory/${userId}`);
+      if (!eff.userId) return;
+      const response = await fetch(`/api/memory/${encodeURIComponent(eff.userId)}`, { headers: eff.headers });
       if (response.ok) {
         const data: MemoryItemFromAPI[] = await response.json();
         // Map API response to frontend format
@@ -78,15 +77,12 @@ const MemoryPage = () => {
 
     try {
       setCreating(true);
-      const userId = '00000000-0000-0000-0000-000000000001';
-
+      if (!eff.userId) return;
       const response = await fetch('/api/memory', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', ...eff.headers },
         body: JSON.stringify({
-          userId: userId,
+          userId: eff.userId,
           content: newMemoryContent,
           category: newMemoryCategory,
           isShared: newMemoryShared
@@ -122,9 +118,7 @@ const MemoryPage = () => {
 
   const deleteMemory = async (id: string) => {
     try {
-      const response = await fetch(`/api/memory/${id}`, {
-        method: 'DELETE',
-      });
+      const response = await fetch(`/api/memory/${id}`, { method: 'DELETE', headers: eff.headers });
 
       if (response.ok) {
         setMemories(prev => prev.filter(m => m.id !== id));

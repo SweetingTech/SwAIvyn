@@ -1,5 +1,5 @@
-import { Suspense } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Suspense, useEffect } from 'react';
+import { Route, Routes, Navigate, useNavigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import SplashScreen from './components/SplashScreen';
@@ -16,14 +16,35 @@ import MemoryBrowser from './pages/MemoryBrowser';
 import ConversationManagement from './pages/ConversationManagement';
 import KnowledgeUploadPage from './pages/KnowledgeUploadPage';
 import { InitializationProvider, useInitialization } from './contexts/InitializationContext';
-import { StagewiseToolbar } from '@stagewise/toolbar-react';
-import { ReactPlugin } from '@stagewise-plugins/react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import LoginPage from './pages/LoginPage';
+// Optional Stagewise toolbar (disabled by default). Enable with VITE_STAGEWISE_ENABLED=true
+const enableStagewise = (import.meta as any).env?.VITE_STAGEWISE_ENABLED === 'true';
+let StagewiseToolbar: any = null as any;
+let ReactPlugin: any = null as any;
+if (enableStagewise) {
+  // Lazy require to avoid loading when disabled
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  StagewiseToolbar = require('@stagewise/toolbar-react').StagewiseToolbar;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  ReactPlugin = require('@stagewise-plugins/react').ReactPlugin;
+}
+import AdminUsersPage from './pages/AdminUsersPage';
 
 // Initialize i18n
 import './i18n';
 
 function AppContent() {
   const { isInitialized, isLoading, currentStep, error, initialize, user } = useInitialization();
+  const { token } = useAuth();
+  const navigate = useNavigate();
+
+  // Force navigate to /login when initialized and unauthenticated
+  useEffect(() => {
+    if (isInitialized && !token) {
+      navigate('/login', { replace: true });
+    }
+  }, [isInitialized, token, navigate]);
 
   // Show splash screen during initialization
   if (!isInitialized) {
@@ -37,7 +58,18 @@ function AppContent() {
     );
   }
 
-  // Show main app once initialized
+  // Show main app once initialized and authenticated
+  if (!token) {
+    return (
+      <Suspense fallback={<LoadingSpinner />}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
   return (
     <Suspense fallback={<LoadingSpinner />}>
       <Routes>
@@ -53,6 +85,7 @@ function AppContent() {
           <Route path="profile" element={<UserProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
+          <Route path="admin/users" element={<AdminUsersPage />} />
           <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
           <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
         </Route>
@@ -63,10 +96,14 @@ function AppContent() {
 
 function App() {
   return (
-    <InitializationProvider>
-      <AppContent />
-      <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
-    </InitializationProvider>
+    <AuthProvider>
+      <InitializationProvider>
+        <AppContent />
+        {enableStagewise && StagewiseToolbar && ReactPlugin && (
+          <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
+        )}
+      </InitializationProvider>
+    </AuthProvider>
   );
 }
 

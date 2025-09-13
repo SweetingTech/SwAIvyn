@@ -55,32 +55,37 @@ const conversationService = {
     }
   },
   /**
-   * Creates a new conversation
+   * Creates a new conversation for a specific user
    * @param title Conversation title
+   * @param userId User creating the conversation
    * @param folderId Optional folder ID
    * @returns The created conversation
    */
-  async createConversation(title: string, folderId?: string): Promise<Conversation> {
+  async createConversation(
+    title: string,
+    userId: string,
+    folderId?: string
+  ): Promise<Conversation> {
     try {
       const requestData = {
         title,
+        userId,
         folderId
-        // Note: userID removed - backend will use default user automatically
       };
-      
+
       console.log('🔍 CreateConversation Request:', requestData);
-      
+
       const response = await apiService.post('/api/conversation', requestData);
-      
+
       console.log('🔍 CreateConversation Response:', response);
-      
+
       return response;
     } catch (error) {
       console.error('Error creating conversation:', error);
       // Return a mock conversation with a temporary ID on error
       return {
         id: `temp-${Date.now()}`,
-        userId: 'default-user', // Use a default value for mock
+        userId: userId || 'default-user',
         title: title,
         folderId: folderId || null,
         createdAt: new Date().toISOString(),
@@ -126,15 +131,27 @@ const conversationService = {
   },
 
   /**
-   * Deletes a conversation
+   * Deletes a conversation for a specific user
    * @param id Conversation ID
+   * @param userId User ID
    * @returns Success status
    */
-  async deleteConversation(id: string): Promise<boolean> {
+  async deleteConversation(id: string, userId: string): Promise<boolean> {
     try {
-      const response = await apiService.delete(`/api/conversation/${id}`);
-      return response === null; // DELETE returns null on success
+      const response = await apiService.delete(
+        `/api/conversation/${id}?userId=${encodeURIComponent(userId)}`
+      );
+      // Backend responds with { success: true } and Axios returns empty string for 204
+      if (response === null || response === '' || response?.success === true) {
+        return true;
+      }
+      return false;
     } catch (error) {
+      // Treat 404 as already deleted for idempotency
+      const status = (error as any)?.response?.status;
+      if (status === 404) {
+        return true;
+      }
       console.error(`Error deleting conversation ${id}:`, error);
       throw error;
     }
@@ -153,21 +170,20 @@ const conversationService = {
     }
 
     try {
-      // First check if user has any conversations to avoid unnecessary 404
+      // Get all conversations for the user
       const allConversations = await this.getConversations(userId);
       if (!allConversations || allConversations.length === 0) {
-        // User has no conversations, return null without making the recent API call
+        // User has no conversations, return null
         return null;
       }
 
-      // User has conversations, now get the most recent one
-      const response = await apiService.get(`/api/conversation/recent/${userId}`);
-      return response;
+      // Find the most recent conversation by lastUpdated timestamp
+      const sortedConversations = allConversations.sort((a, b) => 
+        new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
+      );
+      
+      return sortedConversations[0];
     } catch (error: any) {
-      // If no recent conversation, return null instead of throwing
-      if (error.response && error.response.status === 404) {
-        return null;
-      }
       console.error(`Error getting recent conversation for user ${userId}:`, error);
       return null; // Return null on error instead of throwing
     }
@@ -250,15 +266,15 @@ const conversationService = {
         };
       }
 
-      // Validate that the IDs look like valid GUIDs
+      // Validate conversationId format, but allow flexible userId formats (seeded dev users are not GUIDs)
       const guidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!guidRegex.test(conversationId)) {
         console.error('Invalid conversationId format:', conversationId);
         throw new Error(`Invalid conversation ID format: ${conversationId}`);
       }
-      if (!guidRegex.test(userId)) {
-        console.error('Invalid userId format:', userId);
-        throw new Error(`Invalid user ID format: ${userId}`);
+      if (!userId) {
+        console.error('Missing userId');
+        throw new Error('Missing user ID');
       }
 
       const requestData = {

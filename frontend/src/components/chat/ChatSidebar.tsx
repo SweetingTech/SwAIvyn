@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, Plus, Edit2, Trash2, MessageSquare, ChevronRight, ChevronDown } from 'lucide-react';
 import apiService from '../../services/apiService';
+import conversationService from '../../services/conversationService';
 
 interface ChatSession {
   id: string;
@@ -50,9 +51,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // Fetch folders and sessions on component mount
   useEffect(() => {
     const fetchData = async () => {
-      // IMPORTANT: Skip API calls completely for demo-user-id
-      if (!userId || userId === 'demo-user-id') {
-        console.warn('Demo user ID detected, skipping API calls and using empty data');
+      // Skip until we have a real user id; don't log a demo warning for transient empty values
+      if (!userId) {
+        setFolders([]);
+        setSessions([]);
+        return;
+      }
+      if (userId === 'demo-user-id') {
+        // Silent fallback for demo mode
         setFolders([]);
         setSessions([]);
         return;
@@ -88,7 +94,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     };
 
     fetchData();
-  }, [userId]);
+  }, [userId, currentSessionId]);
 
   // Toggle folder expansion
   const toggleFolder = (folderId: string) => {
@@ -209,8 +215,19 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const deleteSession = async (sessionId: string) => {
     if (!confirm('Delete this chat session?')) return;
 
+    // Guard: require a real user ID for server-backed delete
+    if (!userId || userId === 'demo-user-id') {
+      console.warn('Invalid user context for delete; removing locally only');
+      setSessions(prev => prev.filter(session => session.id !== sessionId));
+      if (sessionId === currentSessionId) onNewSession();
+      return;
+    }
+
     try {
-      await apiService.delete(`/api/conversation/${sessionId}`);
+      const ok = await conversationService.deleteConversation(sessionId, userId);
+      if (!ok) {
+        console.warn('Delete API did not confirm success; removing locally');
+      }
 
       // Remove session from state
       setSessions(prev => prev.filter(session => session.id !== sessionId));
@@ -219,7 +236,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       if (sessionId === currentSessionId) {
         onNewSession();
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Graceful handling: treat 401/403/404 as already-gone for UX
+      const status = error?.response?.status;
+      if (status === 401 || status === 403 || status === 404) {
+        console.warn(`Delete returned ${status}; removing locally`);
+        setSessions(prev => prev.filter(session => session.id !== sessionId));
+        if (sessionId === currentSessionId) onNewSession();
+        return;
+      }
       console.error('Error deleting session:', error);
     }
   };

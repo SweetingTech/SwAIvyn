@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { useInitialization } from '../contexts/InitializationContext';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import {
   Bot,
   Plus,
@@ -32,22 +33,23 @@ interface Agent {
 
 const AgentsPage = () => {
   const { user } = useInitialization();
+  const eff = useEffectiveUser();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Fetch agents whenever the user becomes available
   useEffect(() => {
-    if (user?.id) {
+    if (eff.userId) {
       loadAgents();
     }
-  }, [user?.id]);
+  }, [eff.userId]);
 
   const loadAgents = async () => {
-    if (!user?.id) return;
+    if (!eff.userId) return;
     setLoading(true);
 
     try {
-      const resp = await fetch(`/api/agents?userId=${user.id}`);
+      const resp = await fetch(`/api/agents?userId=${eff.userId}`, { headers: eff.headers });
       if (resp.ok) {
         const data: Agent[] = await resp.json();
         setAgents(data);

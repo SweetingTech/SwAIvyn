@@ -24,8 +24,28 @@ const createMockResponse = () => {
 };
 
 /**
+ * Disallow direct external calls from the frontend. All traffic must go through backend.
+ */
+const isExternalUrl = (url: string): boolean => {
+  if (!/^https?:\/\//i.test(url)) return false; // relative URLs are fine
+  try {
+    const target = new URL(url, window.location.origin);
+    return target.origin !== window.location.origin;
+  } catch {
+    return true; // treat malformed absolute URLs as external
+  }
+};
+
+/**
  * Base API service for making HTTP requests
  */
+const authHeader = (): Record<string, string> => {
+  try {
+    const t = localStorage.getItem('auth_token');
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch { return {}; }
+};
+
 const apiService = {
   /**
    * Makes a GET request to the specified URL
@@ -40,14 +60,17 @@ const apiService = {
       return createMockResponse().data;
     }
 
+    // Disallow external URLs from the frontend
+    if (isExternalUrl(url)) {
+      throw new Error(`Blocked external GET from frontend: ${url}`);
+    }
+
     try {
-      const response = await axios.get(url, config);
+      const response = await axios.get(url, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       console.error(`GET request failed for ${url}:`, error);
-
-      // Return mock response on error instead of throwing
-      return createMockResponse().data;
+      throw error;
     }
   },
 
@@ -92,12 +115,19 @@ const apiService = {
       }
 
       return createMockResponse().data;
-    }    try {
-      const response = await axios.post(url, data, config);
+    }
+
+    // Disallow external URLs from the frontend
+    if (isExternalUrl(url)) {
+      throw new Error(`Blocked external POST from frontend: ${url}`);
+    }
+
+    try {
+      const response = await axios.post(url, data, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       console.error(`POST request failed for ${url}:`, error);
-        // Log additional details for debugging
+      // Log additional details for debugging
       if (axios.isAxiosError && axios.isAxiosError(error)) {
         console.error('Response status:', error.response?.status);
         console.error('Response data:', error.response?.data);
@@ -105,19 +135,7 @@ const apiService = {
       } else {
         console.error('Non-axios error:', error);
       }
-
-      // Return mock response on error instead of throwing
-      if (url === '/api/conversation') {
-        return {
-          id: `temp-${Date.now()}`,          userId: data?.userId || 'demo-user-id',
-          title: data?.title || 'Error Chat',
-          folderId: data?.folderId || null,
-          createdAt: new Date().toISOString(),
-          lastUpdated: new Date().toISOString()
-        };
-      }
-
-      return createMockResponse().data;
+      throw error;
     }
   },
 
@@ -135,14 +153,17 @@ const apiService = {
       return { success: true };
     }
 
+    // Disallow external URLs from the frontend
+    if (isExternalUrl(url)) {
+      throw new Error(`Blocked external PUT from frontend: ${url}`);
+    }
+
     try {
-      const response = await axios.put(url, data, config);
+      const response = await axios.put(url, data, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
       console.error(`PUT request failed for ${url}:`, error);
-
-      // Return mock success response on error instead of throwing
-      return { success: true };
+      throw error;
     }
   },
 
@@ -159,14 +180,31 @@ const apiService = {
       return null;
     }
 
+    // Disallow external URLs from the frontend
+    if (isExternalUrl(url)) {
+      throw new Error(`Blocked external DELETE from frontend: ${url}`);
+    }
+
     try {
-      const response = await axios.delete(url, config);
+      const response = await axios.delete(url, { ...(config as any), headers: { ...(config as any)?.headers, ...authHeader() } });
       return response.data;
     } catch (error) {
-      console.error(`DELETE request failed for ${url}:`, error);
-
-      // Return mock success response on error instead of throwing
-      return null;
+      try {
+        if ((axios as any).isAxiosError && (axios as any).isAxiosError(error)) {
+          const status = (error as any)?.response?.status;
+          if (status === 404) {
+            console.warn(`DELETE 404 for ${url} (suppressing error log)`);
+          } else {
+            console.error(`DELETE request failed for ${url}:`, error);
+          }
+        } else {
+          console.error(`DELETE request failed for ${url}:`, error);
+        }
+      } catch {
+        // fallback log
+        console.error(`DELETE request failed for ${url}:`, error);
+      }
+      throw error;
     }
   }
 };

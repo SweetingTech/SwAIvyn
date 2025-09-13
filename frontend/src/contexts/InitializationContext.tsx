@@ -1,4 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  ReactNode,
+} from 'react';
+import fetchWithRetry from '../utils/fetchWithRetry';
+import { useAuth } from './AuthContext';
 
 interface User {
   id: string;
@@ -20,6 +29,7 @@ interface InitializationContextType extends InitializationState {
 
 const InitializationContext = createContext<InitializationContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useInitialization = () => {
   const context = useContext(InitializationContext);
   if (context === undefined) {
@@ -33,6 +43,7 @@ interface InitializationProviderProps {
 }
 
 export const InitializationProvider: React.FC<InitializationProviderProps> = ({ children }) => {
+  const { logout } = useAuth();
   const [state, setState] = useState<InitializationState>({
     isInitialized: false,
     isLoading: false,
@@ -40,70 +51,137 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
     error: null,
     user: null,
   });
+  const [attemptText, setAttemptText] = useState<string>('');
 
-  const updateState = (updates: Partial<InitializationState>) => {
+  // Guards
+  const mountedRef = useRef(true);
+  const bootingRef = useRef(false); // prevent concurrent initialize calls
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const safeSetState = (updates: Partial<InitializationState>) => {
+    if (!mountedRef.current) return;
     setState(prev => ({ ...prev, ...updates }));
+  };
+  const safeSetAttempt = (text: string) => {
+    if (!mountedRef.current) return;
+    setAttemptText(text);
   };
 
   const initialize = async () => {
-    if (state.isInitialized || state.isLoading) {
-      return;
-    }
+    if (state.isInitialized || state.isLoading || bootingRef.current) return;
+    bootingRef.current = true;
 
-    updateState({ isLoading: true, error: null });
+    safeSetState({ isLoading: true, error: null });
 
     try {
-      // Step 1: Load default user
-      updateState({ currentStep: 'Loading user profile...' });
-      const userResponse = await fetch('/api/user/default');
-      if (!userResponse.ok) {
-        throw new Error('Failed to load user profile');
+      // Step 0: determine auth first to avoid blocking login on backend readiness
+      safeSetState({ currentStep: 'Checking session…' });
+      let loadedUser: User | null = null;
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        try {
+          const meResp = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (meResp.ok) {
+            const me = await meResp.json();
+            loadedUser = {
+              id: me.id || 'unknown',
+              username: me.username || 'User',
+              email: me.email || 'user@example.com'
+            };
+          } else {
+            // Clear stale/invalid token and auth header so UI returns to login
+            try { logout(); } catch { /* ignore */ }
+          }
+        } catch {
+          // Network/ready errors: treat as unauthenticated and show login
+          try { logout(); } catch { /* ignore */ }
+        }
       }
-      const userData = await userResponse.json();
-      const user: User = {
-        id: userData.id,
-        username: userData.username || 'User',
-        email: userData.email || 'user@example.com'
-      };
-      updateState({ user });
+      // No fallback default user; require login
+      safeSetState({ user: loadedUser });
 
-      // Step 2 & 3: Load settings and characters concurrently
-      updateState({ currentStep: 'Loading settings and characters...' });
+      // If not authenticated, finish initialization and show login page
+      if (!loadedUser) {
+        safeSetState({ currentStep: 'Awaiting login', isInitialized: true, isLoading: false });
+        safeSetAttempt('');
+        return;
+      }
+
+      // Step 2: settings + characters in parallel. Each with its own retry surface.
+      safeSetState({ currentStep: 'Loading settings and characters…' });
+
       const [settingsResponse, charactersResponse] = await Promise.all([
-        fetch(`/api/settings/llm?userId=${user.id}`),
-        fetch(`/api/character/user/${user.id}`)
+        fetchWithRetry(
+          `/api/settings/llm?userId=${encodeURIComponent(loadedUser.id)}`,
+          {},
+          20,
+          400,
+          10000,
+          (a, t) => safeSetAttempt(`(settings ${a}/${t})`)
+        ).catch(e => e as Response), // normalize
+        fetchWithRetry(
+          `/api/character/user/${encodeURIComponent(loadedUser.id)}`,
+          {},
+          20,
+          400,
+          10000,
+          (a, t) => safeSetAttempt(`(characters ${a}/${t})`)
+        ).catch(e => e as Response),
       ]);
 
-      if (settingsResponse.ok) {
-        const settings = await settingsResponse.json();
-        console.log('✅ Settings loaded:', settings);
+      if (settingsResponse && (settingsResponse as Response).ok) {
+        try {
+          const settings = await (settingsResponse as Response).json();
+          // eslint-disable-next-line no-console
+          console.log('Settings loaded:', settings);
+        } catch {
+          // ignore parse issues
+        }
       }
 
-      if (charactersResponse.ok) {
-        const characters = await charactersResponse.json();
-        console.log('✅ Characters loaded:', characters.length, 'characters');
+      if (charactersResponse && (charactersResponse as Response).ok) {
+        try {
+          const characters = await (charactersResponse as Response).json();
+          // eslint-disable-next-line no-console
+          console.log('Characters loaded:', Array.isArray(characters) ? characters.length : 'n/a');
+        } catch {
+          // ignore parse issues
+        }
       }
 
-      // Step 4: Complete initialization
-      updateState({ 
-        currentStep: 'Initialization complete!',
-        isInitialized: true,
-        isLoading: false 
+      // Step 3: done
+      safeSetState({ currentStep: 'Initialization complete!', isInitialized: true, isLoading: false });
+      safeSetAttempt('');
+      // eslint-disable-next-line no-console
+      console.log('Application initialization completed successfully');
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message :
+        typeof err === 'string' ? err :
+        'Initialization failed';
+      // eslint-disable-next-line no-console
+      console.error('Initialization failed:', err);
+      safeSetState({
+        error: message,
+        isLoading: false,
       });
-
-      console.log('🎉 Application initialization completed successfully');
-
-    } catch (error) {
-      console.error('❌ Initialization failed:', error);
-      updateState({
-        error: error instanceof Error ? error.message : 'Initialization failed',
-        isLoading: false
-      });
+      safeSetAttempt('');
+    } finally {
+      bootingRef.current = false;
     }
   };
 
   useEffect(() => {
-    initialize();
+    // fire on mount
+    void initialize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const value: InitializationContextType = {
@@ -113,6 +191,25 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
 
   return (
     <InitializationContext.Provider value={value}>
+      {/* Lightweight status for startup */}
+      {!state.isInitialized && state.isLoading && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 12,
+            right: 12,
+            background: '#1f2937',
+            color: '#fff',
+            padding: '8px 12px',
+            borderRadius: 8,
+            fontSize: 12,
+            opacity: 0.9,
+            zIndex: 9999,
+          }}
+        >
+          {state.currentStep} {attemptText}
+        </div>
+      )}
       {children}
     </InitializationContext.Provider>
   );

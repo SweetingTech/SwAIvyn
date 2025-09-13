@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -6,30 +8,22 @@ export default function LoginPage() {
   const [pinCode, setPinCode] = useState('');
   const [error, setError] = useState('');
   const [isPinLogin, setIsPinLogin] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
 
   const handleLogin = async () => {
     setError('');
-    try {
-      const response = await fetch(isPinLogin ? '/api/auth/pin-login' : '/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          isPinLogin
-            ? { username, pinCode }
-            : { username, password }
-        ),
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        setError(errorText || 'Login failed');
-        return;
-      }
-      const data = await response.json();
-      alert(`Welcome ${data.username}!`);
-      // TODO: Redirect to main app page or set auth state
-    } catch (err) {
-      setError('Network error');
+    if (isPinLogin) {
+      setError('PIN login not enabled');
+      return;
     }
+    const ok = await login(username, password, remember);
+    if (!ok) {
+      setError('Invalid credentials');
+      return;
+    }
+    navigate('/');
   };
 
   return (
@@ -68,6 +62,12 @@ export default function LoginPage() {
           </div>
         )}
         {error && <div className="mb-4 text-red-600">{error}</div>}
+        <div className="mb-4 flex items-center justify-between">
+          <label className="inline-flex items-center text-sm text-gray-600">
+            <input type="checkbox" className="mr-2" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            Remember me
+          </label>
+        </div>
         <button
           onClick={handleLogin}
           className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition"

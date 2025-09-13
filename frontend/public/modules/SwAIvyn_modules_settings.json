@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "https://example.com/modules/voice/fishspeech": {
+      "version": "1.0.0",
+      "description": "Fish Speech TTS module",
+      "disabled": false
+    },
+    "https://example.com/modules/llm/ollama": {
+      "version": "1.0.0",
+      "description": "Ollama LLM connector",
+      "disabled": false
+    },
+    "https://example.com/modules/tools/filesystem": {
+      "version": "1.0.0",
+      "description": "Filesystem tools module",
+      "disabled": true
+    }
+  }
+}

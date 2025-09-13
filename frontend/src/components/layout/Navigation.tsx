@@ -1,9 +1,12 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Navigation = () => {
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <header className="sticky top-0 bg-white shadow-sm z-50">
@@ -29,10 +32,24 @@ const Navigation = () => {
             <NavItem to="/agents" icon={<Bot size={18} />} label={t('navigation.agents')} />
             <NavItem to="/profile" icon={<User size={18} />} label={t('navigation.profile')} />
             <NavItem to="/settings" icon={<Settings size={18} />} label={t('navigation.settings')} />
+            {user?.role === 'admin' && (
+              <NavItem to="/admin/users" icon={<User size={18} />} label="Admin" />
+            )}
           </nav>
 
-          <div className="flex md:hidden">
-            <MobileMenu />
+          <div className="flex items-center space-x-3">
+            {user && (
+              <span className="text-sm text-gray-600 hidden sm:inline">{user.username}</span>
+            )}
+            <button
+              className="px-3 py-1.5 text-sm rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700"
+              onClick={() => { logout(); navigate('/'); }}
+            >
+              Logout
+            </button>
+            <div className="md:hidden">
+              <MobileMenu />
+            </div>
           </div>
         </div>
       </div>

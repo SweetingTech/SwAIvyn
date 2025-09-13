@@ -6,13 +6,17 @@ export interface ChatSettings {
   llmModel: string;
   ttsProvider: string;
   ttsVoiceId: string;
+  enabledEngines?: Record<string, boolean>;
+  engineModels?: Record<string, string>;
 }
 
 export interface UpdateChatSettingsPayload {
-  llmEngine: string;
-  llmModel: string;
+  llmEngine?: string;
+  llmModel?: string;
   ttsProvider?: string; // Optional as per backend UpdateChatSettingsRequest
   ttsVoiceId?: string;  // Optional as per backend UpdateChatSettingsRequest
+  enabledEngines?: Record<string, boolean>;
+  engineModels?: Record<string, string>;
 }
 
 /**
@@ -23,12 +27,20 @@ const chatService = {
    * Sends a message to the AI and gets a response
    * @param conversationId The ID of the conversation
    * @param message The message to send
+   * @param userId The ID of the user sending the message
    * @param characterId Optional character ID to use for this message
    * @param engineOverride Optional engine to override default LLM for this message
    * @param modelOverride Optional model to override default LLM for this message
    * @returns The AI's response
    */
-  async sendMessage(conversationId: string, message: string, characterId?: string | null, engineOverride?: string | null, modelOverride?: string | null): Promise<string> {
+  async sendMessage(
+    conversationId: string,
+    message: string,
+    userId?: string | null,
+    characterId?: string | null,
+    engineOverride?: string | null,
+    modelOverride?: string | null
+  ): Promise<string> {
     try {
       // Skip API call if conversationId is not valid
       if (!conversationId || conversationId.startsWith('temp-')) {
@@ -40,7 +52,7 @@ const chatService = {
       const requestBody: any = {
         conversationId,
         message,
-        userId: null // Backend handles user ID
+        userId: userId || null
       };
 
       if (characterId && characterId !== 'null' && characterId !== 'undefined') {
@@ -92,10 +104,15 @@ const chatService = {
   async updateChatSettings(userId: string, settings: UpdateChatSettingsPayload): Promise<boolean> {
     try {
       const url = `/api/chat/settings/${userId}`;
-      console.log('🔄 ChatService: Updating chat settings at:', url, 'with payload:', settings);
+      // Strip undefined or empty values so we don't overwrite existing settings unintentionally
+      const payload = Object.fromEntries(
+        Object.entries(settings).filter(([, v]) => v !== undefined && v !== '')
+      );
+
+      console.log('🔄 ChatService: Updating chat settings at:', url, 'with payload:', payload);
       // The backend returns { message: "Chat settings updated successfully." } which apiService should handle.
-      // We'll assume success if no error is thrown by apiService.post
-      await apiService.put(url, settings);
+      // We'll assume success if no error is thrown by apiService.put
+      await apiService.put(url, payload);
       console.log('🔄 ChatService: Chat settings updated successfully.');
       return true;
     } catch (error) {
@@ -104,49 +121,7 @@ const chatService = {
     }
   },
 
-  // Old methods - can be marked @deprecated or removed later if no longer used.
-  /**
-   * @deprecated Use getChatSettings instead.
-   * Gets the current LLM settings
-   * @param userId Optional user ID for user-specific settings
-   * @returns The current LLM settings (engine and model)
-   */
-  async getLlmSettings(userId?: string): Promise<{ engine: string, model: string }> {
-    try {
-      const url = userId ? `/api/settings/llm?userId=${userId}` : '/api/settings/llm';
-      console.log('🔄 Making LLM settings API call to:', url);
-      console.log('🔄 UserId parameter:', userId);
-      console.log('🔄 UserId type:', typeof userId);
-      const response = await apiService.get(url);
-      console.log('🔄 LLM settings API response:', response);
-      return response;
-    } catch (error) {
-      console.error('Error getting LLM settings:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * @deprecated Use updateChatSettings instead.
-   * Updates the LLM settings
-   * @param engine The LLM engine (ollama, lmstudio, openai or claude)
-   * @param model The LLM model (for Ollama)
-   * @param userId Optional user ID for user-specific settings
-   * @returns Success status
-   */
-  async updateLlmSettings(engine: string, model: string, userId?: string): Promise<boolean> {
-    try {
-      const response = await apiService.put('/api/settings/llm', {
-        engine,
-        model,
-        userId
-      });
-      return response && response.success;
-    } catch (error) {
-      console.error('Error updating LLM settings:', error);
-      throw error;
-    }
-  },
+  
 
   async getLlmModels(engine: string) {
     try {

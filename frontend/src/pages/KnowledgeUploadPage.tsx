@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import { motion } from 'framer-motion';
 import {
   Upload,
@@ -38,6 +39,7 @@ interface UploadProgress {
 }
 
 const KnowledgeUploadPage: React.FC = () => {
+  const eff = useEffectiveUser();
   const [documents, setDocuments] = useState<UploadDocument[]>([]);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -49,12 +51,12 @@ const KnowledgeUploadPage: React.FC = () => {
   // Load documents on component mount
   useEffect(() => {
     loadDocuments();
-  }, []);
+  }, [eff.headers]);
 
   const loadDocuments = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/upload/documents');
+      const response = await fetch('/api/upload/documents', { headers: eff.headers });
       if (response.ok) {
         const docs = await response.json();
         setDocuments(docs);
@@ -85,7 +87,8 @@ const KnowledgeUploadPage: React.FC = () => {
     try {
       const response = await fetch('/api/upload/files', {
         method: 'POST',
-        body: formData
+        body: formData,
+        headers: eff.headers
       });
 
       if (response.ok) {
@@ -151,9 +154,7 @@ const KnowledgeUploadPage: React.FC = () => {
 
   const deleteDocument = async (id: string) => {
     try {
-      const response = await fetch(`/api/upload/documents/${id}`, {
-        method: 'DELETE'
-      });
+      const response = await fetch(`/api/upload/documents/${id}`, { method: 'DELETE', headers: eff.headers });
       
       if (response.ok) {
         await loadDocuments();

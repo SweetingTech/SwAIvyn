@@ -1,221 +1,125 @@
-# SwAIvyn .gitignore file
-#
-# PRINCIPLE: Keep static/source files, ignore dynamic/generated files
-# - KEEP: Source code, configs, build scripts, essential static DLLs, docs
-# - IGNORE: Build outputs, runtime data, logs, user-specific files
+# OS artifacts
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# =============================================================================
-# DYNAMIC BUILD OUTPUTS (IGNORE - these get regenerated)
-# =============================================================================
+# Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
+.history/
 
-# .NET Build outputs
-[Bb]in/
-[Oo]bj/
-[Dd]ist/
-[Bb]uild/
-[Rr]elease/
-[Dd]ebug/
-x64/
-x86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
-artifacts/
+# Environment files (ignore all except example templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
 
-# Root-level build artifacts (generated at runtime)
-/*.deps.json
-/*.runtimeconfig.json
-/*.staticwebassets.*.json
-/web.config
-/createdump.exe
-/SwAIvyn.exe
-/SwAIvyn.pdb
+# Virtual environments
+.venv/
+venv/
+env/
+**/.venv/
+**/venv/
+**/env/
+# Ensure any virtualenv directories (including nested) are ignored
+# (keeps local interpreter environments out of commits)
 
-# Build output directories
-dll/
-backend/wwwroot/
-backend/bin/
-backend/obj/
+# Ignore common python virtualenv folders anywhere in the tree
+# (also cover variations like .venv, venv, env)
+/.venv/
+/.venv
 
-# Frontend build outputs
-frontend/dist/
-frontend/build/
-frontend/.cache/
-frontend/coverage/
-frontend/public/build/
-frontend/.vite/
-frontend/node_modules/
+.tox/
+.python-version
 
-# =============================================================================
-# STATIC ESSENTIAL FILES (KEEP - these are source/never change)
-# =============================================================================
+# Python caches and build artifacts
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pyre/
+**/.pytype/
+.coverage
+.coverage.*
+htmlcov/
+**/build/
+**/dist/
+**/*.egg-info/
+*.egg
+**/.ipynb_checkpoints/
 
-# CRITICAL: Pre-built DLLs needed for compilation
-!dnd_dll/
-!dnd_dll/*.dll
+# Node / JS
+node_modules/
+dist/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# =============================================================================
-# RUNTIME DATA AND DATABASES (IGNORE - changes during use)
-# =============================================================================
+# .NET / C#
+**/[Bb]in/
+**/[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.iml
+TestResults/
+coverage/
+Coverage/
 
-# Runtime database files
+# Logs
+logs/
+*.log
+
+# Temp files/folders
+.tmp/
+tmp/
+**/tmp/
+temp/
+**/temp/
+*.tmp
+*.temp
+
+# Databases (local dev)
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
-*.sqlite-shm
-*.sqlite-wal
-backend/local_dev.db
-Sqldatabase/
+*.sqlite3
+*.mdf
+*.ldf
+*.ndf
+*.bak
 
-# Runtime application data
-data/
-!data/.gitkeep
-data/avatars/*
-!data/avatars/.gitkeep
-data/uploads/*
-!data/uploads/.gitkeep
-data/backups/*
-!data/backups/.gitkeep
-data/modules/*
-!data/modules/.gitkeep
+# Docker and local overrides
+.docker/
+docker-compose.override.yml
+.envrc
 
-# Speech models and data (ignore all contents except specific files)
-# Keep the instruction file at the root
-!speech/DOWNLOAD_INSTRUCTIONS.txt
-# Ignore everything in STT and TTS subfolders
-speech/STT/**
-speech/TTS/**
-# But keep the .gitkeep files to preserve folder structure
-!speech/STT/.gitkeep
-!speech/TTS/.gitkeep
-# Allow the custom Fish Speech API scripts
-!speech/TTS/openaudio-s1-mini/fish_speech_api.py
-!speech/TTS/openaudio-s1-mini/fish_speech_api_enhanced.py
-!speech/TTS/openaudio-s1-mini/test_tts.py
+# Project-specific
+scripts/.dev-state.json
+Services/**/wwwroot/uploads/
 
-# Database exports (these are snapshots, not source)
-swai_database_export_*.json
+# TTS / ML artifacts and local model builds
+# These are large or generated during setup and should not be committed
+speech/TTS/openaudio-s1-mini/fish_speech_env/
+speech/TTS/openaudio-s1-mini/fish_speech_model/
+speech/TTS/openaudio-s1-mini/*.pth
+speech/TTS/openaudio-s1-mini/*.pt
+speech/TTS/openaudio-s1-mini/model*
 
-# =============================================================================
-# LOGS AND TEMPORARY FILES (IGNORE - generated during runtime)
-# =============================================================================
+# Sample or test audio files
+test_tts_gpu.wav
 
-# Log files
-*.log
-logs/
-crash_*.txt
-[Ll]og/
-[Ll]ogs/
-frontend/logs/
+# Ignore local TTS .env files (keep example templates tracked)
+# Matches speech-level .env or tts-specific env files anywhere
+speech/TTS/openaudio-s1-mini/.env
+**/openaudio-s1-mini/.env
+**/openaudio-s1-mini/tts*.env
+**/.env.local
 
-# Temporary files
-[Tt]emp/
-[Tt]mp/
-*.tmp
-*.temp
 
-# =============================================================================
-# USER-SPECIFIC AND IDE FILES (IGNORE - personal settings)
-# =============================================================================
 
-# Visual Studio
-.vs/
-.vscode/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-*.userprefs
-
-# Other IDEs
-.idea/
-*.sublime-workspace
-*.sublime-project
-.project
-.classpath
-.settings/
-*.launch
-*.tmproj
-*.esproj
-nbproject/
-*.code-workspace
-
-# =============================================================================
-# PACKAGE MANAGERS AND DEPENDENCIES (IGNORE - can be restored)
-# =============================================================================
-
-# Node.js
-node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
-.pnp/
-.pnp.js
-.npm
-.yarn/
-.yarn-integrity
-
-# .NET
-project.lock.json
-project.fragment.lock.json
-**/Properties/launchSettings.json
-
-# =============================================================================
-# DEVELOPMENT ARTIFACTS (IGNORE - generated during development)
-# =============================================================================
-
-# Large source repositories (these can be re-downloaded)
-sqlite-vss/
-windows-libs/
-
-# Environment-specific files
-frontend/modules/SwAIvyn_modules_settings.json
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
-
-# =============================================================================
-# OS AND SYSTEM FILES (IGNORE - system generated)
-# =============================================================================
-
-# Windows
-Thumbs.db
-ehthumbs.db
-desktop.ini
-*.lnk
-SwAIvyn.lnk
-
-# macOS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-
-# Linux
-*~
-
-# =============================================================================
-# ARCHIVE AND PACKAGE FILES (IGNORE - not source code)
-# =============================================================================
-
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# =============================================================================
-# KEEP THESE IMPORTANT STATIC FILES (EXCEPTIONS)
-# =============================================================================
-
-# Backend source data models (these are source code, not runtime data)
-!backend/Data/
-
-# Keep essential configuration files (these are templates/source)
-# Note: Runtime configs are ignored above, but source configs are kept

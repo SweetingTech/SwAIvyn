@@ -1,0 +1,362 @@
+﻿{
+    "Service Running: swaivyn_qdrant":  {
+                                            "Timestamp":  {
+                                                              "value":  "\/Date(1757477596383)\/",
+                                                              "DisplayHint":  2,
+                                                              "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                          },
+                                            "Details":  "",
+                                            "Success":  true
+                                        },
+    "File/Dir Exists: scripts/dev-orchestrator.ps1":  {
+                                                          "Timestamp":  {
+                                                                            "value":  "\/Date(1757477596306)\/",
+                                                                            "DisplayHint":  2,
+                                                                            "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                                        },
+                                                          "Details":  "D:\\project\\SwAIvyn\\scripts\\dev-orchestrator.ps1",
+                                                          "Success":  true
+                                                      },
+    "File/Dir Exists: docker-stack.yml":  {
+                                              "Timestamp":  {
+                                                                "value":  "\/Date(1757477596299)\/",
+                                                                "DisplayHint":  2,
+                                                                "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                            },
+                                              "Details":  "D:\\project\\SwAIvyn\\docker-stack.yml",
+                                              "Success":  true
+                                          },
+    "Docker Image: swai/tts-11labs-adapter:local":  {
+                                                        "Timestamp":  {
+                                                                          "value":  "\/Date(1757477601497)\/",
+                                                                          "DisplayHint":  2,
+                                                                          "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                                      },
+                                                        "Details":  "",
+                                                        "Success":  true
+                                                    },
+    "HTTP Endpoint: Qdrant API":  {
+                                      "Timestamp":  {
+                                                        "value":  "\/Date(1757477601214)\/",
+                                                        "DisplayHint":  2,
+                                                        "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                    },
+                                      "Details":  "http://qdrant.localhost:80",
+                                      "Success":  false
+                                  },
+    "Docker Image: swai/tts-proxy:local":  {
+                                               "Timestamp":  {
+                                                                 "value":  "\/Date(1757477601386)\/",
+                                                                 "DisplayHint":  2,
+                                                                 "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                             },
+                                               "Details":  "",
+                                               "Success":  true
+                                           },
+    "Script Syntax: dev-bff.ps1":  {
+                                       "Timestamp":  {
+                                                         "value":  "\/Date(1757477601233)\/",
+                                                         "DisplayHint":  2,
+                                                         "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                     },
+                                       "Details":  "",
+                                       "Success":  true
+                                   },
+    "Port Connectivity: Temporal (:7233)":  {
+                                                "Timestamp":  {
+                                                                  "value":  "\/Date(1757477601128)\/",
+                                                                  "DisplayHint":  2,
+                                                                  "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                              },
+                                                "Details":  "",
+                                                "Success":  true
+                                            },
+    "Python executable: Services/orchestrator":  {
+                                                     "Timestamp":  {
+                                                                       "value":  "\/Date(1757477601260)\/",
+                                                                       "DisplayHint":  2,
+                                                                       "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                                   },
+                                                     "Details":  "D:\\project\\SwAIvyn\\Services\\orchestrator\\.venv\\Scripts\\python.exe",
+                                                     "Success":  true
+                                                 },
+    ".env Has POSTGRES_PASSWORD":  {
+                                       "Timestamp":  {
+                                                         "value":  "\/Date(1757477601247)\/",
+                                                         "DisplayHint":  2,
+                                                         "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                     },
+                                       "Details":  "",
+                                       "Success":  true
+                                   },
+    "npm Available":  {
+                          "Timestamp":  {
+                                            "value":  "\/Date(1757477596289)\/",
+                                            "DisplayHint":  2,
+                                            "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                        },
+                          "Details":  "",
+                          "Success":  true
+                      },
+    "HTTP Endpoint: Traefik Dashboard":  {
+                                             "Timestamp":  {
+                                                               "value":  "\/Date(1757477601199)\/",
+                                                               "DisplayHint":  2,
+                                                               "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                           },
+                                             "Details":  "http://traefik.localhost:80",
+                                             "Success":  false
+                                         },
+    "Frontend node_modules":  {
+                                  "Timestamp":  {
+                                                    "value":  "\/Date(1757477601266)\/",
+                                                    "DisplayHint":  2,
+                                                    "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                },
+                                  "Details":  "D:\\project\\SwAIvyn\\frontend\\node_modules",
+                                  "Success":  true
+                              },
+    "Python venv: Services/bff":  {
+                                      "Timestamp":  {
+                                                        "value":  "\/Date(1757477601252)\/",
+                                                        "DisplayHint":  2,
+                                                        "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                    },
+                                      "Details":  "D:\\project\\SwAIvyn\\Services\\bff\\.venv",
+                                      "Success":  true
+                                  },
+    "Python venv: Services/orchestrator":  {
+                                               "Timestamp":  {
+                                                                 "value":  "\/Date(1757477601258)\/",
+                                                                 "DisplayHint":  2,
+                                                                 "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                             },
+                                               "Details":  "D:\\project\\SwAIvyn\\Services\\orchestrator\\.venv",
+                                               "Success":  true
+                                           },
+    "Frontend package.json":  {
+                                  "Timestamp":  {
+                                                    "value":  "\/Date(1757477601270)\/",
+                                                    "DisplayHint":  2,
+                                                    "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                },
+                                  "Details":  "D:\\project\\SwAIvyn\\frontend\\package.json",
+                                  "Success":  true
+                              },
+    "Service Running: swaivyn_swai-db":  {
+                                             "Timestamp":  {
+                                                               "value":  "\/Date(1757477596383)\/",
+                                                               "DisplayHint":  2,
+                                                               "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                           },
+                                             "Details":  "",
+                                             "Success":  true
+                                         },
+    "Docker Services Status":  {
+                                   "Timestamp":  {
+                                                     "value":  "\/Date(1757477596463)\/",
+                                                     "DisplayHint":  2,
+                                                     "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                 },
+                                   "Details":  "NAME                            REPLICAS swaivyn_bff-proxy               0/0 swaivyn_frontend-proxy          0/0 swaivyn_multi2vec-clip          1/1 swaivyn_neo4j                   1/1 swaivyn_qdrant                  1/1 swaivyn_qna-transformers        1/1 swaivyn_reranker-transformers   1/1 swaivyn_stt                     1/1 swaivyn_sum-transformers        1/1 swaivyn_swai-db                 1/1 swaivyn_temporal                1/1 swaivyn_text-spellcheck         1/1 swaivyn_traefik                 1/1 swaivyn_tts                     1/1 swaivyn_tts-11labs-adapter      1/1 swaivyn_weaviate                1/1",
+                                   "Success":  true
+                               },
+    "Port Connectivity: PostgreSQL (:5432)":  {
+                                                  "Timestamp":  {
+                                                                    "value":  "\/Date(1757477596908)\/",
+                                                                    "DisplayHint":  2,
+                                                                    "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                                },
+                                                  "Details":  "",
+                                                  "Success":  true
+                                              },
+    "Service Running: swaivyn_traefik":  {
+                                             "Timestamp":  {
+                                                               "value":  "\/Date(1757477596383)\/",
+                                                               "DisplayHint":  2,
+                                                               "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                           },
+                                             "Details":  "",
+                                             "Success":  true
+                                         },
+    "Docker CLI Available":  {
+                                 "Timestamp":  {
+                                                   "value":  "\/Date(1757477596052)\/",
+                                                   "DisplayHint":  2,
+                                                   "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                               },
+                                 "Details":  "",
+                                 "Success":  true
+                             },
+    "Port Connectivity: Qdrant (:6333)":  {
+                                              "Timestamp":  {
+                                                                "value":  "\/Date(1757477601050)\/",
+                                                                "DisplayHint":  2,
+                                                                "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                            },
+                                              "Details":  "",
+                                              "Success":  false
+                                          },
+    ".env File Exists":  {
+                             "Timestamp":  {
+                                               "value":  "\/Date(1757477601242)\/",
+                                               "DisplayHint":  2,
+                                               "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                           },
+                             "Details":  "D:\\project\\SwAIvyn\\.env",
+                             "Success":  true
+                         },
+    "Script Syntax: dev-orchestrator.ps1":  {
+                                                "Timestamp":  {
+                                                                  "value":  "\/Date(1757477601235)\/",
+                                                                  "DisplayHint":  2,
+                                                                  "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                              },
+                                                "Details":  "",
+                                                "Success":  true
+                                            },
+    "File/Dir Exists: scripts/dev-bff.ps1":  {
+                                                 "Timestamp":  {
+                                                                   "value":  "\/Date(1757477596304)\/",
+                                                                   "DisplayHint":  2,
+                                                                   "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                               },
+                                                 "Details":  "D:\\project\\SwAIvyn\\scripts\\dev-bff.ps1",
+                                                 "Success":  true
+                                             },
+    "File/Dir Exists: scripts/dev-frontend.ps1":  {
+                                                      "Timestamp":  {
+                                                                        "value":  "\/Date(1757477596305)\/",
+                                                                        "DisplayHint":  2,
+                                                                        "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                                    },
+                                                      "Details":  "D:\\project\\SwAIvyn\\scripts\\dev-frontend.ps1",
+                                                      "Success":  true
+                                                  },
+    "File/Dir Exists: frontend":  {
+                                      "Timestamp":  {
+                                                        "value":  "\/Date(1757477596308)\/",
+                                                        "DisplayHint":  2,
+                                                        "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                    },
+                                      "Details":  "D:\\project\\SwAIvyn\\frontend",
+                                      "Success":  true
+                                  },
+    "Port Connectivity: Traefik HTTP (:80)":  {
+                                                  "Timestamp":  {
+                                                                    "value":  "\/Date(1757477601113)\/",
+                                                                    "DisplayHint":  2,
+                                                                    "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                                },
+                                                  "Details":  "",
+                                                  "Success":  true
+                                              },
+    "Node.js Available":  {
+                              "Timestamp":  {
+                                                "value":  "\/Date(1757477596289)\/",
+                                                "DisplayHint":  2,
+                                                "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                            },
+                              "Details":  "",
+                              "Success":  true
+                          },
+    "File/Dir Exists: scripts/dev-run.ps1":  {
+                                                 "Timestamp":  {
+                                                                   "value":  "\/Date(1757477596302)\/",
+                                                                   "DisplayHint":  2,
+                                                                   "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                               },
+                                                 "Details":  "D:\\project\\SwAIvyn\\scripts\\dev-run.ps1",
+                                                 "Success":  true
+                                             },
+    "HTTP Endpoint: Neo4j Browser":  {
+                                         "Timestamp":  {
+                                                           "value":  "\/Date(1757477601182)\/",
+                                                           "DisplayHint":  2,
+                                                           "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                       },
+                                         "Details":  "http://graph.localhost:80",
+                                         "Success":  false
+                                     },
+    "Script Syntax: dev-frontend.ps1":  {
+                                            "Timestamp":  {
+                                                              "value":  "\/Date(1757477601239)\/",
+                                                              "DisplayHint":  2,
+                                                              "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                          },
+                                            "Details":  "",
+                                            "Success":  true
+                                        },
+    "Python Available":  {
+                             "Timestamp":  {
+                                               "value":  "\/Date(1757477596289)\/",
+                                               "DisplayHint":  2,
+                                               "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                           },
+                             "Details":  "",
+                             "Success":  true
+                         },
+    ".env Has NEO4J_PASSWORD":  {
+                                    "Timestamp":  {
+                                                      "value":  "\/Date(1757477601248)\/",
+                                                      "DisplayHint":  2,
+                                                      "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                  },
+                                    "Details":  "",
+                                    "Success":  true
+                                },
+    "Service Running: swaivyn_temporal":  {
+                                              "Timestamp":  {
+                                                                "value":  "\/Date(1757477596383)\/",
+                                                                "DisplayHint":  2,
+                                                                "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                            },
+                                              "Details":  "",
+                                              "Success":  true
+                                          },
+    "Python executable: Services/bff":  {
+                                            "Timestamp":  {
+                                                              "value":  "\/Date(1757477601255)\/",
+                                                              "DisplayHint":  2,
+                                                              "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                          },
+                                            "Details":  "D:\\project\\SwAIvyn\\Services\\bff\\.venv\\Scripts\\python.exe",
+                                            "Success":  true
+                                        },
+    "File/Dir Exists: Services/bff":  {
+                                          "Timestamp":  {
+                                                            "value":  "\/Date(1757477596307)\/",
+                                                            "DisplayHint":  2,
+                                                            "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                        },
+                                          "Details":  "D:\\project\\SwAIvyn\\Services\\bff",
+                                          "Success":  true
+                                      },
+    "Port Connectivity: Neo4j Bolt (:7687)":  {
+                                                  "Timestamp":  {
+                                                                    "value":  "\/Date(1757477601059)\/",
+                                                                    "DisplayHint":  2,
+                                                                    "DateTime":  "Wednesday, September 10, 2025 12:13:21 AM"
+                                                                },
+                                                  "Details":  "",
+                                                  "Success":  true
+                                              },
+    "Docker Daemon Running":  {
+                                  "Timestamp":  {
+                                                    "value":  "\/Date(1757477596286)\/",
+                                                    "DisplayHint":  2,
+                                                    "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                },
+                                  "Details":  "Cannot process argument transformation on parameter \u0027Success\u0027. Cannot convert value \"System.Object[]\" to type \"System.Boolean\". Boolean parameters accept only Boolean values and numbers, such as $True, $False, 1 or 0.",
+                                  "Success":  false
+                              },
+    "Service Running: swaivyn_neo4j":  {
+                                           "Timestamp":  {
+                                                             "value":  "\/Date(1757477596383)\/",
+                                                             "DisplayHint":  2,
+                                                             "DateTime":  "Wednesday, September 10, 2025 12:13:16 AM"
+                                                         },
+                                           "Details":  "",
+                                           "Success":  true
+                                       }
+}
