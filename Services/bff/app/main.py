@@ -21,6 +21,7 @@ from .models import users, chat_settings as t_chat_settings, connection_settings
 
 # Prefer IPv4 loopback by default so host apps can reach Temporal in Docker
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
+ENABLE_TEMPORAL = os.getenv("ENABLE_TEMPORAL", "false").lower() == "true"
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -52,11 +53,16 @@ os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
 try:
     from fastapi.staticfiles import StaticFiles
     app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+    # Mount frontend dist for production deployment
+    frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
+    if os.path.exists(frontend_dist):
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 except Exception:
     pass
 app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origin_regex=r"^https?://.*\.repl\.co(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -115,7 +121,8 @@ async def _ensure_temporal_connected():
 @app.on_event("startup")
 async def _startup_connect_temporal():
     # Fire-and-forget connection attempt so startup does not block the server
-    asyncio.create_task(_ensure_temporal_connected())
+    if ENABLE_TEMPORAL:
+        asyncio.create_task(_ensure_temporal_connected())
 
 
 @app.on_event("startup")
@@ -188,6 +195,13 @@ async def api_healthz():
 @app.get("/api/readyz")
 async def api_readyz():
     return await readyz()
+
+
+@app.get("/api")
+@app.head("/api")
+async def api_root():
+    """Basic API endpoint to handle health probes"""
+    return {"message": "SwAIvyn API"}
 
 
 @app.get("/api/llm/health")

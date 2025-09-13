@@ -15,5 +15,8 @@ def create_engine() -> Optional[AsyncEngine]:
     # Convert postgresql:// to postgresql+asyncpg:// for async support
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://")
-    return create_async_engine(url, echo=False, future=True)
+    # Remove sslmode parameter for asyncpg compatibility
+    if "sslmode=" in url:
+        url = url.replace("?sslmode=require", "").replace("&sslmode=require", "")
+    return create_async_engine(url, echo=False, future=True, connect_args={"ssl": "require"})
 
