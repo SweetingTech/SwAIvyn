@@ -460,6 +460,60 @@ Write-Host "• Press Ctrl+C in service windows to stop individual services" -Fo
 
 Write-Host "`n" + "="*60 -ForegroundColor Yellow
 
+# --- AUTOMATIC BROWSER OPENING ---
+function Test-Url {
+    param([string]$Url)
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        return $response.StatusCode -lt 400
+    } catch {
+        return $false
+    }
+}
+
+Write-Host "`n🌐 Opening web browser..." -ForegroundColor Cyan
+
+# Determine the best URL to open
+$primaryUrl = if ($UseTraefik) { "http://app.localhost:$TraefikPort" } else { "http://localhost:5173" }
+$fallbackUrl = if ($UseTraefik) { "http://localhost:5173" } else { "http://app.localhost:$TraefikPort" }
+
+# Wait for the application to be ready (up to 2 minutes)
+$deadline = (Get-Date).AddMinutes(2)
+$appReady = $false
+
+Write-Host "Waiting for application to be ready at $primaryUrl..." -ForegroundColor DarkGray
+
+while ((Get-Date) -lt $deadline) {
+    if (Test-Url $primaryUrl) {
+        $appReady = $true
+        break
+    }
+    Start-Sleep -Seconds 2
+}
+
+# Try fallback URL if primary failed
+if (-not $appReady -and $fallbackUrl -ne $primaryUrl) {
+    Write-Host "Trying fallback URL $fallbackUrl..." -ForegroundColor DarkGray
+    if (Test-Url $fallbackUrl) {
+        $primaryUrl = $fallbackUrl
+        $appReady = $true
+    }
+}
+
+# Open the browser
+if ($appReady) {
+    try {
+        Start-Process $primaryUrl
+        Write-Host "✅ Browser opened to $primaryUrl" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not open browser automatically. Please visit: $primaryUrl"
+    }
+} else {
+    Write-Warning "Application not ready yet. Please wait a moment and visit: $primaryUrl"
+}
+
+Write-Host "`n" + "="*60 -ForegroundColor Yellow
+
 if ($pids.Count -gt 0) {
     Write-Host "`nSaving process IDs to state file for cleanup..."
     $stateObj = @{ pids = $pids }
