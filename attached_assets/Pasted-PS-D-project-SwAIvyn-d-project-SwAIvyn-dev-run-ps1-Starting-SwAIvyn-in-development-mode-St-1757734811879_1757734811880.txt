@@ -1,0 +1,86 @@
+PS D:\project\SwAIvyn> d:\project\SwAIvyn\dev-run.ps1
+Starting SwAIvyn in development mode...
+
+Starting background services (Docker, etc.)...
+
+Deploying stack 'swaivyn' from D:\project\SwAIvyn\docker-stack.yml
+Updating service swaivyn_qdrant (id: l9015nmsakw7nhikgrbf220kj)
+Updating service swaivyn_bff-proxy (id: shk29rqgtvpv6b1tnif9qm0ic)
+Updating service swaivyn_stt (id: 1cj13bxcg2fmj0jc4fmz3fwsm)
+Updating service swaivyn_reranker-transformers (id: s4opighhxqv2136u2bx1778d8)
+Updating service swaivyn_traefik (id: abms2qpqds6kqmqw4vigy5fwg)
+Updating service swaivyn_swai-db (id: omg3y0j1rz9p0v7z2px6i5g2l)
+Updating service swaivyn_neo4j (id: yzo91a2n9kdaglg0vn34hesni)
+Updating service swaivyn_sum-transformers (id: t9qurhczjlmc3w5xdlfmm5feo)
+Updating service swaivyn_tts-11labs-adapter (id: i6reotyxafehux6ssatcscqxn)
+image swai/tts-11labs-adapter:local could not be accessed on a registry to record
+its digest. Each node will access swai/tts-11labs-adapter:local independently,
+possibly leading to different nodes running different
+versions of the image.
+
+Updating service swaivyn_multi2vec-clip (id: myjhbpvaquvej1spqtg7523sk)
+Updating service swaivyn_weaviate (id: itaeqsepakxw6quvfctpnvxdd)
+Updating service swaivyn_text-spellcheck (id: wgqwpir7klpp5nqf6np0ryd50)
+Updating service swaivyn_tts (id: 4z8572x1fuv9ynb11hbohyce8)
+image swai/tts-proxy:local could not be accessed on a registry to record
+its digest. Each node will access swai/tts-proxy:local independently,
+possibly leading to different nodes running different
+versions of the image.
+
+Updating service swaivyn_qna-transformers (id: 7vjb1b6a23z0a6uqx0wynqd4e)
+Updating service swaivyn_temporal (id: pqemvczyqn2q9dgnywsqy0c7l)
+Updating service swaivyn_frontend-proxy (id: 6iacl6wdsli83v7mgjquiuzqn)
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service l9015nmsakw7nhikgrbf220kj converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service shk29rqgtvpv6b1tnif9qm0ic converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service 1cj13bxcg2fmj0jc4fmz3fwsm converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service s4opighhxqv2136u2bx1778d8 converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service abms2qpqds6kqmqw4vigy5fwg converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service omg3y0j1rz9p0v7z2px6i5g2l converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service yzo91a2n9kdaglg0vn34hesni converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service t9qurhczjlmc3w5xdlfmm5feo converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service i6reotyxafehux6ssatcscqxn converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service myjhbpvaquvej1spqtg7523sk converged
+overall progress: 1 out of 1 tasks
+1/1: running   [==================================================>]                                                                                                         
+verify: Service itaeqsepakxw6quvfctpnvxdd converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service wgqwpir7klpp5nqf6np0ryd50 converged
+overall progress: 1 out of 1 tasks                                                                                                                                           1/1: running   [==================================================>]                                                                                                         verify: Service 4z8572x1fuv9ynb11hbohyce8 converged                                                                                                                          overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         
+verify: Service 7vjb1b6a23z0a6uqx0wynqd4e converged
+overall progress: 1 out of 1 tasks                                                                                                                                           
+1/1: running   [==================================================>]                                                                                                         verify: Service 6iacl6wdsli83v7mgjquiuzqn converged                                                                                                                          Waiting on TTS via Traefik (http://tts.localhost:80/health)...                                                                                                               TTS ready.                                                                                                                                                                   Traefik dashboard: http://traefik.localhost:80                                                                                                                                                                                                                                                                                                            Waiting for critical infrastructure services...                                                                                                                                                                                                                                                                                                           Waiting for Temporal service to be fully operational...                                                                                                                      Waiting for localhost:7233 to be available...                                                                                                                                localhost:7233 is ready                                                                                                                                                      TCP port ready, waiting for Temporal service initialization...                                                                                                               Temporal container(s) running: swaivyn_temporal.1.pzt65yrrbqcusjybxqgowxv35                                                                                                  Allowing additional time for Temporal service readiness...                                                                                                                   Temporal service should now be ready for connections                                                                                                                         Waiting for localhost:5432 to be available...                                                                                                                                localhost:5432 is ready                                                                                                                                                                                                                                                                                                                                   Starting user-facing services...                                                                                                                                                                                                                                                                                                                          Starting frontend...                                                                                                                                                         frontend started with PID 15540                                                                                                                                              15540                                                                                                                                                                        Frontend dev server starting at http://0.0.0.0:5173                                                                                                                          Starting bff...                                                                                                                                                              bff started with PID 6268                                                                                                                                                    6268                                                                                                                                                                         BFF dev server starting at http://0.0.0.0:5000                                                                                                                               Starting orchestrator...                                                                                                                                                     orchestrator started with PID 8532                                                                                                                                           8532                                                                                                                                                                         Orchestrator worker started                                                                                                                                                  
+
+ + = *60
+ðŸš€ SwAIvyn Development Environment Ready!
+= *60
+recommended : The term 'recommended' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path 
+was included, verify that the path is correct and try again.
+At D:\project\SwAIvyn\dev-run.ps1:426 char:48
++     $trafikMsg = "`n`u{1F310} TRAEFIK ROUTING (recommended for produc ...
++                                                ~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (recommended:String) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : CommandNotFoundException
+
+PS D:\project\SwAIvyn> 

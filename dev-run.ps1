@@ -517,8 +517,7 @@ Write-Host "Backend API: http://localhost:5000" -ForegroundColor White
 if ($UseTraefik) {
     # Set UTF-8 encoding to handle emoji properly
     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-    $trafikMsg = "`n`u{1F310} TRAEFIK ROUTING (recommended for production-like testing):"
-    Write-Host $trafikMsg -ForegroundColor Cyan
+    Write-Host "`n🌐 TRAEFIK ROUTING (recommended for production-like testing):" -ForegroundColor Cyan
     Write-Host "Frontend (via Traefik): http://app.localhost:$TraefikPort" -ForegroundColor White
     Write-Host "Backend API (via Traefik): http://bff.localhost:$TraefikPort" -ForegroundColor White
 }
