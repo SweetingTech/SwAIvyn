@@ -37,6 +37,9 @@ services:
         constraints:
           - node.role == manager
       labels:
+        - swai.service.name=traefik-proxy
+        - swai.service.type=routing
+        - swai.service.description=Reverse proxy and load balancer
         - traefik.enable=true
         - traefik.http.routers.dashboard.rule=Host(`traefik.localhost`)
         - traefik.http.routers.dashboard.entrypoints=web
@@ -62,6 +65,9 @@ services:
     deploy:
       replicas: 1
       labels:
+        - swai.service.name=fish-speech-tts
+        - swai.service.type=ai-audio
+        - swai.service.description=Fish Speech text-to-speech service
         - traefik.enable=true
         - traefik.http.routers.tts.rule=Host(`tts.localhost`)
         - traefik.http.routers.tts.entrypoints=web
@@ -81,6 +87,9 @@ services:
     deploy:
       replicas: 1
       labels:
+        - swai.service.name=elevenlabs-tts
+        - swai.service.type=ai-audio
+        - swai.service.description=ElevenLabs TTS adapter service
         - traefik.enable=true
         - traefik.http.routers.tts11.rule=Host(`elevenlabs.localhost`)
         - traefik.http.routers.tts11.entrypoints=web
@@ -102,6 +111,9 @@ services:
         mode: host
     deploy:
       labels:
+        - swai.service.name=whisper-speech-to-text
+        - swai.service.type=ai-audio
+        - swai.service.description=OpenAI Whisper speech-to-text service
         - traefik.enable=true
         - traefik.http.routers.stt.rule=Host(`stt.localhost`)
         - traefik.http.routers.stt.entrypoints=web
@@ -120,6 +132,9 @@ services:
         mode: host
     deploy:
       labels:
+        - swai.service.name=qdrant-vector-db
+        - swai.service.type=database
+        - swai.service.description=Qdrant vector database for embeddings
         - traefik.enable=true
         - traefik.http.routers.qdrant.rule=Host(`qdrant.localhost`)
         - traefik.http.routers.qdrant.entrypoints=web
@@ -144,6 +159,9 @@ services:
         mode: host
     deploy:
       labels:
+        - swai.service.name=neo4j-graph-db
+        - swai.service.type=database
+        - swai.service.description=Neo4j graph database for relationships
         - traefik.enable=true
         - traefik.http.routers.neo4j.rule=Host(`graph.localhost`)
         - traefik.http.routers.neo4j.entrypoints=web
@@ -177,6 +195,9 @@ services:
         constraints:
           - node.role == manager
       labels:
+        - swai.service.name=temporal-workflow
+        - swai.service.type=orchestration
+        - swai.service.description=Temporal workflow orchestration engine
         - traefik.enable=true
         - traefik.http.routers.temporal.rule=Host(`temporal.localhost`)
         - traefik.http.routers.temporal.entrypoints=web
@@ -197,6 +218,11 @@ services:
         published: 5432
         protocol: tcp
         mode: host
+    deploy:
+      labels:
+        - swai.service.name=postgresql-main-db
+        - swai.service.type=database
+        - swai.service.description=PostgreSQL main application database
 
 
   # Weaviate vector DB and inference modules
@@ -228,6 +254,9 @@ services:
         mode: host
     deploy:
       labels:
+        - swai.service.name=weaviate-vector-db
+        - swai.service.type=database
+        - swai.service.description=Weaviate vector database with AI modules
         - traefik.enable=true
         - traefik.http.routers.weav.rule=Host(`weaviate.localhost`)
         - traefik.http.routers.weav.entrypoints=web
@@ -239,6 +268,11 @@ services:
       - ENABLE_CUDA=0
     networks:
       - swai-public
+    deploy:
+      labels:
+        - swai.service.name=clip-embeddings
+        - swai.service.type=ai-transformer
+        - swai.service.description=CLIP multimodal embeddings model
 
   qna-transformers:
     image: semitechnologies/qna-transformers:distilbert-base-uncased-distilled-squad
@@ -246,6 +280,11 @@ services:
       - ENABLE_CUDA=0
     networks:
       - swai-public
+    deploy:
+      labels:
+        - swai.service.name=question-answering
+        - swai.service.type=ai-transformer
+        - swai.service.description=DistilBERT question answering model
 
   sum-transformers:
     image: semitechnologies/sum-transformers:facebook-bart-large-cnn-1.0.0
@@ -253,11 +292,21 @@ services:
       - ENABLE_CUDA=0
     networks:
       - swai-public
+    deploy:
+      labels:
+        - swai.service.name=text-summarization
+        - swai.service.type=ai-transformer
+        - swai.service.description=BART text summarization model
 
   text-spellcheck:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-en
     networks:
       - swai-public
+    deploy:
+      labels:
+        - swai.service.name=spell-checker
+        - swai.service.type=ai-transformer
+        - swai.service.description=Text spell checking service
 
   reranker-transformers:
     image: semitechnologies/reranker-transformers:cross-encoder-ms-marco-MiniLM-L-6-v2
@@ -265,6 +314,11 @@ services:
       - ENABLE_CUDA=0
     networks:
       - swai-public
+    deploy:
+      labels:
+        - swai.service.name=text-reranker
+        - swai.service.type=ai-transformer
+        - swai.service.description=Text reranking model for search results
 
   # Proxy services for host-based applications
   bff-proxy:
@@ -274,6 +328,9 @@ services:
     deploy:
       replicas: 1
       labels:
+        - swai.service.name=backend-api-proxy
+        - swai.service.type=proxy
+        - swai.service.description=Proxy to FastAPI backend on host
         - traefik.enable=true
         - traefik.http.routers.bff.rule=Host(`bff.localhost`)
         - traefik.http.routers.bff.entrypoints=web
@@ -286,6 +343,9 @@ services:
     deploy:
       replicas: 1
       labels:
+        - swai.service.name=frontend-app-proxy
+        - swai.service.type=proxy
+        - swai.service.description=Proxy to React frontend on host
         - traefik.enable=true
         - traefik.http.routers.frontend.rule=Host(`app.localhost`)
         - traefik.http.routers.frontend.entrypoints=web
