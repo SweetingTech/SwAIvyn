@@ -63,42 +63,75 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 #### Development (Recommended)
 
-SwAIvyn now includes two development startup scripts for different use cases:
+SwAIvyn includes comprehensive development scripts that handle both Docker containers and non-Docker services:
 
-**1. Full Development (Traefik + Docker Swarm) - Recommended**
+**1. Quick Start - Full Development Environment**
 
-Production-like environment with Traefik routing and full Docker infrastructure:
-
-```powershell
-# Start the full development environment (Traefik enabled by default)
-.\SwAIvyn\scripts\dev-run.ps1
-
-# Disable Traefik if needed
-.\SwAIvyn\scripts\dev-run.ps1 -DisableTraefik
-```
-
-**2. Simple Development (Host Services Only)**
-
-Lightweight development without Docker infrastructure:
+Start everything with a single command:
 
 ```powershell
-# Start simple development environment
-.\SwAIvyn\scripts\dev-run-simple.ps1
+# Start all Docker containers + non-Docker services
+.\dev-run.ps1
+
+# Stop everything cleanly
+.\dev-shutdown.ps1
 ```
 
-**Key Features of the Fixed Development Environment:**
+**2. Development Options**
 
-✅ **Resolved Temporal Connectivity Issues** - Fixed "broken pipe" errors
-✅ **Enhanced Startup Orchestration** - Proper service dependency checking  
+The dev-run script supports various configurations:
+
+```powershell
+# Frontend only (React/Vite)
+.\dev-run.ps1 -FrontendOnly
+
+# Backend only (FastAPI + Docker infrastructure)
+.\dev-run.ps1 -BackendOnly
+
+# Disable Traefik routing (use direct ports)
+.\dev-run.ps1 -DisableTraefik
+
+# Complete shutdown with container removal
+.\dev-shutdown.ps1 -DownCompose
+
+# Aggressive cleanup (prune networks and system)
+.\dev-shutdown.ps1 -Aggressive
+```
+
+**What the Development Scripts Handle:**
+
+**Docker Containers Started:**
+- PostgreSQL database (swai-db) - localhost:5432
+- Temporal workflow service - localhost:7233  
+- Qdrant vector database - localhost:6333
+- Neo4j graph database - localhost:7474/7687
+- Fish Speech TTS service - localhost:8081
+- Speech-to-Text (Whisper) - localhost:9000
+- 11Labs TTS adapter - localhost:8082
+- Traefik reverse proxy - localhost:80
+
+**Non-Docker Services Started:**
+- Frontend (React/Vite) - localhost:5173
+- Backend BFF (FastAPI) - localhost:5000
+- Orchestrator (Temporal worker)
+
+**Key Features:**
+✅ **One-Command Setup** - Start everything with `.\dev-run.ps1`
+✅ **Clean Shutdown** - Stop everything with `.\dev-shutdown.ps1`
+✅ **Health Checks** - Waits for services to be ready before proceeding
+✅ **Service Coordination** - Ensures dependencies are ready before starting dependent services
 ✅ **Remote Access Support** - Services accessible from other devices on your network
 ✅ **Traefik Integration** - Full routing with *.localhost domains
-✅ **Improved Error Handling** - Clear status messages and helpful warnings
+✅ **Process Management** - Tracks all running services for easy cleanup
 
-**Available URLs (Full Development):**
-- Frontend: http://localhost:5173 or http://app.localhost
-- Backend API: http://localhost:5000 or http://bff.localhost
-- Traefik Dashboard: http://traefik.localhost
-- Infrastructure services via Traefik routing
+**Available URLs:**
+- **Frontend**: http://localhost:5173 or http://app.localhost:80
+- **Backend API**: http://localhost:5000 or http://bff.localhost:80
+- **Traefik Dashboard**: http://traefik.localhost:80
+- **Infrastructure Services**:
+  - Qdrant Vector DB: http://qdrant.localhost:80
+  - Neo4j Graph DB: http://graph.localhost:80
+  - Weaviate Vector DB: http://weaviate.localhost:80
 
 **Remote Access:**
 Both scripts configure services to be accessible from other devices on your network via your machine's IP address.
@@ -400,31 +433,46 @@ A new **Agents** tab is available in the SwAIvyn frontend. This tab allows you t
 
 ---
 
-## Developer Quickstart (Hybrid Dev)
+## Developer Quickstart
 
-Run app tiers (BFF, Orchestrator, Frontend) on the host with hot reload, and keep infra in Docker (Postgres, Temporal, Qdrant, Neo4j, STT, ElevenLabs adapter).
+SwAIvyn uses a hybrid development approach: application services (BFF, Orchestrator, Frontend) run on the host with hot reload, while infrastructure services run in Docker containers.
 
-Prereqs:
-- Docker Desktop
-- Python 3.11+ (`python --version`)
-- Node 18+
+### Prerequisites:
+- **Docker Desktop** (required for infrastructure)
+- **Python 3.11+** (`python --version`)
+- **Node 18+** (`node --version`)
 
-Scripts:
-- Start everything: `scripts/dev-start.ps1`
-  - Options: `-IncludeTTS` (builds heavy TTS image), `-ActivityThreads 64`, `-NoStopAppContainers`
-- Stop everything: `scripts/dev-stop.ps1`
-  - Full teardown: `scripts/dev-stop.ps1 -Down`
+### Quick Start:
+```powershell
+# Start everything (Docker + non-Docker services)
+.\dev-run.ps1
 
-Endpoints:
-- UI: http://localhost:5173
-- BFF API: http://localhost:5000 (health: `/healthz`, `/api/readyz`)
-- Temporal: `localhost:7233`
-- Qdrant: http://localhost:6333
-- Neo4j: http://localhost:7474 (bolt `localhost:7687`)
+# Stop everything cleanly
+.\dev-shutdown.ps1
+```
 
-Seeded users:
-- admin / admin1234
-- Mari / mari1234
-- DJay / djay1234
+### Development Endpoints:
+- **UI**: http://localhost:5173
+- **BFF API**: http://localhost:5000 (health: `/healthz`, `/api/readyz`)
+- **Temporal**: localhost:7233
+- **Qdrant**: http://localhost:6333
+- **Neo4j**: http://localhost:7474 (bolt: `localhost:7687`)
+
+### Default Test Users:
+- **admin** / admin1234
+- **Mari** / mari1234  
+- **DJay** / djay1234
+
+### Advanced Options:
+```powershell
+# Frontend only development
+.\dev-run.ps1 -FrontendOnly
+
+# Backend only development  
+.\dev-run.ps1 -BackendOnly
+
+# Complete removal (containers + networks)
+.\dev-shutdown.ps1 -DownCompose -Prune
+```
 
 See `docs/HYBRID_DEV.md` for details, `docs/BARE_METAL.md` for a container‑free deployment guide, and `docs/DATAFLOW.md` for architecture diagrams.
