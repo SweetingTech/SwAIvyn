@@ -167,10 +167,11 @@ services:
         protocol: tcp
         mode: host
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8233/health || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7233 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     deploy:
       placement:
         constraints:
