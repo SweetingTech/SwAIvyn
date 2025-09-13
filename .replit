@@ -1,4 +1,4 @@
-modules = ["dotnet-7.0", "web", "nodejs-20", "python-3.11"]
+modules = ["dotnet-7.0", "web", "nodejs-20", "python-3.11", "postgresql-16"]
 [agent]
 expertMode = true
 
@@ -55,8 +55,8 @@ externalPort = 8000
 exposeLocalhost = true
 
 [[ports]]
-localPort = 32933
-externalPort = 3000
+localPort = 35823
+externalPort = 3001
 
 [deployment]
 deploymentTarget = "autoscale"

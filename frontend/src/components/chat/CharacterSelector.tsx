@@ -6,11 +6,8 @@ import { useInitialization } from '../../contexts/InitializationContext';
 interface Character {
   id: string;
   name: string;
-  description: string;
-  personality: string;
-  systemPrompt: string;
-  yamlProfile: string;
-  userId: string;
+  systemPrompt?: string;
+  imagePath?: string;
 }
 
 interface CharacterSelectorProps {
@@ -122,13 +119,26 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
         <div className="flex items-center space-x-2 flex-grow">
           {selectedCharacter ? (
             <>
-              <Bot size={16} className="text-blue-500" />
+              {selectedCharacter.imagePath ? (
+                <img 
+                  src={selectedCharacter.imagePath} 
+                  alt={selectedCharacter.name}
+                  className="w-4 h-4 rounded-full object-cover flex-shrink-0"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const botIcon = target.parentElement?.querySelector('.fallback-icon') as HTMLElement;
+                    if (botIcon) botIcon.style.display = 'block';
+                  }}
+                />
+              ) : null}
+              <Bot size={16} className={`text-blue-500 fallback-icon ${selectedCharacter.imagePath ? 'hidden' : 'block'}`} />
               <div className="text-left">
                 <div className="text-sm font-medium text-gray-900 truncate">
-                  {selectedCharacter.name}
+                  {selectedCharacter.id === 'default' ? 'GLaDOS' : selectedCharacter.name}
                 </div>
                 <div className="text-xs text-gray-500 truncate">
-                  {selectedCharacter.description || 'AI Character'}
+                  {selectedCharacter.id === 'default' ? 'Default AI assistant' : 'AI Character'}
                 </div>
               </div>
             </>
@@ -137,7 +147,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
               <User size={16} className="text-gray-400" />
               <div className="text-left">
                 <div className="text-sm font-medium text-gray-900">
-                  Default (GLaDOS)
+                  GLaDOS
                 </div>
                 <div className="text-xs text-gray-500">
                   Default AI assistant
@@ -164,24 +174,6 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
             </div>
           ) : (
             <>
-              {/* Default option */}
-              <button
-                onClick={() => handleCharacterSelect(null)}
-                className={`w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-gray-50 overflow-hidden ${
-                  !selectedCharacterId ? 'bg-blue-50 border-r-2 border-blue-500' : ''
-                }`}
-              >
-                <User size={16} className="text-gray-400" />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">
-                    Default (GLaDOS)
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Default AI assistant
-                  </div>
-                </div>
-              </button>
-
               {/* Character options */}
               {characters.map((character) => (
                 <button
@@ -191,13 +183,28 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
                     selectedCharacterId === character.id ? 'bg-blue-50 border-r-2 border-blue-500' : ''
                   }`}
                 >
-                  <Bot size={16} className="text-blue-500" />
+                  <div className="flex-shrink-0 relative">
+                    {character.imagePath ? (
+                      <img 
+                        src={character.imagePath} 
+                        alt={character.name}
+                        className="w-4 h-4 rounded-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const botIcon = target.parentElement?.querySelector('.fallback-icon') as HTMLElement;
+                          if (botIcon) botIcon.style.display = 'block';
+                        }}
+                      />
+                    ) : null}
+                    <Bot size={16} className={`text-blue-500 fallback-icon ${character.imagePath ? 'hidden' : 'block'}`} />
+                  </div>
                   <div className="flex-grow min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">
-                      {character.name || 'Unnamed Character'}
+                      {character.id === 'default' ? 'GLaDOS' : character.name || 'Unnamed Character'}
                     </div>
                     <div className="text-xs text-gray-500 truncate">
-                      {character.description || character.personality || 'Custom AI Character'}
+                      {character.id === 'default' ? 'Default AI assistant' : 'AI Character'}
                     </div>
                   </div>
                 </button>
