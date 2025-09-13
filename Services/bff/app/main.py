@@ -19,7 +19,8 @@ from .auth import create_access_token, verify_password, get_current_user, requir
 from .models import users, chat_settings as t_chat_settings, connection_settings as t_conn_settings, characters as t_characters, conversations as t_conversations, messages as t_messages, workflows as t_workflows
 
 
-TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "temporal:7233")
+# Prefer IPv4 loopback by default so host apps can reach Temporal in Docker
+TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -92,27 +93,29 @@ async def current_user_dep(
 
 
 async def _connect_with_retry(addr: str) -> Client:
-    delay = 1
-    last_err = None
-    for attempt in range(1, 16):
+    """Keep trying to connect to Temporal until success.
+    This prevents startup from failing if the server is still initializing.
+    """
+    delay, attempt = 1, 0
+    while True:
+        attempt += 1
         try:
             return await Client.connect(addr)
         except Exception as e:
-            last_err = e
-            print(f"Temporal connect failed (attempt {attempt}): {e}", file=sys.stderr, flush=True)
+            print(f"Temporal connect failed (attempt {attempt}) to {addr}: {e}", file=sys.stderr, flush=True)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 5)
-    raise last_err
 
+
+async def _ensure_temporal_connected():
+    global _temporal_client
+    if _temporal_client is None:
+        _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
 
 @app.on_event("startup")
 async def _startup_connect_temporal():
-    global _temporal_client
-    try:
-        _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
-    except Exception as e:
-        # Don't fail startup; connect lazily on first request
-        print(f"Temporal not ready at startup: {e}", file=sys.stderr, flush=True)
+    # Fire-and-forget connection attempt so startup does not block the server
+    asyncio.create_task(_ensure_temporal_connected())
 
 
 @app.on_event("startup")
@@ -171,15 +174,9 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    global _temporal_client
-    try:
-        if _temporal_client is None:
-            _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
-        # Lightweight call to verify connectivity by listing namespaces (implicit ping)
-        # Note: If SDK lacks a ping, we assume connect() suffices.
-        return {"status": "ready"}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Not ready: {e}")
+    # Do not block readiness on Temporal connectivity; return 200 so UI can load/login
+    # Report simple status while background task connects
+    return {"status": "ready", "temporal": ("connected" if _temporal_client is not None else "connecting")}
 
 
 # Dev/proxy compatibility: allow frontend to call /api/* for health endpoints

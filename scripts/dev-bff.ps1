@@ -98,7 +98,8 @@ $uploadsDir = Join-Path $root 'wwwroot/uploads'
 New-Item -ItemType Directory -Force -Path $uploadsDir | Out-Null
 
 if ($pgPwd) { $env:DATABASE_URL = "postgresql+asyncpg://postgres:$pgPwd@localhost:5432/swai" } else { $env:DATABASE_URL = '' }
-if (-not $env:TEMPORAL_HOST) { $env:TEMPORAL_HOST = 'localhost:7233' }
+# Prefer IPv4 loopback to avoid potential IPv6 localhost issues with gRPC
+$env:TEMPORAL_HOST = '127.0.0.1:7233'
 if (-not $env:QDRANT_URL) { $env:QDRANT_URL = 'http://localhost:6333' }
 if (-not $env:NEO4J_URL) { $env:NEO4J_URL = 'bolt://localhost:7687' }
 

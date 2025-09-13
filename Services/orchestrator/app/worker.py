@@ -10,17 +10,20 @@ from . import activities as acts
 
 
 async def _connect_with_retry(addr: str) -> Client:
+    """Keep trying to connect to Temporal until success.
+    Dev quality-of-life: do not crash the worker if Temporal starts slowly.
+    """
     delay = 1
-    last_err = None
-    for attempt in range(1, 31):
+    attempt = 0
+    while True:
+        attempt += 1
         try:
             return await Client.connect(addr)
         except Exception as e:
-            last_err = e
-            print(f"Temporal connect failed (attempt {attempt}): {e}", file=sys.stderr, flush=True)
+            print(f"Temporal connect failed (attempt {attempt}) to {addr}: {e}", file=sys.stderr, flush=True)
             await asyncio.sleep(delay)
+            # Exponential backoff up to 10s
             delay = min(delay * 2, 10)
-    raise RuntimeError(f"Unable to connect to Temporal at {addr}") from last_err
 
 
 async def main() -> None:

@@ -61,28 +61,47 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Installation
 
-#### Dev (Hybrid + Traefik, recommended)
+#### Development (Recommended)
 
-Run apps on host with hot‑reload; route Docker services via Traefik in Docker Swarm.
+SwAIvyn now includes two development startup scripts for different use cases:
 
-Quick start:
+**1. Full Development (Traefik + Docker Swarm) - Recommended**
 
+Production-like environment with Traefik routing and full Docker infrastructure:
+
+```powershell
+# Start the full development environment (Traefik enabled by default)
+.\SwAIvyn\scripts\dev-run.ps1
+
+# Disable Traefik if needed
+.\SwAIvyn\scripts\dev-run.ps1 -DisableTraefik
 ```
-# Build images (all or targeted)
-SwAIvyn\scripts\build-stack.ps1 -All -Pull
-# or build specific parts: tts, infra, kanban, app
-SwAIvyn\scripts\build-stack.ps1 -Target tts,infra -Pull
 
-# Start dev (auto-inits Swarm, deploys Traefik + TTS proxy)
-SwAIvyn\scripts\run_dev.ps1
+**2. Simple Development (Host Services Only)**
+
+Lightweight development without Docker infrastructure:
+
+```powershell
+# Start simple development environment
+.\SwAIvyn\scripts\dev-run-simple.ps1
 ```
 
-Notes:
-- `build-stack.ps1 -List` shows all targets and groups.
-- Dev backend points to Traefik routes by default:
-  - `FISHSPEECH_URL=http://tts.localhost`
-  - `TTS_ADAPTER_URL=http://elevenlabs.localhost`
-- Databases and non-HTTP services remain on localhost ports by default.
+**Key Features of the Fixed Development Environment:**
+
+✅ **Resolved Temporal Connectivity Issues** - Fixed "broken pipe" errors
+✅ **Enhanced Startup Orchestration** - Proper service dependency checking  
+✅ **Remote Access Support** - Services accessible from other devices on your network
+✅ **Traefik Integration** - Full routing with *.localhost domains
+✅ **Improved Error Handling** - Clear status messages and helpful warnings
+
+**Available URLs (Full Development):**
+- Frontend: http://localhost:5173 or http://app.localhost
+- Backend API: http://localhost:5000 or http://bff.localhost
+- Traefik Dashboard: http://traefik.localhost
+- Infrastructure services via Traefik routing
+
+**Remote Access:**
+Both scripts configure services to be accessible from other devices on your network via your machine's IP address.
 
 ### Dev Seed Helpers (Users, Characters, Workflow)
 

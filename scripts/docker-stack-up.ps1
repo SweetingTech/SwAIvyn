@@ -91,10 +91,25 @@ function Ensure-Images {
     if (-not (Test-ImageExists 'swai/orchestrator:local')) { Build-Image -Context $orchCtx -Tag 'swai/orchestrator:local' }
   }
 }
+function Ensure-StackNetwork {
+  param([string]$StackName, [string]$Network = 'swai-public')
+  $netName = "$StackName`_$Network"
+  try {
+    $exists = (& docker network ls --format '{{.Name}}' 2>$null) | Where-Object { $_ -eq $netName }
+    if (-not $exists) {
+      Write-Host ("Creating overlay network '{0}'..." -f $netName) -ForegroundColor DarkGray
+      & docker network create -d overlay --attachable $netName 2>$null | Out-Null
+    }
+  } catch {
+    Write-Warning ("Failed to ensure overlay network '{0}': {1}" -f $netName, $_.Exception.Message)
+  }
+}
+
 
 function Deploy-Stack {
   param([string]$Name, [string]$File)
   # Export env for variable substitution in stack yaml
+  $env:STACK_NAME = $Name
   if ($UpstreamUrl) { $env:UPSTREAM_TTS = $UpstreamUrl }
   # Voices mount path (POSIX form for Docker Desktop Linux engine)
   $voicesWin = Join-Path $root 'speech/TTS/openaudio-s1-mini/voices'
@@ -108,7 +123,7 @@ function Deploy-Stack {
   Write-Host ("Deploying stack '{0}' from {1}" -f $Name, $File) -ForegroundColor Cyan
   Push-Location $root
   try {
-    & docker stack deploy -c $File $Name
+    & docker stack deploy -c $File $Name --detach=false
   } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) { throw 'docker stack deploy failed' }
 }
@@ -119,7 +134,7 @@ function Wait-Health {
   $port = $TraefikPort
   $url1 = "http://$($HostName):$($port)$Path"
   $url2 = "http://127.0.0.1:$($port)$Path"
-  1..$Retries | ForEach-Object {
+  for ($i = 1; $i -le $Retries; $i++) {
     try {
       # Try DNS route
       $r = Invoke-WebRequest -Uri $url1 -UseBasicParsing -TimeoutSec 3
@@ -131,6 +146,7 @@ function Wait-Health {
         if ($r2.StatusCode -ge 200 -and $r2.StatusCode -lt 300) { $ok = $true; break }
       } catch {}
     }
+    if ($ok) { break }
     Start-Sleep -Seconds $DelaySec
   }
   return $ok
@@ -138,6 +154,8 @@ function Wait-Health {
 
 Ensure-SwarmActive
 Ensure-Images
+Ensure-StackNetwork -StackName $StackName
+
 Deploy-Stack -Name $StackName -File $stackFile
 
 Write-Host ("Waiting on TTS via Traefik (http://tts.localhost:{0}/health)..." -f $TraefikPort) -ForegroundColor DarkGray
