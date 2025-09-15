@@ -4,6 +4,7 @@ import sys
 import json
 import ipaddress
 import urllib.parse
+import uuid
 from typing import Optional, Dict, Any, List
 
 import httpx
@@ -465,6 +466,19 @@ class PinUpdate(BaseModel):
 class RecoveryCode(BaseModel):
     codes: List[str]
 
+class CharacterCreate(BaseModel):
+    name: str
+    system_prompt: str
+    image_path: Optional[str] = None
+    is_shared: bool = False  # Admin-only: create shared character
+
+class CharacterUpdate(BaseModel):
+    name: Optional[str] = None
+    system_prompt: Optional[str] = None
+    systemPrompt: Optional[str] = None  # Support camelCase from frontend
+    image_path: Optional[str] = None
+    imagePath: Optional[str] = None  # Support camelCase from frontend
+
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
     if not current:
@@ -594,3 +608,286 @@ async def put_llm_settings(payload: dict, engine: Optional[AsyncEngine] = Depend
     s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
     s["llmEngine"] = engine_name
     s["llmModel"] = model
+
+# ------------------------- Character Management -------------------------
+
+@app.get("/api/characters")
+async def list_characters(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """List characters accessible to the current user (their own + shared characters)"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.connect() as conn:
+        if is_admin:
+            # Admins see all characters
+            res = await conn.execute(select(t_characters).order_by(t_characters.c.name))
+        else:
+            # Regular users see shared characters (user_id=null) + their own characters
+            res = await conn.execute(
+                select(t_characters)
+                .where((t_characters.c.user_id == uid) | (t_characters.c.user_id.is_(None)))
+                .order_by(t_characters.c.name)
+            )
+        
+        characters = []
+        for row in res.fetchall():
+            char_dict = dict(row._mapping)
+            # Rename fields to match frontend expectations
+            char_dict["systemPrompt"] = char_dict.pop("system_prompt", "")
+            char_dict["imagePath"] = char_dict.pop("image_path", "")
+            char_dict["is_shared"] = char_dict["user_id"] is None
+            characters.append(char_dict)
+        
+        return characters
+
+@app.post("/api/characters")
+async def create_character(body: CharacterCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Create a new character"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    # Only admins can create shared characters
+    if body.is_shared and not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can create shared characters")
+    
+    # Generate unique ID
+    char_id = str(uuid.uuid4())
+    
+    # Set user_id based on whether it's shared
+    user_id = None if body.is_shared else uid
+    
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_characters.insert().values(
+                id=char_id,
+                user_id=user_id,
+                name=body.name,
+                system_prompt=body.system_prompt,
+                image_path=body.image_path,
+            )
+        )
+    
+    return {"id": char_id, "success": True}
+
+@app.get("/api/characters/{character_id}")
+async def get_character(character_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Get a specific character"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(t_characters).where(t_characters.c.id == character_id).limit(1)
+        )
+        row = res.first()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Character not found")
+        
+        char_dict = dict(row._mapping)
+        
+        # Check permissions
+        if not is_admin and char_dict["user_id"] not in (None, uid):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Rename fields to match frontend expectations
+        char_dict["systemPrompt"] = char_dict.pop("system_prompt", "")
+        char_dict["imagePath"] = char_dict.pop("image_path", "")
+        char_dict["is_shared"] = char_dict["user_id"] is None
+        return char_dict
+
+@app.put("/api/characters/{character_id}")
+async def update_character(character_id: str, body: CharacterUpdate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Update a character"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.begin() as conn:
+        # Check if character exists and user has permission
+        res = await conn.execute(
+            select(t_characters).where(t_characters.c.id == character_id).limit(1)
+        )
+        row = res.first()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Character not found")
+        
+        char_dict = dict(row._mapping)
+        
+        # Check permissions: admin can edit any, users can edit their own or shared
+        if not is_admin and char_dict["user_id"] not in (None, uid):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Only admins can modify shared characters
+        if char_dict["user_id"] is None and not is_admin:
+            raise HTTPException(status_code=403, detail="Only admins can modify shared characters")
+        
+        # Build update values
+        update_values = {}
+        if body.name is not None:
+            update_values["name"] = body.name
+        if body.system_prompt is not None or body.systemPrompt is not None:
+            update_values["system_prompt"] = body.system_prompt or body.systemPrompt
+        if body.image_path is not None or body.imagePath is not None:
+            update_values["image_path"] = body.image_path or body.imagePath
+        
+        if update_values:
+            await conn.execute(
+                t_characters.update()
+                .where(t_characters.c.id == character_id)
+                .values(**update_values)
+            )
+        
+        return {"success": True}
+
+@app.delete("/api/characters/{character_id}")
+async def delete_character(character_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Delete a character"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.begin() as conn:
+        # Check if character exists and user has permission
+        res = await conn.execute(
+            select(t_characters).where(t_characters.c.id == character_id).limit(1)
+        )
+        row = res.first()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Character not found")
+        
+        char_dict = dict(row._mapping)
+        
+        # Check permissions: admin can delete any, users can delete their own
+        if not is_admin and char_dict["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Prevent deletion of default characters
+        if character_id in ("default", "glados", "sam", "sherlock"):
+            raise HTTPException(status_code=400, detail="Cannot delete built-in characters")
+        
+        await conn.execute(
+            t_characters.delete().where(t_characters.c.id == character_id)
+        )
+        
+        return {"success": True}
+
+# ------------------------- Character Management (Legacy Endpoints) -------------------------
+# These endpoints match the frontend expectations
+
+@app.get("/api/character/user/{user_id}")
+async def list_user_characters(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """List characters for a specific user (legacy endpoint)"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    current_uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    # Users can only see their own characters unless they're admin
+    if user_id != current_uid and not is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    async with engine.connect() as conn:
+        # Get user's own characters + shared characters
+        res = await conn.execute(
+            select(t_characters)
+            .where((t_characters.c.user_id == user_id) | (t_characters.c.user_id.is_(None)))
+            .order_by(t_characters.c.name)
+        )
+        
+        characters = []
+        for row in res.fetchall():
+            char_dict = dict(row._mapping)
+            # Rename fields to match frontend expectations
+            char_dict["systemPrompt"] = char_dict.pop("system_prompt", "")
+            char_dict["imagePath"] = char_dict.pop("image_path", "")
+            char_dict["is_shared"] = char_dict["user_id"] is None
+            characters.append(char_dict)
+        
+        return characters
+
+@app.post("/api/character")
+async def create_character_legacy(body: CharacterCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Create a new character (legacy endpoint)"""
+    return await create_character(body, engine, current)
+
+@app.put("/api/character/{character_id}")
+async def update_character_legacy(character_id: str, body: CharacterUpdate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Update a character (legacy endpoint)"""
+    return await update_character(character_id, body, engine, current)
+
+@app.delete("/api/character/{character_id}")
+async def delete_character_legacy(character_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Delete a character (legacy endpoint)"""
+    return await delete_character(character_id, engine, current)
+
+@app.post("/api/character/import-yaml")
+async def import_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Import a character from YAML format"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    yaml_content = body.get("yaml", "")
+    if not yaml_content:
+        raise HTTPException(status_code=400, detail="YAML content required")
+    
+    try:
+        import yaml
+        data = yaml.safe_load(yaml_content)
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Invalid YAML format")
+        
+        # Extract character data from YAML
+        name = data.get("name", "Imported Character")
+        
+        # Build system prompt from YAML structure
+        parts = []
+        for field in ["description", "personality", "scenario", "instructions"]:
+            value = data.get(field, "")
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+        
+        system_prompt = "\n\n".join(parts) if parts else "You are a helpful AI assistant."
+        
+        # Create character
+        char_create = CharacterCreate(
+            name=name,
+            system_prompt=system_prompt,
+            image_path=None,  # Could extract from YAML if available
+            is_shared=False   # Default to private
+        )
+        
+        return await create_character(char_create, engine, current)
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse YAML: {str(e)}")

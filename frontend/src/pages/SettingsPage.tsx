@@ -1322,7 +1322,9 @@ const ModelSettings = () => {
 
 const CharacterSettings = () => {
   const { user } = useInitialization();
+  const { user: authUser } = useAuth();
   const mounted = useMountedRef();
+  const eff = useEffectiveUser();
 
   const [loading, setLoading] = useState(false);
   const [characters, setCharacters] = useState<Array<{ id: string; name: string; systemPrompt?: string; imagePath?: string }>>([]);
@@ -1620,7 +1622,7 @@ const CharacterSettings = () => {
                   placeholder="Describe the character's personality, role, and behavior..."
                 />
               </div>
-              {user?.role === 'admin' && (
+              {authUser?.role === 'admin' && (
                 <div className="sm:col-span-2">
                   <label className="flex items-center space-x-2">
                     <input 
