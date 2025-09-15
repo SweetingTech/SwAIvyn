@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .models import metadata, users, characters
+from .models import metadata, users, characters, connection_settings
 
 try:
     import yaml  # type: ignore
@@ -145,6 +145,39 @@ async def _seed_characters_from_ai_folder(conn: AsyncConnection) -> None:
     print("Character auto-loading complete", flush=True)
 
 
+async def _seed_default_connection_settings(conn: AsyncConnection) -> None:
+    """Seed default connection settings for all users who don't have them"""
+    # Get all users
+    res = await conn.execute(select(users.c.id))
+    user_ids = [row[0] for row in res.fetchall()]
+    
+    for user_id in user_ids:
+        # Check if connection settings already exist
+        res = await conn.execute(
+            select(connection_settings.c.user_id)
+            .where(connection_settings.c.user_id == user_id)
+            .limit(1)
+        )
+        if res.first():
+            continue  # User already has connection settings
+        
+        # Insert default connection settings
+        await conn.execute(
+            connection_settings.insert().values(
+                user_id=user_id,
+                OpenAiApiKey=None,
+                ClaudeApiKey=None,
+                ClaudeApiUrl="https://api.anthropic.com/v1",
+                OllamaApiUrl="http://localhost:11434",
+                LmStudioApiUrl="http://localhost:1234", 
+                EnableStreaming=True,
+                TtsGpu=None,
+                SttGpu=None,
+            )
+        )
+        print(f"Seeded default connection settings for user {user_id}", flush=True)
+
+
 async def ensure_seed(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:  # type: AsyncConnection
         await conn.run_sync(metadata.create_all)
@@ -152,8 +185,9 @@ async def ensure_seed(engine: AsyncEngine) -> None:
         # Check if any users exist
         res = await conn.execute(select(users.c.id).limit(1))
         if res.first():
-            # Users already exist, but still run character auto-loading
+            # Users already exist, but still run character auto-loading and connection settings seeding
             await _seed_characters_from_ai_folder(conn)
+            await _seed_default_connection_settings(conn)
             return
 
         # Seed default users: admin, Mari, DJay
@@ -226,3 +260,6 @@ async def ensure_seed(engine: AsyncEngine) -> None:
 
         # Auto-load character cards from frontend/AI folder
         await _seed_characters_from_ai_folder(conn)
+        
+        # Seed default connection settings for all users
+        await _seed_default_connection_settings(conn)

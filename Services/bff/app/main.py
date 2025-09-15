@@ -104,6 +104,7 @@ def _default_chat_settings(uid: str) -> Dict[str, Any]:
 def _validate_url_for_ssrf(url: str) -> bool:
     """Validate URL to prevent SSRF attacks.
     Returns True if URL is safe, False if it should be blocked.
+    In development mode, allows localhost connections for LLM services.
     """
     try:
         parsed = urllib.parse.urlparse(url)
@@ -118,12 +119,25 @@ def _validate_url_for_ssrf(url: str) -> bool:
             
         hostname = parsed.hostname.lower()
         
-        # Block localhost variations
+        # DEVELOPMENT EXCEPTION: Allow localhost connections for LLM services
+        # Check if we're in development mode (presence of certain env vars suggests dev)
+        is_development = (
+            os.getenv('REPLIT_DEV_DOMAIN') or 
+            os.getenv('DATABASE_URL', '').startswith('postgresql://') or
+            os.getenv('ENABLE_DEV_LOCALHOST', 'false').lower() == 'true'
+        )
+        
         localhost_variants = {
             'localhost', '127.0.0.1', '::1', '0.0.0.0'
         }
+        
         if hostname in localhost_variants:
-            return False
+            if is_development:
+                # Allow localhost in development for LLM services
+                return True
+            else:
+                # Block localhost in production
+                return False
             
         # Try to resolve IP and check for private/reserved ranges
         try:
@@ -145,6 +159,9 @@ def _validate_url_for_ssrf(url: str) -> bool:
             
             for network in private_networks:
                 if ip_obj in network:
+                    if is_development and ip_obj in ipaddress.ip_network('127.0.0.0/8'):
+                        # Allow loopback in development
+                        return True
                     return False
                     
         except (socket.gaierror, ValueError, ipaddress.AddressValueError):
@@ -670,13 +687,29 @@ async def put_llm_settings(payload: dict, engine: Optional[AsyncEngine] = Depend
 # ------------------------- Chat Settings (compat) -------------------------
 
 def _merge_chat_settings_from_db_row(row_map: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge chat settings from database row with proper JSON parsing and error handling."""
+    def safe_json_parse(value: Any, default: Dict[str, Any]) -> Dict[str, Any]:
+        """Safely parse JSON string or return default dict."""
+        if value is None:
+            return default
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, dict) else default
+            except (json.JSONDecodeError, TypeError):
+                print(f"Failed to parse JSON: {value!r}", file=sys.stderr, flush=True)
+                return default
+        return default
+    
     return {
         "llmEngine": row_map.get("llm_engine") or "ollama",
         "llmModel": row_map.get("llm_model") or os.getenv("LLM_MODEL", "llama3"),
         "ttsProvider": row_map.get("tts_provider") or "fishspeech",
         "ttsVoiceId": row_map.get("tts_voice_id") or "glados",
-        "enabledEngines": json.loads(row_map.get("enabled_engines") or "{}"),
-        "engineModels": json.loads(row_map.get("engine_models") or "{}"),
+        "enabledEngines": safe_json_parse(row_map.get("enabled_engines"), {}),
+        "engineModels": safe_json_parse(row_map.get("engine_models"), {}),
     }
 
 
