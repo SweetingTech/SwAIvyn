@@ -1,0 +1,296 @@
+Skip to content
+Navigation Menu
+SweetingTech
+SwAIvyn
+
+Type / to search
+Code
+Issues
+Pull requests
+1
+Actions
+Projects
+Models
+Security
+Insights
+Settings
+ Merged
+Add persistent agent status storage and expose event logs
+#58
+SweetingTech merged 2 commits into main from codex/update-agent-status-handling-and-logging  now
++867 −349 
+ Conversation 9
+ Commits 2
+ Checks 2
+ Files changed 4
+Conversation
+SweetingTech
+SweetingTech commented 15 minutes ago
+Summary
+add database tables for agent status and events and hook backend endpoints into them
+extend agent APIs with detail fetch, patch update, and broader status support while logging changes
+refresh agents UI to show real-time status, event log, and use the new patch endpoint; update agent service helpers
+Testing
+npm run build
+https://chatgpt.com/codex/tasks/task_e_68c8740c76148329833d8176fdc566ad
+
+@SweetingTech
+Add persistent agent status storage and UI event logs
+c24195c
+@SweetingTech SweetingTech added the codex label 15 minutes ago — with  ChatGPT Codex Connector
+gemini-code-assist[bot]
+gemini-code-assist bot reviewed 15 minutes ago
+gemini-code-assist bot left a comment
+Summary of Changes
+Hello @SweetingTech, I'm Gemini Code Assist1! I'm currently reviewing this pull request and will post my feedback shortly. In the meantime, here's a summary to help you and other reviewers quickly get up to speed!
+
+This pull request significantly upgrades the agent management system by implementing persistent storage for agent status and event logs. This change ensures that agent states and their historical activities are reliably recorded and accessible, even across application restarts. The backend API has been refactored to leverage this new persistence layer, offering more robust control and detailed insights into agent operations. Concurrently, the frontend user interface has been revamped to present this enhanced data, providing users with a clearer, real-time view of their agents and their activity history.
+
+Highlights
+Persistent Agent Status and Events: Introduced new database tables (agent_status and agent_events) to persistently store agent runtime status and an append-only log of agent events, moving away from in-memory storage.
+Extended Agent API Endpoints: Enhanced the backend API to support fetching detailed agent information, performing partial updates (PATCH) to agent status and metadata, and logging status changes as events. The existing start, stop, and delete operations now also interact with the persistent storage.
+Refreshed Agent Dashboard UI: The frontend agent management page has been updated to display real-time agent status from the new persistent storage, show detailed event logs for each agent, and utilize the new PATCH endpoint for agent actions like starting and stopping.
+Improved Agent Data Model: The agent data model in both the backend and frontend has been updated to include fields like startedAt, finishedAt, updatedAt, and meta for richer status representation and event logging.
+Using Gemini Code Assist
+Footnotes
+Review the Privacy Notices, Generative AI Prohibited Use Policy, Terms of Service, and learn how to configure Gemini Code Assist in GitHub here. Gemini can make mistakes, so double check it and use code with caution. ↩
+
+gemini-code-assist[bot]
+gemini-code-assist bot reviewed 13 minutes ago
+gemini-code-assist bot left a comment
+Code Review
+This pull request is a significant and well-executed enhancement, introducing persistent storage for agent status and events. The backend changes are robust, with new database models, comprehensive API endpoints (GET, PATCH, DELETE), and thoughtful helper functions for status normalization and data serialization. The frontend has been impressively overhauled to display real-time agent status, provide an expandable activity log, and utilize the new, more idiomatic PATCH API for updates. The code quality is high, and the separation of concerns between database persistence and in-memory caching is handled well. I have a few suggestions to further improve correctness and maintainability.
+
+frontend/src/pages/AgentsPage.tsx
+Comment on lines +206 to +225
+    async (id: string, payload: Record<string, unknown>) => {
+      try {
+        await fetch(`/api/agents/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...eff.headers },
+          body: JSON.stringify(payload),
+        });
+        await loadAgents();
+        if (expandedAgent === id) {
+          setEventLogs((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+          await fetchAgentDetail(id, true);
+        }
+      } catch (err) {
+        console.error('Failed to update agent', err);
+      }
+    },
+@gemini-code-assist gemini-code-assist bot 14 minutes ago
+high
+
+The updateAgent function does not check the response status of the fetch call. If the PATCH request fails with an HTTP error (e.g., 4xx or 5xx), the catch block won't be triggered, and the code will proceed as if the update succeeded. This can lead to a misleading UI state. You should check the response.ok property and throw an error if the request was unsuccessful to ensure failures are handled correctly.
+
+    async (id: string, payload: Record<string, unknown>) => {
+      try {
+        const resp = await fetch(`/api/agents/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...eff.headers },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          const errorText = await resp.text();
+          throw new Error(`Failed to update agent: ${resp.status} ${errorText}`);
+        }
+
+        await loadAgents();
+        if (expandedAgent === id) {
+          setEventLogs((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+          await fetchAgentDetail(id, true);
+        }
+      } catch (err) {
+        console.error('Failed to update agent', err);
+      }
+    },
+@SweetingTech	Reply...
+Services/bff/app/main.py
+    events: List[Dict[str, Any]] = ag.setdefault("events", [])  # type: ignore[assignment]
+    events.append(event)
+    if len(events) > 200:
+        del events[:-200]
+@gemini-code-assist gemini-code-assist bot 14 minutes ago
+medium
+
+For improved readability, consider using a slice assignment to truncate the events list. The del events[:-200] syntax is functionally correct but less common and potentially more obscure to future maintainers than the slice assignment events[:] = events[-200:], which clearly expresses the intent to replace the list's contents with its last 200 items.
+
+Suggested change
+        del events[:-200]
+        events[:] = events[-200:]
+@SweetingTech	Reply...
+Services/bff/app/main.py
+    merged["updatedAt"] = now
+
+    log_event = event_status is not None or event_message or event_meta is not None
+    effective_event_status = _normalize_agent_status(event_status or merged.get("status"), merged.get("status"))
+@gemini-code-assist gemini-code-assist bot 14 minutes ago
+medium
+
+The logic for determining effective_event_status can be simplified for better readability. The _normalize_agent_status function is designed to handle an optional first argument and a default value, which can be leveraged more directly here.
+
+Suggested change
+    effective_event_status = _normalize_agent_status(event_status or merged.get("status"), merged.get("status"))
+    effective_event_status = _normalize_agent_status(event_status, merged.get("status"))
+@SweetingTech	Reply...
+Services/bff/app/main.py
+
+
+@app.patch("/api/agents/{agent_id}")
+async def agents_update(agent_id: str, body: dict = {}, current=Depends(current_user_dep)):
+@gemini-code-assist gemini-code-assist bot 13 minutes ago
+medium
+
+The function signature uses body: dict = {}, which requires manual and error-prone dictionary access (e.g., body.get("key")). To improve type safety, validation, and code clarity, I recommend using a Pydantic BaseModel for the request body. This allows FastAPI to automatically validate incoming data and provides better static analysis and autocompletion.
+
+For example, you could define a model like this:
+
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    userId: Optional[str] = None
+    status: Optional[str] = None
+    startedAt: Optional[str] = None
+    finishedAt: Optional[str] = None
+    clearFinished: Optional[bool] = None
+    meta: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+    eventMeta: Optional[Any] = None
+
+# And update the signature:
+async def agents_update(agent_id: str, body: AgentUpdateRequest, ...):
+    # ... then access properties like body.name, body.status
+@SweetingTech	Reply...
+frontend/src/services/agentService.ts
+Comment on lines +53 to 59
+export const stopAgent = async (id: string, status: string = 'paused', message = 'Stopped via API'): Promise<void> => {
+  await axios.patch(`${API_BASE}/api/agents/${id}`, {
+    status,
+    message,
+    finishedAt: status === 'completed' || status === 'failed' ? new Date().toISOString() : undefined,
+  });
+};
+@gemini-code-assist gemini-code-assist bot 13 minutes ago
+medium
+
+The stopAgent function only sets finishedAt for completed or failed statuses. The backend supports other terminal statuses like cancelled and stopped. To make this service function more robust and aligned with the backend's capabilities, you should check against a broader set of terminal statuses when deciding whether to set finishedAt.
+
+Suggested change
+export const stopAgent = async (id: string, status: string = 'paused', message = 'Stopped via API'): Promise<void> => {
+  await axios.patch(`${API_BASE}/api/agents/${id}`, {
+    status,
+    message,
+    finishedAt: status === 'completed' || status === 'failed' ? new Date().toISOString() : undefined,
+  });
+};
+export const stopAgent = async (id: string, status: string = 'paused', message = 'Stopped via API'): Promise<void> => {
+  const terminalStatuses = ['completed', 'failed', 'stopped', 'cancelled', 'error'];
+  await axios.patch(`${API_BASE}/api/agents/${id}`, {
+    status,
+    message,
+    finishedAt: terminalStatuses.includes(status) ? new Date().toISOString() : undefined,
+  });
+};
+@SweetingTech	Reply...
+chatgpt-codex-connector[bot]
+chatgpt-codex-connector bot reviewed 12 minutes ago
+chatgpt-codex-connector bot left a comment
+Codex Review: Here are some suggestions.
+
+Reply with @codex fix comments to fix any unresolved comments.
+
+About Codex in GitHub
+Services/bff/app/main.py
+Comment on lines +2437 to +2452
+    existing = await _fetch_agent(agent_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    viewer_is_admin = current.get("role") == "admin"
+    uid = current.get("id")
+    requested_user = body.get("userId")
+    if not viewer_is_admin and existing.get("userId") not in {uid, None} and requested_user not in {uid, None}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    updates: Dict[str, Any] = {}
+    if "name" in body:
+        updates["name"] = body.get("name")
+    if "userId" in body:
+        updates["userId"] = requested_user
+
+@chatgpt-codex-connector chatgpt-codex-connector bot 12 minutes ago
+[P1] Harden authorization when patching agent records
+
+The new PATCH /api/agents/{agent_id} endpoint attempts to block non‑admins from editing someone else’s agent, but the check only rejects the call when the payload’s userId is neither the caller’s ID nor null. An attacker can bypass this simply by including {"userId": "<their own id>"} in the body; the condition at the top then evaluates to false and the request proceeds, allowing them to change status, metadata, and even reassign ownership of another user’s agent. This is a privilege escalation because unprivileged users can overwrite arbitrary agents as long as they know the id. Consider validating against the current ownership before applying updates, regardless of the requested userId, or ignoring client‑supplied userId for non‑admins.
+
+Useful? React with 👍 / 👎.
+
+@SweetingTech	Reply...
+@SweetingTech
+Merge branch 'main' into codex/update-agent-status-handling-and-logging
+9886112
+@SweetingTech SweetingTech merged commit 78fecdb into main now
+0 of 2 checks passed
+Merge info
+Pull request successfully merged and closed
+You're all set — the codex/update-agent-status-handling-and-logging branch can be safely deleted.
+
+@SweetingTech
+
+
+Add a comment
+Comment
+ 
+Add your comment here...
+ 
+Remember, contributions to this repository should follow our GitHub Community Guidelines.
+ ProTip! Add .patch or .diff to the end of URLs for Git’s plaintext views.
+Reviewers
+@chatgpt-codex-connector
+chatgpt-codex-connector[bot]
++1 more reviewer
+@gemini-code-assist
+gemini-code-assist[bot]
+
+Still in progress?
+Assignees
+No one—
+Labels
+codex
+Projects
+None yet
+Milestone
+No milestone
+Development
+Successfully merging this pull request may close these issues.
+
+None yet
+
+
+Notifications
+Customize
+You’re receiving notifications because you’re watching this repository.
+1 participant
+@SweetingTech
+Footer
+© 2025 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+GitHub Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+Revert View details SweetingTech merged commit 78fecdb into main 0 of 2 checks passed
