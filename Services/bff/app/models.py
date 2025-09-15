@@ -94,3 +94,16 @@ workflows = Table(
     Column("version", String(32), nullable=False, server_default=text("'1'")),
     Column("definition", Text, nullable=False),  # JSON or YAML as text
 )
+
+# Runtime agent activity reported by workers/external services
+agents = Table(
+    "agents",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("name", String(200), nullable=False),
+    Column("status", String(32), nullable=False, server_default=text("'pending'")),
+    Column("user_id", String(64), nullable=True),
+    Column("started_at", String(40), nullable=True),
+    Column("finished_at", String(40), nullable=True),
+    Column("meta", Text, nullable=True),
+)

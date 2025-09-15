@@ -32,23 +32,19 @@ const AgentsPage = () => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [formAgent, setFormAgent] = useState<Agent | null>(null);
   const [formYaml, setFormYaml] = useState<string>('');
 
-  // Fetch agents whenever the user becomes available
   const parseErrorMessage = useCallback((err: unknown, fallback: string) => {
     if (axios.isAxiosError(err)) {
       const data = err.response?.data;
-      if (typeof data === 'string' && data.trim().length > 0) {
-        return data;
-      }
+      if (typeof data === 'string' && data.trim().length > 0) return data;
       if (data && typeof data === 'object') {
         const detail = (data as { detail?: unknown }).detail;
-        if (typeof detail === 'string') {
-          return detail;
-        }
+        if (typeof detail === 'string') return detail;
         if (detail) {
           try {
             return JSON.stringify(detail);
@@ -59,9 +55,7 @@ const AgentsPage = () => {
       }
       return err.message || fallback;
     }
-    if (err instanceof Error) {
-      return err.message || fallback;
-    }
+    if (err instanceof Error) return err.message || fallback;
     return fallback;
   }, []);
 
@@ -83,9 +77,7 @@ const AgentsPage = () => {
   }, [eff.userId, parseErrorMessage]);
 
   useEffect(() => {
-    if (eff.userId) {
-      loadAgents();
-    }
+    if (eff.userId) loadAgents();
   }, [eff.userId, loadAgents]);
 
   const startAgent = async (id: string) => {
@@ -137,9 +129,7 @@ const AgentsPage = () => {
     const meta = agent.meta as Record<string, unknown>;
     for (const key of ['yaml', 'definition', 'config']) {
       const value = meta[key];
-      if (typeof value === 'string') {
-        return value;
-      }
+      if (typeof value === 'string') return value;
     }
     return '';
   };
@@ -243,7 +233,7 @@ const AgentsPage = () => {
         </div>
 
         {error && (
-          <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="mb-6 rounded-md border border-red-2 00 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
@@ -253,7 +243,7 @@ const AgentsPage = () => {
           <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <div className="flex-1">
               <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search agents..."
@@ -297,6 +287,7 @@ const AgentsPage = () => {
               const isRunning = typeof agent.enabled === 'boolean' ? agent.enabled : status === 'running';
               const displayStatus = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Inactive';
               const displayType = agentType ? agentType.charAt(0).toUpperCase() + agentType.slice(1) : 'Custom';
+
               return (
                 <div key={agent.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                   {/* Header */}
@@ -323,52 +314,54 @@ const AgentsPage = () => {
                       >
                         <Edit3 size={14} />
                       </button>
-                      <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
+                      <button className="p-1 text-gray-400 hover:text-gray-600 rounded" title="Settings">
                         <Settings size={14} />
                       </button>
                     </div>
-                </div>
-
-                {/* Description */}
-                <p className="text-sm text-gray-600 mb-4">{description || 'No description provided.'}</p>
-
-                {/* Stats */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-gray-500">Last Run</p>
-                    <p className="text-sm font-medium text-gray-900">{lastRun || '—'}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Tasks Completed</p>
-                    <p className="text-sm font-medium text-gray-900">{tasksCompleted}</p>
-                  </div>
-                </div>
 
-                {/* Controls */}
-                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => (isRunning ? stopAgent(agent.id) : startAgent(agent.id))}
-                      className={`p-2 rounded-md ${
-                        isRunning
-                          ? 'text-green-600 bg-green-50 hover:bg-green-100'
-                          : 'text-gray-600 bg-gray-50 hover:bg-gray-100'
-                      }`}
-                      title={isRunning ? 'Pause Agent' : 'Start Agent'}
-                    >
-                      {isRunning ? <Pause size={16} /> : <Play size={16} />}
+                  {/* Description */}
+                  <p className="text-sm text-gray-600 mb-4">{description || 'No description provided.'}</p>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <p className="text-xs text-gray-500">Last Run</p>
+                      <p className="text-sm font-medium text-gray-900">{lastRun || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Tasks Completed</p>
+                      <p className="text-sm font-medium text-gray-900">{tasksCompleted}</p>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => (isRunning ? stopAgent(agent.id) : startAgent(agent.id))}
+                        className={`p-2 rounded-md ${
+                          isRunning
+                            ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                            : 'text-gray-600 bg-gray-50 hover:bg-gray-100'
+                        }`}
+                        title={isRunning ? 'Pause Agent' : 'Start Agent'}
+                      >
+                        {isRunning ? <Pause size={16} /> : <Play size={16} />}
+                      </button>
+                      <button
+                        onClick={() => deleteAgent(agent.id)}
+                        className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
+                        title="Delete Agent"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">
+                      View Details
                     </button>
-                    <button
-                      onClick={() => deleteAgent(agent.id)}
-                      className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
-                      title="Delete Agent"
-                    >
-                      <Trash2 size={16} />
-                    </button>
                   </div>
-                  <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">View Details</button>
                 </div>
-              </div>
               );
             })}
         </div>
@@ -397,8 +390,9 @@ const AgentsPage = () => {
             <div>
               <h3 className="text-lg font-medium text-blue-900">Coming Soon</h3>
               <p className="text-blue-700">
-                Native agent functionality is currently in development. This page shows a preview of the planned features. Agents will
-                be able to perform automated tasks, monitor system status, and enhance your AI experience.
+                Native agent functionality is currently in development. This page shows a preview of the planned
+                features. Agents will be able to perform automated tasks, monitor system status, and enhance your AI
+                experience.
               </p>
             </div>
           </div>
