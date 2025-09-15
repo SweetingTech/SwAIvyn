@@ -3,11 +3,18 @@ import axios from "axios";
 
 export interface Agent {
   id: string;
-  name: string;
-  status: string;         // "running" | "stopped"
-  lastRun: string | null; // ISO‐string or null
-  tasksCompleted: number;
-  goal?: string;          // if you stored a goal in the DB
+  name?: string;
+  status?: string;
+  userId?: string;
+  description?: string;
+  type?: string;
+  lastRun?: string | null;
+  tasksCompleted?: number;
+  enabled?: boolean;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  meta?: Record<string, unknown>;
+  goal?: string;
 }
 
 export interface AgentCatalogItem {
@@ -53,5 +60,41 @@ export const stopAgent = async (id: string): Promise<void> => {
  */
 export const getAgentCatalog = async (): Promise<AgentCatalogItem[]> => {
   const response = await axios.get<AgentCatalogItem[]>(`${API_BASE}/api/agents/catalog`);
+  return response.data;
+};
+
+/**
+ * Create a new agent definition in the workers orchestrator via the BFF
+ */
+export const createAgentDefinition = async (yaml: string, agentId?: string) => {
+  const suffix = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+  const response = await axios.post(`${API_BASE}/api/agents${suffix}`, yaml, {
+    headers: { 'Content-Type': 'application/x-yaml' },
+  });
+  return response.data;
+};
+
+/**
+ * Update an existing agent definition
+ */
+export const updateAgentDefinition = async (id: string, yaml: string) => {
+  const response = await axios.put(`${API_BASE}/api/agents/${encodeURIComponent(id)}`, yaml, {
+    headers: { 'Content-Type': 'application/x-yaml' },
+  });
+  return response.data;
+};
+
+/**
+ * Delete an agent definition. Optionally include YAML payload when required by workers.
+ */
+export const deleteAgentDefinition = async (id: string, yaml?: string) => {
+  const headers: Record<string, string> = {};
+  if (yaml && yaml.trim().length > 0) {
+    headers['Content-Type'] = 'application/x-yaml';
+  }
+  const response = await axios.delete(`${API_BASE}/api/agents/${encodeURIComponent(id)}`, {
+    data: yaml,
+    headers,
+  });
   return response.data;
 };

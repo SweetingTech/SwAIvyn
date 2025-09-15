@@ -7,7 +7,7 @@ import urllib.parse
 from typing import Optional, Dict, Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response, Request
 from pydantic import BaseModel
 from temporalio.client import Client
 import httpx
@@ -42,6 +42,7 @@ def get_shared_upload_dir() -> str:
     os.makedirs(shared_dir, exist_ok=True)
     return shared_dir
 WORKERS_ORCH_URL = os.getenv("WORKERS_ORCH_URL", os.getenv("ORCHESTRATOR_URL", "http://localhost:8000"))
+WORKERS_ORCH_BASE = WORKERS_ORCH_URL.rstrip("/")
 
 
 class ChatRequest(BaseModel):
@@ -2074,6 +2075,87 @@ async def dashboard_status(engine: Optional[AsyncEngine] = Depends(get_engine), 
 from datetime import datetime as _dt
 
 
+async def _forward_yaml_to_orchestrator(method: str, url: str, payload: Optional[bytes] = None):
+    headers = {"Accept": "application/json"}
+    request_kwargs: Dict[str, Any] = {"headers": headers}
+    body = payload or b""
+    if body.strip():
+        headers["Content-Type"] = "application/x-yaml"
+        request_kwargs["content"] = body
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.request(method, url, **request_kwargs)
+            response.raise_for_status()
+            content_type = (response.headers.get("content-type") or "").lower()
+            if "application/json" in content_type:
+                try:
+                    return response.json()
+                except ValueError:
+                    pass
+            if response.content:
+                return Response(content=response.content, media_type=response.headers.get("content-type") or "text/plain")
+            return {"success": True}
+    except httpx.HTTPStatusError as e:
+        detail: Optional[str] = None
+        try:
+            content_type = (e.response.headers.get("content-type") or "").lower()
+            if "application/json" in content_type:
+                data = e.response.json()
+                if isinstance(data, dict) and "detail" in data:
+                    detail_val = data["detail"]
+                    detail = detail_val if isinstance(detail_val, str) else json.dumps(detail_val)
+                else:
+                    detail = data if isinstance(data, str) else json.dumps(data)
+            else:
+                text = e.response.text.strip()
+                if text:
+                    detail = text
+        except Exception:
+            detail = None
+        if not detail:
+            detail = f"Workers returned {e.response.status_code}"
+        raise HTTPException(status_code=e.response.status_code, detail=detail)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Workers orchestrator unavailable: {e}")
+
+
+@app.post("/api/agents")
+async def agents_create(
+    request: Request,
+    agent_id: Optional[str] = Query(None, alias="agentId"),
+    current=Depends(current_user_dep),
+):
+    require_admin(current)
+    body = await request.body()
+    if not body or not body.strip():
+        raise HTTPException(status_code=400, detail="YAML payload required")
+    url = f"{WORKERS_ORCH_BASE}/api/agents"
+    if agent_id:
+        url = f"{url}?id={urllib.parse.quote(agent_id, safe='')}"
+    return await _forward_yaml_to_orchestrator("POST", url, body)
+
+
+@app.put("/api/agents/{agent_id}")
+async def agents_update(agent_id: str, request: Request, current=Depends(current_user_dep)):
+    require_admin(current)
+    body = await request.body()
+    if not body or not body.strip():
+        raise HTTPException(status_code=400, detail="YAML payload required")
+    url = f"{WORKERS_ORCH_BASE}/api/agents/{urllib.parse.quote(agent_id, safe='')}"
+    return await _forward_yaml_to_orchestrator("PUT", url, body)
+
+
+@app.delete("/api/agents/{agent_id}")
+async def agents_delete(agent_id: str, request: Request, current=Depends(current_user_dep)):
+    require_admin(current)
+    body = await request.body()
+    payload = body if body and body.strip() else None
+    url = f"{WORKERS_ORCH_BASE}/api/agents/{urllib.parse.quote(agent_id, safe='')}"
+    result = await _forward_yaml_to_orchestrator("DELETE", url, payload)
+    _agents_store.pop(agent_id, None)
+    return result
+
+
 @app.get("/api/agents")
 async def agents_list(current=Depends(current_user_dep)):
     if not current:
@@ -2119,12 +2201,6 @@ async def agents_stop(agent_id: str, body: dict = {}, current=Depends(current_us
     })
     _agents_store[agent_id] = ag
     return {"success": True, "agent": ag}
-
-
-@app.delete("/api/agents/{agent_id}")
-async def agents_delete(agent_id: str, current=Depends(current_user_dep)):
-    _agents_store.pop(agent_id, None)
-    return {"success": True}
 
 
 # ------------------------- Agents catalog proxy (workers orchestrator) -------------------------
