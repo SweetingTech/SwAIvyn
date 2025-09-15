@@ -18,7 +18,16 @@ from sqlalchemy import select, text
 from datetime import timedelta
 from pydantic import BaseModel
 from .auth import create_access_token, verify_password, get_current_user, require_admin
-from .models import users, chat_settings as t_chat_settings, connection_settings as t_conn_settings, characters as t_characters, conversations as t_conversations, messages as t_messages, workflows as t_workflows
+from .agent_store import AgentStore
+from .models import (
+    users,
+    chat_settings as t_chat_settings,
+    connection_settings as t_conn_settings,
+    characters as t_characters,
+    conversations as t_conversations,
+    messages as t_messages,
+    workflows as t_workflows,
+)
 
 
 # Prefer IPv4 loopback by default so host apps can reach Temporal in Docker
@@ -85,8 +94,8 @@ _temporal_client: Optional[Client] = None
 _engine: Optional[AsyncEngine] = None
 _chat_settings_store: Dict[str, Dict[str, Any]] = {}
 _connections_store: Dict[str, Dict[str, Any]] = {}
-_agents_store: Dict[str, Dict[str, Any]] = {}
 _folders_store: Dict[str, Dict[str, Any]] = {}
+_agents_repo = AgentStore()
 
 def _default_chat_settings(uid: str) -> Dict[str, Any]:
     """Fallback chat settings when nothing is persisted in DB or memory.
@@ -2036,23 +2045,25 @@ async def dashboard_status(engine: Optional[AsyncEngine] = Depends(get_engine), 
         except Exception:
             pass
 
-    # Aggregate agents (reported by external workers via this API) — DB not required
+    # Aggregate agents (reported by external workers via this API)
     running_list = []
     completed = failed = pending = 0
     try:
         viewer_is_admin = (current or {}).get("role") == "admin"
         viewer_id = (current or {}).get("id")
-        for ag in _agents_store.values():
-            if viewer_is_admin or ag.get("userId") == viewer_id:
-                st = (ag.get("status") or "").lower()
-                if st == "running":
-                    running_list.append(ag)
-                elif st == "completed":
-                    completed += 1
-                elif st == "failed":
-                    failed += 1
-                else:
-                    pending += 1
+        agents = await _agents_repo.list_agents(
+            engine or _engine, viewer_id=viewer_id, viewer_is_admin=viewer_is_admin
+        )
+        for ag in agents:
+            st = (ag.get("status") or "").lower()
+            if st == "running":
+                running_list.append(ag)
+            elif st == "completed":
+                completed += 1
+            elif st == "failed":
+                failed += 1
+            else:
+                pending += 1
     except Exception:
         pass
 
@@ -2080,29 +2091,25 @@ async def agents_list(current=Depends(current_user_dep)):
         raise HTTPException(status_code=401, detail="Authentication required")
     viewer_is_admin = current.get("role") == "admin"
     uid = current.get("id")
-    out = []
-    for ag in _agents_store.values():
-        if viewer_is_admin or ag.get("userId") == uid:
-            out.append(ag)
-    return out
+    return await _agents_repo.list_agents(_engine, viewer_id=uid, viewer_is_admin=viewer_is_admin)
 
 
 @app.post("/api/agents/{agent_id}/start")
 async def agents_start(agent_id: str, body: dict = {}, current=Depends(current_user_dep)):
     uid = (current or {}).get("id") or body.get("userId") or "default"
     now = _dt.utcnow().isoformat() + "Z"
-    ag = _agents_store.get(agent_id) or {}
-    ag.update({
-        "id": agent_id,
-        "name": body.get("name") or ag.get("name") or agent_id,
+    updates = {
+        "name": body.get("name"),
         "status": "running",
         "userId": uid,
-        "startedAt": ag.get("startedAt") or now,
+        "startedAt": now,
         "finishedAt": None,
-        "meta": body.get("meta") or ag.get("meta") or {},
-    })
-    _agents_store[agent_id] = ag
-    return {"success": True, "agent": ag}
+    }
+    meta_payload = body.get("meta")
+    if meta_payload:
+        updates["meta"] = meta_payload
+    agent = await _agents_repo.start_agent(_engine, agent_id, updates)
+    return {"success": True, "agent": agent}
 
 
 @app.post("/api/agents/{agent_id}/stop")
@@ -2111,19 +2118,20 @@ async def agents_stop(agent_id: str, body: dict = {}, current=Depends(current_us
     final_status = (body.get("status") or "completed").lower()
     if final_status not in ("completed", "failed", "pending"):
         final_status = "completed"
-    ag = _agents_store.get(agent_id) or {"id": agent_id}
-    ag.update({
+    updates = {
         "status": final_status,
         "finishedAt": now,
-        "meta": body.get("meta") or ag.get("meta") or {},
-    })
-    _agents_store[agent_id] = ag
-    return {"success": True, "agent": ag}
+    }
+    meta_payload = body.get("meta")
+    if meta_payload:
+        updates["meta"] = meta_payload
+    agent = await _agents_repo.stop_agent(_engine, agent_id, updates)
+    return {"success": True, "agent": agent}
 
 
 @app.delete("/api/agents/{agent_id}")
 async def agents_delete(agent_id: str, current=Depends(current_user_dep)):
-    _agents_store.pop(agent_id, None)
+    await _agents_repo.delete_agent(_engine, agent_id)
     return {"success": True}
 
 

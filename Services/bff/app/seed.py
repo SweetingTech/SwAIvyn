@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .models import metadata, users, characters, connection_settings
+from .seed_agents import seed_agents_from_file
 
 try:
     import yaml  # type: ignore
@@ -188,6 +189,7 @@ async def ensure_seed(engine: AsyncEngine) -> None:
             # Users already exist, but still run character auto-loading and connection settings seeding
             await _seed_characters_from_ai_folder(conn)
             await _seed_default_connection_settings(conn)
+            await seed_agents_from_file(conn)
             return
 
         # Seed default users: admin, Mari, DJay
@@ -260,6 +262,9 @@ async def ensure_seed(engine: AsyncEngine) -> None:
 
         # Auto-load character cards from frontend/AI folder
         await _seed_characters_from_ai_folder(conn)
-        
+
         # Seed default connection settings for all users
         await _seed_default_connection_settings(conn)
+
+        # Seed persisted agent runtime history
+        await seed_agents_from_file(conn)
