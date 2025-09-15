@@ -6,7 +6,7 @@ import React, {
   FormEvent
 } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Camera, Mic, Plus } from 'lucide-react';
+import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import ChatMessage from '../components/chat/ChatMessage';
@@ -27,6 +27,7 @@ import {
 } from '../utils/chatUrls';
 import { useInitialization } from '../contexts/InitializationContext';
 import useEffectiveUser from '../hooks/useEffectiveUser';
+import { transcribeAudio } from '../services/sttService';
 
 /* -------------------------------------------------------------------------- */
 /*  Helper types                                                              */
@@ -94,6 +95,19 @@ const ChatPage: React.FC = () => {
   const [notice, setNotice] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement|null>(null);
 
+  // Voice interaction toggles
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
+    const stored = localStorage.getItem('auto_tts');
+    return stored === 'true';
+  });
+  const [sttEnabled, setSttEnabled] = useState<boolean>(() => {
+    const stored = localStorage.getItem('stt_enabled');
+    return stored === 'true';
+  });
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const recordingChunks = useRef<Blob[]>([]);
+
   /* ------------------------------ refs ----------------------------------- */
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const isFirstMessage = useRef(urlInfo.isNewConversation);
@@ -107,6 +121,16 @@ const ChatPage: React.FC = () => {
       showCharacterImages ? 'true' : 'false'
     );
   }, [showCharacterImages]);
+
+  // Persist TTS toggle state
+  useEffect(() => {
+    localStorage.setItem('auto_tts', ttsEnabled ? 'true' : 'false');
+  }, [ttsEnabled]);
+
+  // Persist STT toggle state
+  useEffect(() => {
+    localStorage.setItem('stt_enabled', sttEnabled ? 'true' : 'false');
+  }, [sttEnabled]);
 
   // Set effectiveUserId from user context with fallback
   useEffect(() => {
@@ -612,6 +636,72 @@ const ChatPage: React.FC = () => {
   };
 
   /* ---------------------------------------------------------------------- */
+  /*  Voice recording and STT functionality                                */
+  /* ---------------------------------------------------------------------- */
+
+  const startRecording = useCallback(async () => {
+    if (!sttEnabled) return;
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingChunks.current = [];
+      
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordingChunks.current.push(event.data);
+        }
+      };
+      
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(recordingChunks.current, { type: 'audio/webm' });
+        stream.getTracks().forEach(track => track.stop());
+        
+        try {
+          console.log('🎤 Transcribing audio...');
+          const transcription = await transcribeAudio(audioBlob);
+          if (transcription.trim()) {
+            setInputText(prev => prev + (prev ? ' ' : '') + transcription);
+          }
+          setNotice('Voice transcribed successfully');
+          setTimeout(() => setNotice(''), 2000);
+        } catch (error) {
+          console.error('Transcription failed:', error);
+          setNotice('Voice transcription failed');
+          setTimeout(() => setNotice(''), 2000);
+        }
+      };
+      
+      setMediaRecorder(recorder);
+      recorder.start();
+      setIsRecording(true);
+      
+      console.log('🎤 Recording started...');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      setNotice('Microphone access denied');
+      setTimeout(() => setNotice(''), 2000);
+    }
+  }, [sttEnabled]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      setMediaRecorder(null);
+      setIsRecording(false);
+      console.log('🎤 Recording stopped...');
+    }
+  }, [mediaRecorder]);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
+
+  /* ---------------------------------------------------------------------- */
   /*  Handle "remember this" command                                        */
   /* ---------------------------------------------------------------------- */
 
@@ -932,6 +1022,45 @@ const ChatPage: React.FC = () => {
                 }}
               />
 
+              {/* Voice interaction toggles */}
+              <div className="flex items-center gap-2">
+                {/* TTS Toggle */}
+                <button
+                  onClick={() => setTtsEnabled(!ttsEnabled)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    ttsEnabled 
+                      ? 'bg-blue-100 text-blue-600 border border-blue-300' 
+                      : 'bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200'
+                  }`}
+                  title={`Text-to-Speech: ${ttsEnabled ? 'ON' : 'OFF'}`}
+                  disabled={isLoading}
+                >
+                  {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                </button>
+
+                {/* STT Toggle */}
+                <button
+                  onClick={() => setSttEnabled(!sttEnabled)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    sttEnabled 
+                      ? 'bg-green-100 text-green-600 border border-green-300' 
+                      : 'bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200'
+                  }`}
+                  title={`Speech-to-Text: ${sttEnabled ? 'ON' : 'OFF'}`}
+                  disabled={isLoading}
+                >
+                  {sttEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+                </button>
+
+                {/* Voice Mode Indicator */}
+                {ttsEnabled && sttEnabled && (
+                  <div className="flex items-center text-xs text-green-600 font-medium">
+                    <div className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse" />
+                    Voice Mode
+                  </div>
+                )}
+              </div>
+
               {/* LLM dropdown */}
               <select
                 id="llm-override-select"
@@ -1043,7 +1172,25 @@ const ChatPage: React.FC = () => {
               <button type="button" className="p-2 text-gray-500">
                 <Camera size={20} />
               </button>
-              <button type="button" className="p-2 text-gray-500">
+              <button 
+                type="button" 
+                onClick={toggleRecording}
+                disabled={!sttEnabled || isLoading}
+                className={`p-2 rounded-full transition-all ${
+                  isRecording
+                    ? 'bg-red-100 text-red-600 border border-red-300 animate-pulse'
+                    : sttEnabled
+                    ? 'text-green-600 hover:bg-green-50'
+                    : 'text-gray-400 cursor-not-allowed'
+                }`}
+                title={
+                  !sttEnabled 
+                    ? 'Enable Speech-to-Text to use voice input' 
+                    : isRecording 
+                    ? 'Stop recording' 
+                    : 'Start voice recording'
+                }
+              >
                 <Mic size={20} />
               </button>
               <button
