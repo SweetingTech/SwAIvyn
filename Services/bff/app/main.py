@@ -2,6 +2,8 @@ import os
 import asyncio
 import sys
 import json
+import ipaddress
+import urllib.parse
 from typing import Optional, Dict, Any
 
 import httpx
@@ -97,6 +99,63 @@ def _default_chat_settings(uid: str) -> Dict[str, Any]:
         "ttsProvider": os.getenv("DEFAULT_TTS_PROVIDER", "fishspeech"),
         "ttsVoiceId": os.getenv("DEFAULT_TTS_VOICE", "glados"),
     }
+
+
+def _validate_url_for_ssrf(url: str) -> bool:
+    """Validate URL to prevent SSRF attacks.
+    Returns True if URL is safe, False if it should be blocked.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        
+        # Only allow http/https schemes
+        if parsed.scheme not in ('http', 'https'):
+            return False
+            
+        # Block URLs without hostname
+        if not parsed.hostname:
+            return False
+            
+        hostname = parsed.hostname.lower()
+        
+        # Block localhost variations
+        localhost_variants = {
+            'localhost', '127.0.0.1', '::1', '0.0.0.0'
+        }
+        if hostname in localhost_variants:
+            return False
+            
+        # Try to resolve IP and check for private/reserved ranges
+        try:
+            import socket
+            # Get IP address
+            ip = socket.gethostbyname(hostname)
+            ip_obj = ipaddress.ip_address(ip)
+            
+            # Block private networks (RFC 1918)
+            private_networks = [
+                ipaddress.ip_network('10.0.0.0/8'),
+                ipaddress.ip_network('172.16.0.0/12'),
+                ipaddress.ip_network('192.168.0.0/16'),
+                ipaddress.ip_network('127.0.0.0/8'),  # Loopback
+                ipaddress.ip_network('169.254.0.0/16'),  # Link-local
+                ipaddress.ip_network('224.0.0.0/4'),  # Multicast
+                ipaddress.ip_network('240.0.0.0/4'),  # Reserved
+            ]
+            
+            for network in private_networks:
+                if ip_obj in network:
+                    return False
+                    
+        except (socket.gaierror, ValueError, ipaddress.AddressValueError):
+            # If we can't resolve or parse, block it for security
+            return False
+            
+        return True
+        
+    except Exception:
+        # If parsing fails, block for security
+        return False
 
 
 # Auth dependency wired with engine
@@ -217,33 +276,54 @@ async def api_root():
 
 @app.get("/api/llm/health")
 async def llm_health(current=Depends(current_user_dep)):
-    """Get LLM service health status - REQUIRES AUTHENTICATION to prevent SSRF"""
+    """Get LLM service health status - REQUIRES AUTHENTICATION and URL validation to prevent SSRF"""
     if not current:
         raise HTTPException(status_code=401, detail="Authentication required")
     
     status = {"ollama": None, "lmstudio": None}
     uid = current.get("id") or "default"
     user_conn = _connections_store.get(uid, {})
+    
+    # Get URLs with SSRF validation
     ollama_base = user_conn.get("OllamaApiUrl")
     if ollama_base is None:
         ollama_base = OLLAMA_HOST
+    elif not _validate_url_for_ssrf(ollama_base):
+        status["ollama"] = {"ok": False, "error": "Invalid or unsafe Ollama URL"}
+        ollama_base = None
+        
     lmstudio_base = user_conn.get("LmStudioApiUrl")
     if lmstudio_base is None:
         lmstudio_base = LMSTUDIO_HOST
+    elif not _validate_url_for_ssrf(lmstudio_base):
+        status["lmstudio"] = {"ok": False, "error": "Invalid or unsafe LM Studio URL"}
+        lmstudio_base = None
+    
+    # Also validate default URLs for security
+    if ollama_base and not _validate_url_for_ssrf(ollama_base):
+        status["ollama"] = {"ok": False, "error": "Default Ollama URL is unsafe"}
+        ollama_base = None
+        
+    if lmstudio_base and not _validate_url_for_ssrf(lmstudio_base):
+        status["lmstudio"] = {"ok": False, "error": "Default LM Studio URL is unsafe"}
+        lmstudio_base = None
+    
     async with httpx.AsyncClient(timeout=3) as client:
-        # Ollama: list tags
-        try:
-            r = await client.get(f"{ollama_base}/api/tags")
-            status["ollama"] = {"ok": r.status_code == 200}
-        except Exception as e:
-            status["ollama"] = {"ok": False, "error": str(e)}
+        # Ollama: list tags (only if URL is safe)
+        if ollama_base:
+            try:
+                r = await client.get(f"{ollama_base}/api/tags")
+                status["ollama"] = {"ok": r.status_code == 200}
+            except Exception as e:
+                status["ollama"] = {"ok": False, "error": str(e)}
 
-        # LM Studio: OpenAI-compatible models
-        try:
-            r = await client.get(f"{lmstudio_base}/v1/models")
-            status["lmstudio"] = {"ok": r.status_code == 200}
-        except Exception as e:
-            status["lmstudio"] = {"ok": False, "error": str(e)}
+        # LM Studio: OpenAI-compatible models (only if URL is safe)
+        if lmstudio_base:
+            try:
+                r = await client.get(f"{lmstudio_base}/v1/models")
+                status["lmstudio"] = {"ok": r.status_code == 200}
+            except Exception as e:
+                status["lmstudio"] = {"ok": False, "error": str(e)}
 
     return status
 
@@ -255,24 +335,17 @@ async def get_engine() -> Optional[AsyncEngine]:
 
 
 @app.get("/api/user/default")
-async def get_default_user(engine: Optional[AsyncEngine] = Depends(get_engine)):
-    # If DB present, return the default user (or first user). Otherwise return an in-memory default.
-    if engine is not None:
-        try:
-            from .models import users
-            async with engine.connect() as conn:
-                res = await conn.execute(select(users).where(users.c.is_default == True).limit(1))
-                row = res.first()
-                if not row:
-                    res = await conn.execute(select(users).limit(1))
-                    row = res.first()
-                if row:
-                    r = row._mapping
-                    return {"id": r["id"], "username": r["username"], "email": r["email"]}
-        except Exception as e:
-            print(f"user/default fetch failed: {e}", file=sys.stderr, flush=True)
-    # Fallback inline user
-    return {"id": "djay", "username": "DJay", "email": "djay@example.com"}
+async def get_default_user(current=Depends(current_user_dep)):
+    """Get current authenticated user's data - REQUIRES AUTHENTICATION to prevent PII exposure"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return only current user's data (no PII exposure)
+    return {
+        "id": current.get("id"),
+        "username": current.get("username"),
+        "role": current.get("role")
+    }
 
 
 class LoginRequest(BaseModel):
@@ -444,9 +517,14 @@ class RecoveryCode(BaseModel):
 
 @app.get("/api/user/{user_id}")
 async def get_user(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
-    # Allow anonymous read of basic user profile in dev/stub mode. Auth required for cross-user reads when a token is present.
-    if current is not None and (current.get("id") != user_id and current.get("role") != "admin"):
+    # SECURITY FIX: Always require authentication
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Only allow access to own profile or if admin
+    if current.get("id") != user_id and current.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
+        
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     async with engine.connect() as conn:
@@ -547,8 +625,16 @@ async def get_llm_settings(current=Depends(current_user_dep), engine: Optional[A
 
 
 @app.put("/api/settings/llm")
-async def put_llm_settings(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
-    uid = payload.get("userId") or "default"
+async def put_llm_settings(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    # SECURITY FIX: Require authentication and derive user ID from JWT token only
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # SECURITY: Never trust client-supplied userId - always use authenticated user ID
+    uid = current.get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid user authentication")
+        
     engine_name = payload.get("engine") or "ollama"
     model = payload.get("model") or ""
     
@@ -595,7 +681,15 @@ def _merge_chat_settings_from_db_row(row_map: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @app.get("/api/chat/settings/{user_id}")
-async def get_chat_settings(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def get_chat_settings(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    # SECURITY FIX: Require authentication and ensure user can only access their own settings
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Only allow access to own settings unless admin
+    if current.get("id") != user_id and current.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
     # Prefer database if configured; otherwise serve from in-memory cache with defaults
     if engine is not None:
         try:
@@ -620,7 +714,15 @@ async def get_chat_settings(user_id: str, engine: Optional[AsyncEngine] = Depend
 
 
 @app.put("/api/chat/settings/{user_id}")
-async def put_chat_settings(user_id: str, payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def put_chat_settings(user_id: str, payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    # SECURITY FIX: Require authentication and ensure user can only modify their own settings
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Only allow modification of own settings unless admin
+    if current.get("id") != user_id and current.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
     # Merge payload into in-memory snapshot first
     existing = _chat_settings_store.get(user_id) or _default_chat_settings(user_id)
     merged = {
