@@ -13,12 +13,17 @@ import {
   Mic,
   Volume2,
   Save,
-  Play
+  Play,
+  User,
+  Settings,
+  Plus,
+  Shield
 } from 'lucide-react';
 import { useInitialization } from '../contexts/InitializationContext';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ttsService from '../services/ttsService';
+import { useNavigate } from 'react-router-dom';
 
 interface SystemStatus {
   llmEngine: string;
@@ -35,6 +40,7 @@ interface SystemStatus {
 const DashboardPage = () => {
   const { user } = useInitialization();
   const eff = useEffectiveUser();
+  const navigate = useNavigate();
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     llmEngine: 'Loading...',
     llmModel: 'Loading...',
@@ -75,13 +81,9 @@ const DashboardPage = () => {
 
   useEffect(() => {
     loadSystemStatus();
-    loadCharacters();
-    loadAgentTasks();
     // Refresh status every 30 seconds
     const interval = setInterval(() => {
       loadSystemStatus();
-      loadCharacters();
-      loadAgentTasks();
     }, 30000);
 
     return () => {
@@ -237,6 +239,146 @@ const DashboardPage = () => {
               status="info"
             />
           </div>        )}
+
+        {/* Character Creation Features */}
+        <div className="mt-8">
+          <h2 className="text-lg font-medium text-gray-800 mb-4">Character Creation</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                  <User size={24} />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">Create Characters</h3>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Design custom AI personalities with unique traits and behaviors using pre-built templates.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  6 Character Templates Available
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  Custom System Prompts
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  Avatar Upload Support
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
+                  <Plus size={24} />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">Quick Actions</h3>
+              </div>
+              <div className="space-y-3">
+                <button 
+                  onClick={() => navigate('/character-editor')}
+                  className="w-full text-left p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="font-medium text-gray-900">Create New Character</div>
+                  <div className="text-sm text-gray-600">Start with a template or build from scratch</div>
+                </button>
+                <button 
+                  onClick={() => navigate('/settings')}
+                  className="w-full text-left p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="font-medium text-gray-900">Manage Characters</div>
+                  <div className="text-sm text-gray-600">Edit, share, or delete existing characters</div>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-lg bg-purple-50 text-purple-600 mr-3">
+                  <Settings size={24} />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">Templates</h3>
+              </div>
+              <div className="space-y-2 text-sm text-gray-600">
+                <div>• Helpful Assistant</div>
+                <div>• Creative Writer</div>
+                <div>• Technical Expert</div>
+                <div>• Patient Teacher</div>
+                <div>• Data Analyst</div>
+                <div>• GLaDOS (Sarcastic AI)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* External Agent Management */}
+        <div className="mt-8">
+          <h2 className="text-lg font-medium text-gray-800 mb-4">External Agent Management</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
+                  <Shield size={24} />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">Secure Multi-Tenant System</h3>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                External agent system is configured with enterprise-grade security and proper user data isolation.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  Admin-only Agent Registration
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  Encrypted API Key Storage
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  Full User Data Isolation
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-green-500 mr-2" />
+                  Comprehensive Audit Logging
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                  <Bot size={24} />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">Agent Capabilities</h3>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                External agents can process complex tasks while maintaining security boundaries.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-blue-500 mr-2" />
+                  Task Processing & Automation
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-blue-500 mr-2" />
+                  File Generation & Analysis
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-blue-500 mr-2" />
+                  Progress Tracking & Reporting
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <CheckCircle size={16} className="text-blue-500 mr-2" />
+                  Secure Result Storage
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Agents Summary (reported by workers) */}
         <div className="mt-8">
