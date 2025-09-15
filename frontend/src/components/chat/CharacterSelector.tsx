@@ -135,10 +135,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
               <Bot size={16} className={`text-blue-500 fallback-icon ${selectedCharacter.imagePath ? 'hidden' : 'block'}`} />
               <div className="text-left">
                 <div className="text-sm font-medium text-gray-900 truncate">
-                  {selectedCharacter.id === 'default' ? 'GLaDOS' : selectedCharacter.name}
+                  {selectedCharacter.name || 'Unnamed Character'}
                 </div>
                 <div className="text-xs text-gray-500 truncate">
-                  {selectedCharacter.id === 'default' ? 'Default AI assistant' : 'AI Character'}
+                  AI Character
                 </div>
               </div>
             </>
@@ -147,10 +147,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
               <User size={16} className="text-gray-400" />
               <div className="text-left">
                 <div className="text-sm font-medium text-gray-900">
-                  GLaDOS
+                  No Character Selected
                 </div>
                 <div className="text-xs text-gray-500">
-                  Default AI assistant
+                  Choose a character
                 </div>
               </div>
             </>
@@ -201,10 +201,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
                   </div>
                   <div className="flex-grow min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">
-                      {character.id === 'default' ? 'GLaDOS' : character.name || 'Unnamed Character'}
+                      {character.name || 'Unnamed Character'}
                     </div>
                     <div className="text-xs text-gray-500 truncate">
-                      {character.id === 'default' ? 'Default AI assistant' : 'AI Character'}
+                      AI Character
                     </div>
                   </div>
                 </button>

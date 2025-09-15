@@ -117,8 +117,9 @@ async def _seed_characters_from_ai_folder(conn: AsyncConnection) -> None:
         print("Could not find frontend/AI directory, skipping character auto-loading", flush=True)
         return
 
-    # Target Sam and Sherlock (GLaDOS is hardcoded in the frontend)
+    # Target all three characters from AI folder
     targets = [
+        ("GLaDOS", "GLaDOS_Character_card.yaml", "glados"),
         ("Sam", "Sam_Character_card.yaml", "sam"),
         ("Sherlock", "Sherlock_Character_card.yaml", "sherlock"),
     ]
