@@ -94,3 +94,29 @@ workflows = Table(
     Column("version", String(32), nullable=False, server_default=text("'1'")),
     Column("definition", Text, nullable=False),  # JSON or YAML as text
 )
+
+# Agent runtime state (persisted)
+agent_status = Table(
+    "agent_status",
+    metadata,
+    Column("id", String(100), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("name", String(200), nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'pending'")),
+    Column("meta", Text, nullable=True),
+    Column("started_at", String(40), nullable=True),
+    Column("finished_at", String(40), nullable=True),
+    Column("updated_at", String(40), nullable=True),
+)
+
+# Append-only log of agent status transitions / events
+agent_events = Table(
+    "agent_events",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("agent_id", String(100), ForeignKey("agent_status.id", ondelete="CASCADE"), nullable=False),
+    Column("timestamp", String(40), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("message", Text, nullable=True),
+    Column("meta", Text, nullable=True),
+)

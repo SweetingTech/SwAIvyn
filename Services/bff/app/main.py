@@ -4,7 +4,8 @@ import sys
 import json
 import ipaddress
 import urllib.parse
-from typing import Optional, Dict, Any
+import uuid
+from typing import Optional, Dict, Any, List, Mapping, Set
 
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response
@@ -18,7 +19,17 @@ from sqlalchemy import select, text
 from datetime import timedelta
 from pydantic import BaseModel
 from .auth import create_access_token, verify_password, get_current_user, require_admin
-from .models import users, chat_settings as t_chat_settings, connection_settings as t_conn_settings, characters as t_characters, conversations as t_conversations, messages as t_messages, workflows as t_workflows
+from .models import (
+    users,
+    chat_settings as t_chat_settings,
+    connection_settings as t_conn_settings,
+    characters as t_characters,
+    conversations as t_conversations,
+    messages as t_messages,
+    workflows as t_workflows,
+    agent_status as t_agent_status,
+    agent_events as t_agent_events,
+)
 
 
 # Prefer IPv4 loopback by default so host apps can reach Temporal in Docker
@@ -2036,25 +2047,40 @@ async def dashboard_status(engine: Optional[AsyncEngine] = Depends(get_engine), 
         except Exception:
             pass
 
-    # Aggregate agents (reported by external workers via this API) — DB not required
-    running_list = []
+    # Aggregate agents (reported by external workers via this API)
+    running_list: List[Dict[str, Any]] = []
     completed = failed = pending = 0
+    viewer_is_admin = (current or {}).get("role") == "admin"
+    viewer_id = (current or {}).get("id")
     try:
-        viewer_is_admin = (current or {}).get("role") == "admin"
-        viewer_id = (current or {}).get("id")
-        for ag in _agents_store.values():
-            if viewer_is_admin or ag.get("userId") == viewer_id:
-                st = (ag.get("status") or "").lower()
-                if st == "running":
-                    running_list.append(ag)
-                elif st == "completed":
-                    completed += 1
-                elif st == "failed":
-                    failed += 1
-                else:
-                    pending += 1
-    except Exception:
-        pass
+        if _engine is not None:
+            async with _engine.connect() as conn:
+                stmt = select(t_agent_status)
+                if not viewer_is_admin:
+                    stmt = stmt.where(t_agent_status.c.user_id == viewer_id)
+                res = await conn.execute(stmt)
+                agents = [_serialize_agent_row(row._mapping) for row in res.fetchall()]
+        else:
+            agents = []
+            for ag in _agents_store.values():
+                if viewer_is_admin or ag.get("userId") == viewer_id:
+                    copy = {k: v for k, v in ag.items() if k != "events"}
+                    copy["status"] = _normalize_agent_status(copy.get("status"), "pending")
+                    copy["meta"] = _parse_meta(copy.get("meta"))
+                    agents.append(copy)
+
+        for ag in agents:
+            status = _normalize_agent_status(ag.get("status"), "pending")
+            if status in _ACTIVE_AGENT_STATUSES:
+                running_list.append(ag)
+            elif status in {"completed"}:
+                completed += 1
+            elif status in {"failed", "error"}:
+                failed += 1
+            else:
+                pending += 1
+    except Exception as exc:
+        print(f"Dashboard agent aggregation failed: {exc}", file=sys.stderr, flush=True)
 
     return {
         "status": "ok",
@@ -2074,55 +2100,413 @@ async def dashboard_status(engine: Optional[AsyncEngine] = Depends(get_engine), 
 from datetime import datetime as _dt
 
 
+_AGENT_STATUS_VALUES: Set[str] = {
+    "pending",
+    "working",
+    "running",
+    "paused",
+    "completed",
+    "failed",
+    "stopped",
+    "idle",
+    "cancelled",
+    "error",
+    "unknown",
+}
+_AGENT_STATUS_ALIASES = {
+    "active": "working",
+    "in-progress": "working",
+    "in_progress": "working",
+    "processing": "working",
+    "queued": "pending",
+    "waiting": "pending",
+    "stopping": "paused",
+    "canceled": "cancelled",
+}
+_ACTIVE_AGENT_STATUSES: Set[str] = {"running", "working"}
+_TERMINAL_AGENT_STATUSES: Set[str] = {"completed", "failed", "stopped", "cancelled", "error"}
+
+
+def _normalize_agent_status(value: Optional[str], default: str = "pending") -> str:
+    base = default
+    if value is not None:
+        candidate = str(value).strip().lower()
+        if candidate:
+            base = candidate
+    base = _AGENT_STATUS_ALIASES.get(base, base)
+    if base not in _AGENT_STATUS_VALUES:
+        return default
+    return base
+
+
+def _now_iso() -> str:
+    return _dt.utcnow().isoformat() + "Z"
+
+
+def _parse_meta(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
+def _json_dumps_or_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _serialize_agent_row(row_map: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row_map.get("id"),
+        "name": row_map.get("name") or row_map.get("id"),
+        "status": _normalize_agent_status(row_map.get("status"), "pending"),
+        "userId": row_map.get("user_id"),
+        "meta": _parse_meta(row_map.get("meta")),
+        "startedAt": row_map.get("started_at"),
+        "finishedAt": row_map.get("finished_at"),
+        "updatedAt": row_map.get("updated_at"),
+    }
+
+
+def _serialize_event_row(row_map: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row_map.get("id"),
+        "agentId": row_map.get("agent_id"),
+        "timestamp": row_map.get("timestamp"),
+        "status": _normalize_agent_status(row_map.get("status"), "pending"),
+        "message": row_map.get("message") or "",
+        "meta": _parse_meta(row_map.get("meta")),
+    }
+
+
+def _append_event_in_memory(agent_id: str, event: Dict[str, Any]) -> None:
+    ag = _agents_store.setdefault(agent_id, {"id": agent_id})
+    events: List[Dict[str, Any]] = ag.setdefault("events", [])  # type: ignore[assignment]
+    events.append(event)
+    if len(events) > 200:
+        del events[:-200]
+
+
+async def _fetch_agent(agent_id: str) -> Optional[Dict[str, Any]]:
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                res = await conn.execute(
+                    select(t_agent_status).where(t_agent_status.c.id == agent_id).limit(1)
+                )
+                row = res.first()
+                if row:
+                    return _serialize_agent_row(row._mapping)
+        except Exception as exc:
+            print(f"Agent fetch failed: {exc}", file=sys.stderr, flush=True)
+
+    ag = _agents_store.get(agent_id)
+    if not ag:
+        return None
+    copy = {k: v for k, v in ag.items() if k != "events"}
+    copy.setdefault("name", copy.get("id") or agent_id)
+    copy["status"] = _normalize_agent_status(copy.get("status"), "pending")
+    copy["meta"] = _parse_meta(copy.get("meta"))
+    return copy
+
+
+async def _fetch_agent_events(agent_id: str) -> List[Dict[str, Any]]:
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                res = await conn.execute(
+                    select(t_agent_events)
+                    .where(t_agent_events.c.agent_id == agent_id)
+                    .order_by(t_agent_events.c.timestamp)
+                )
+                return [_serialize_event_row(row._mapping) for row in res.fetchall()]
+        except Exception as exc:
+            print(f"Agent events fetch failed: {exc}", file=sys.stderr, flush=True)
+            return []
+
+    events = _agents_store.get(agent_id, {}).get("events", [])
+    return [dict(ev) for ev in events]
+
+
+async def _persist_agent(
+    agent_id: str,
+    data: Dict[str, Any],
+    *,
+    event_status: Optional[str] = None,
+    event_message: Optional[str] = None,
+    event_meta: Any = None,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    if existing is None:
+        existing = await _fetch_agent(agent_id)
+
+    now = data.get("updatedAt") or _now_iso()
+    merged: Dict[str, Any] = existing.copy() if existing else {}
+    merged.update({"id": agent_id})
+    for key in ("name", "status", "userId", "meta", "startedAt", "finishedAt"):
+        if key in data:
+            merged[key] = data[key]
+    merged.setdefault("name", agent_id)
+    merged.setdefault("status", existing.get("status") if existing else "pending")
+    merged["status"] = _normalize_agent_status(merged.get("status"), "pending")
+    merged["meta"] = _parse_meta(merged.get("meta"))
+    merged["updatedAt"] = now
+
+    log_event = event_status is not None or event_message or event_meta is not None
+    effective_event_status = _normalize_agent_status(event_status or merged.get("status"), merged.get("status"))
+    event_payload = None
+    if log_event:
+        event_payload = {
+            "id": str(uuid.uuid4()),
+            "agentId": agent_id,
+            "timestamp": now,
+            "status": effective_event_status,
+            "message": event_message or "",
+            "meta": _parse_meta(event_meta) if event_meta is not None else {},
+        }
+
+    if _engine is not None:
+        db_values = {
+            "name": merged.get("name"),
+            "status": merged.get("status"),
+            "user_id": merged.get("userId"),
+            "meta": _json_dumps_or_none(merged.get("meta")),
+            "started_at": merged.get("startedAt"),
+            "finished_at": merged.get("finishedAt"),
+            "updated_at": merged.get("updatedAt"),
+        }
+        try:
+            async with _engine.begin() as conn:
+                res = await conn.execute(
+                    select(t_agent_status.c.id).where(t_agent_status.c.id == agent_id).limit(1)
+                )
+                if res.first():
+                    await conn.execute(
+                        t_agent_status.update().where(t_agent_status.c.id == agent_id).values(**db_values)
+                    )
+                else:
+                    await conn.execute(t_agent_status.insert().values(id=agent_id, **db_values))
+
+                if event_payload is not None:
+                    await conn.execute(
+                        t_agent_events.insert().values(
+                            id=event_payload["id"],
+                            agent_id=agent_id,
+                            timestamp=now,
+                            status=event_payload["status"],
+                            message=event_payload["message"],
+                            meta=_json_dumps_or_none(event_payload["meta"])
+                            if event_meta is not None
+                            else None,
+                        )
+                    )
+        except Exception as exc:
+            print(f"Agent persistence failed: {exc}", file=sys.stderr, flush=True)
+
+        updated = await _fetch_agent(agent_id)
+        if updated:
+            merged = updated
+
+    cached = {k: v for k, v in merged.items() if k != "events"}
+    _agents_store[agent_id] = cached
+    if event_payload is not None:
+        _append_event_in_memory(agent_id, event_payload)
+
+    return merged
+
+
 @app.get("/api/agents")
 async def agents_list(current=Depends(current_user_dep)):
     if not current:
         raise HTTPException(status_code=401, detail="Authentication required")
     viewer_is_admin = current.get("role") == "admin"
     uid = current.get("id")
-    out = []
-    for ag in _agents_store.values():
-        if viewer_is_admin or ag.get("userId") == uid:
-            out.append(ag)
-    return out
+    agents: List[Dict[str, Any]] = []
+
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                stmt = select(t_agent_status)
+                if not viewer_is_admin:
+                    stmt = stmt.where(t_agent_status.c.user_id == uid)
+                stmt = stmt.order_by(t_agent_status.c.updated_at.desc())
+                res = await conn.execute(stmt)
+                agents = [_serialize_agent_row(row._mapping) for row in res.fetchall()]
+        except Exception as exc:
+            print(f"Agents list query failed: {exc}", file=sys.stderr, flush=True)
+            agents = []
+    else:
+        for ag in _agents_store.values():
+            if viewer_is_admin or ag.get("userId") == uid:
+                copy = {k: v for k, v in ag.items() if k != "events"}
+                copy["status"] = _normalize_agent_status(copy.get("status"), "pending")
+                copy["meta"] = _parse_meta(copy.get("meta"))
+                agents.append(copy)
+        agents.sort(key=lambda item: item.get("updatedAt") or "", reverse=True)
+
+    return agents
+
+
+@app.get("/api/agents/{agent_id}")
+async def agents_get(agent_id: str, current=Depends(current_user_dep)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    agent = await _fetch_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    viewer_is_admin = current.get("role") == "admin"
+    uid = current.get("id")
+    if not viewer_is_admin and agent.get("userId") not in {uid, None}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    events = await _fetch_agent_events(agent_id)
+    detail = dict(agent)
+    detail["events"] = events
+    return detail
 
 
 @app.post("/api/agents/{agent_id}/start")
 async def agents_start(agent_id: str, body: dict = {}, current=Depends(current_user_dep)):
-    uid = (current or {}).get("id") or body.get("userId") or "default"
-    now = _dt.utcnow().isoformat() + "Z"
-    ag = _agents_store.get(agent_id) or {}
-    ag.update({
-        "id": agent_id,
-        "name": body.get("name") or ag.get("name") or agent_id,
-        "status": "running",
+    existing = await _fetch_agent(agent_id)
+    uid = (current or {}).get("id") or body.get("userId") or (existing or {}).get("userId") or "default"
+    status = _normalize_agent_status(body.get("status"), "working")
+    started_at = body.get("startedAt") or (existing or {}).get("startedAt") or _now_iso()
+    updates = {
+        "name": body.get("name") or (existing or {}).get("name") or agent_id,
+        "status": status,
         "userId": uid,
-        "startedAt": ag.get("startedAt") or now,
+        "startedAt": started_at,
         "finishedAt": None,
-        "meta": body.get("meta") or ag.get("meta") or {},
-    })
-    _agents_store[agent_id] = ag
-    return {"success": True, "agent": ag}
+        "meta": body.get("meta") if "meta" in body else (existing or {}).get("meta"),
+    }
+    agent = await _persist_agent(
+        agent_id,
+        updates,
+        event_status=status,
+        event_message=body.get("message") or "Agent started",
+        event_meta=body.get("eventMeta"),
+        existing=existing,
+    )
+    return {"success": True, "agent": agent}
 
 
 @app.post("/api/agents/{agent_id}/stop")
 async def agents_stop(agent_id: str, body: dict = {}, current=Depends(current_user_dep)):
-    now = _dt.utcnow().isoformat() + "Z"
-    final_status = (body.get("status") or "completed").lower()
-    if final_status not in ("completed", "failed", "pending"):
-        final_status = "completed"
-    ag = _agents_store.get(agent_id) or {"id": agent_id}
-    ag.update({
-        "status": final_status,
-        "finishedAt": now,
-        "meta": body.get("meta") or ag.get("meta") or {},
-    })
-    _agents_store[agent_id] = ag
-    return {"success": True, "agent": ag}
+    existing = await _fetch_agent(agent_id)
+    status = _normalize_agent_status(body.get("status"), "completed")
+    finished_at = body.get("finishedAt") if "finishedAt" in body else _now_iso()
+    updates: Dict[str, Any] = {
+        "status": status,
+        "finishedAt": finished_at,
+    }
+    if "meta" in body:
+        updates["meta"] = body.get("meta")
+
+    agent = await _persist_agent(
+        agent_id,
+        updates,
+        event_status=status,
+        event_message=body.get("message") or f"Agent marked as {status}",
+        event_meta=body.get("eventMeta"),
+        existing=existing,
+    )
+    return {"success": True, "agent": agent}
+
+
+@app.patch("/api/agents/{agent_id}")
+async def agents_update(agent_id: str, body: dict = {}, current=Depends(current_user_dep)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    existing = await _fetch_agent(agent_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    viewer_is_admin = current.get("role") == "admin"
+    uid = current.get("id")
+    requested_user = body.get("userId")
+    if not viewer_is_admin and existing.get("userId") not in {uid, None} and requested_user not in {uid, None}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    updates: Dict[str, Any] = {}
+    if "name" in body:
+        updates["name"] = body.get("name")
+    if "userId" in body:
+        updates["userId"] = requested_user
+
+    status_updated = False
+    if "status" in body:
+        new_status = _normalize_agent_status(body.get("status"), existing.get("status") or "pending")
+        updates["status"] = new_status
+        status_updated = True
+        if new_status in _ACTIVE_AGENT_STATUSES and not existing.get("startedAt") and "startedAt" not in body:
+            updates["startedAt"] = _now_iso()
+        if new_status in _TERMINAL_AGENT_STATUSES and "finishedAt" not in body:
+            updates.setdefault("finishedAt", _now_iso())
+
+    if "startedAt" in body:
+        updates["startedAt"] = body.get("startedAt")
+    if "finishedAt" in body:
+        updates["finishedAt"] = body.get("finishedAt")
+    if body.get("clearFinished") or body.get("resetFinished"):
+        updates["finishedAt"] = None
+    if "meta" in body:
+        updates["meta"] = body.get("meta")
+
+    event_status = updates.get("status") if status_updated else existing.get("status")
+    message = body.get("message")
+    if not message:
+        if status_updated:
+            message = f"Status set to {event_status}"
+        else:
+            message = "Agent updated"
+
+    if not updates and not (message or body.get("eventMeta") is not None):
+        return {"success": True, "agent": existing}
+
+    agent = await _persist_agent(
+        agent_id,
+        updates,
+        event_status=event_status,
+        event_message=message,
+        event_meta=body.get("eventMeta"),
+        existing=existing,
+    )
+    return {"success": True, "agent": agent}
 
 
 @app.delete("/api/agents/{agent_id}")
 async def agents_delete(agent_id: str, current=Depends(current_user_dep)):
+    agent = await _fetch_agent(agent_id)
+    viewer_is_admin = (current or {}).get("role") == "admin"
+    uid = (current or {}).get("id")
+    if agent and not viewer_is_admin and agent.get("userId") not in {uid, None}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if _engine is not None:
+        try:
+            async with _engine.begin() as conn:
+                await conn.execute(t_agent_events.delete().where(t_agent_events.c.agent_id == agent_id))
+                await conn.execute(t_agent_status.delete().where(t_agent_status.c.id == agent_id))
+        except Exception as exc:
+            print(f"Agent delete failed: {exc}", file=sys.stderr, flush=True)
+
     _agents_store.pop(agent_id, None)
     return {"success": True}
 

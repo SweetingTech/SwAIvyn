@@ -3,11 +3,13 @@ import axios from "axios";
 
 export interface Agent {
   id: string;
-  name: string;
-  status: string;         // "running" | "stopped"
-  lastRun: string | null; // ISO‐string or null
-  tasksCompleted: number;
-  goal?: string;          // if you stored a goal in the DB
+  name?: string | null;
+  status: string;
+  userId?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt?: string | null;
+  meta?: Record<string, unknown> | null;
 }
 
 export interface AgentCatalogItem {
@@ -37,15 +39,23 @@ export const getAgents = async (): Promise<Agent[]> => {
 /**
  * Tell the backend to start a specific agent
  */
-export const startAgent = async (id: string): Promise<void> => {
-  await axios.post(`${API_BASE}/api/agents/${id}/start`);
+export const startAgent = async (id: string, message = 'Started via API'): Promise<void> => {
+  await axios.patch(`${API_BASE}/api/agents/${id}`, {
+    status: 'working',
+    message,
+    startedAt: new Date().toISOString(),
+  });
 };
 
 /**
  * Tell the backend to stop a specific agent
  */
-export const stopAgent = async (id: string): Promise<void> => {
-  await axios.post(`${API_BASE}/api/agents/${id}/stop`);
+export const stopAgent = async (id: string, status: string = 'paused', message = 'Stopped via API'): Promise<void> => {
+  await axios.patch(`${API_BASE}/api/agents/${id}`, {
+    status,
+    message,
+    finishedAt: status === 'completed' || status === 'failed' ? new Date().toISOString() : undefined,
+  });
 };
 
 /**
