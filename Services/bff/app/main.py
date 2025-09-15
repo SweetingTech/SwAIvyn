@@ -39,6 +39,10 @@ from .models import (
     conversations as t_conversations,
     messages as t_messages,
     workflows as t_workflows,
+    agents,
+    agent_registry,
+    agent_tasks,
+    agent_results,
 )
 
 # ------------------------- Config -------------------------
@@ -891,3 +895,437 @@ async def import_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depe
         
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse YAML: {str(e)}")
+
+# ------------------------- External Agent Management -------------------------
+
+class AgentRegistration(BaseModel):
+    agent_id: str
+    name: str
+    description: Optional[str] = None
+    capabilities: List[str] = []
+    version: Optional[str] = None
+    health_endpoint: Optional[str] = None
+    api_key: Optional[str] = None
+
+class TaskCreate(BaseModel):
+    agent_id: str
+    name: str
+    description: Optional[str] = None
+    input_data: Optional[dict] = None
+    priority: str = "normal"
+
+class TaskUpdate(BaseModel):
+    status: Optional[str] = None
+    progress: Optional[str] = None
+    current_step: Optional[str] = None
+    output_data: Optional[dict] = None
+    error_message: Optional[str] = None
+    estimated_completion: Optional[str] = None
+
+class ResultCreate(BaseModel):
+    result_type: str
+    name: str
+    description: Optional[str] = None
+    content: Optional[dict] = None
+    file_path: Optional[str] = None
+    file_size: Optional[str] = None
+    mime_type: Optional[str] = None
+    metadata: Optional[dict] = None
+
+def current_timestamp():
+    """Get current timestamp as ISO string"""
+    from datetime import datetime
+    return datetime.utcnow().isoformat() + "Z"
+
+def _hash_api_key(api_key: str) -> str:
+    """Hash API key for secure storage"""
+    import bcrypt
+    return bcrypt.hashpw(api_key.encode(), bcrypt.gensalt()).decode()
+
+def _verify_api_key(api_key: str, hashed: str) -> bool:
+    """Verify API key against hash"""
+    import bcrypt
+    return bcrypt.checkpw(api_key.encode(), hashed.encode())
+
+async def _validate_agent_auth(agent_id: str, api_key: str, engine: AsyncEngine) -> bool:
+    """Validate agent authentication"""
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(agent_registry.c.api_key)
+            .where(agent_registry.c.id == agent_id)
+            .where(agent_registry.c.status == "available")
+            .limit(1)
+        )
+        row = res.first()
+        if not row or not row.api_key:
+            return False
+        return _verify_api_key(api_key, row.api_key)
+
+# Agent Registration (admin-only for security)
+@app.post("/api/agents/register")
+async def register_agent(body: AgentRegistration, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Register an external agent service (admin only)"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(current)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    now = current_timestamp()
+    async with engine.begin() as conn:
+        # Use upsert - try update first, then insert
+        res = await conn.execute(
+            agent_registry.update()
+            .where(agent_registry.c.id == body.agent_id)
+            .values(
+                name=body.name,
+                description=body.description,
+                capabilities=json.dumps(body.capabilities),
+                version=body.version,
+                health_endpoint=body.health_endpoint,
+                api_key=_hash_api_key(body.api_key) if body.api_key else None,
+                status="available",
+                updated_at=now,
+            )
+        )
+        
+        if res.rowcount == 0:  # type: ignore[attr-defined]
+            await conn.execute(
+                agent_registry.insert().values(
+                    id=body.agent_id,
+                    name=body.name,
+                    description=body.description,
+                    capabilities=json.dumps(body.capabilities),
+                    version=body.version,
+                    health_endpoint=body.health_endpoint,
+                    api_key=_hash_api_key(body.api_key) if body.api_key else None,
+                    status="available",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+    
+    return {"success": True, "message": f"Agent {body.agent_id} registered successfully"}
+
+# Agent Discovery (for users to see available agents)
+@app.get("/api/agents/available")
+async def list_available_agents(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """List all available external agents"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(agent_registry)
+            .where(agent_registry.c.status == "available")
+            .order_by(agent_registry.c.name)
+        )
+        
+        agents = []
+        for row in res.fetchall():
+            agent_dict = dict(row._mapping)
+            # Parse capabilities JSON
+            try:
+                agent_dict["capabilities"] = json.loads(agent_dict["capabilities"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                agent_dict["capabilities"] = []
+            # Remove sensitive data
+            agent_dict.pop("api_key", None)
+            agents.append(agent_dict)
+        
+        return agents
+
+# Task Creation (user-scoped)
+@app.post("/api/agents/tasks")
+async def create_agent_task(body: TaskCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Create a new agent task for the current user"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid user authentication")
+    
+    # Verify agent exists
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(agent_registry.c.id)
+            .where(agent_registry.c.id == body.agent_id)
+            .where(agent_registry.c.status == "available")
+            .limit(1)
+        )
+        if not res.first():
+            raise HTTPException(status_code=404, detail="Agent not found or unavailable")
+    
+    # Create task
+    task_id = str(uuid.uuid4())
+    now = current_timestamp()
+    
+    async with engine.begin() as conn:
+        await conn.execute(
+            agent_tasks.insert().values(
+                id=task_id,
+                agent_id=body.agent_id,
+                user_id=uid,
+                name=body.name,
+                description=body.description,
+                status="pending",
+                input_data=json.dumps(body.input_data) if body.input_data else None,
+                priority=body.priority,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    
+    return {"task_id": task_id, "success": True}
+
+# Task Status Updates (from external agents) 
+@app.patch("/api/agents/tasks/{task_id}")
+async def update_agent_task(task_id: str, body: TaskUpdate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Update task status (called by external agents)"""
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    # Verify agent authentication
+    agent_id = request.headers.get("X-Agent-ID")
+    api_key = request.headers.get("X-Agent-API-Key")
+    
+    if not agent_id or not api_key:
+        raise HTTPException(status_code=401, detail="Agent authentication required")
+    
+    if not await _validate_agent_auth(agent_id, api_key, engine):
+        raise HTTPException(status_code=403, detail="Invalid agent credentials")
+    
+    now = current_timestamp()
+    
+    async with engine.begin() as conn:
+        # Check if task exists and verify agent assignment
+        res = await conn.execute(
+            select(agent_tasks).where(agent_tasks.c.id == task_id).limit(1)
+        )
+        task = res.first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Verify agent is assigned to this task
+        if task.agent_id != agent_id:
+            raise HTTPException(status_code=403, detail="Agent not assigned to this task")
+        
+        # Build update values
+        update_values = {"updated_at": now}
+        
+        if body.status is not None:
+            update_values["status"] = body.status
+            if body.status in ("completed", "failed", "cancelled"):
+                update_values["completed_at"] = now
+            elif body.status == "working" and not task.started_at:
+                update_values["started_at"] = now
+                
+        if body.progress is not None:
+            update_values["progress"] = body.progress
+        if body.current_step is not None:
+            update_values["current_step"] = body.current_step
+        if body.output_data is not None:
+            update_values["output_data"] = json.dumps(body.output_data)
+        if body.error_message is not None:
+            update_values["error_message"] = body.error_message
+        if body.estimated_completion is not None:
+            update_values["estimated_completion"] = body.estimated_completion
+        
+        await conn.execute(
+            agent_tasks.update()
+            .where(agent_tasks.c.id == task_id)
+            .values(**update_values)
+        )
+    
+    return {"success": True}
+
+# User Task Management (user-scoped viewing)
+@app.get("/api/agents/tasks/my")
+async def list_my_agent_tasks(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """List current user's agent tasks"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.connect() as conn:
+        if is_admin:
+            # Admins can see all tasks
+            res = await conn.execute(
+                select(agent_tasks, agent_registry.c.name.label("agent_name"))
+                .join(agent_registry, agent_tasks.c.agent_id == agent_registry.c.id)
+                .order_by(agent_tasks.c.created_at.desc())
+            )
+        else:
+            # Regular users only see their own tasks
+            res = await conn.execute(
+                select(agent_tasks, agent_registry.c.name.label("agent_name"))
+                .join(agent_registry, agent_tasks.c.agent_id == agent_registry.c.id)
+                .where(agent_tasks.c.user_id == uid)
+                .order_by(agent_tasks.c.created_at.desc())
+            )
+        
+        tasks = []
+        for row in res.fetchall():
+            task_dict = dict(row._mapping)
+            # Parse JSON fields
+            try:
+                task_dict["input_data"] = json.loads(task_dict["input_data"] or "{}")
+                task_dict["output_data"] = json.loads(task_dict["output_data"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                task_dict["input_data"] = {}
+                task_dict["output_data"] = {}
+            tasks.append(task_dict)
+        
+        return tasks
+
+# Get specific task (user-scoped)
+@app.get("/api/agents/tasks/{task_id}")
+async def get_agent_task(task_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Get a specific agent task"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(agent_tasks, agent_registry.c.name.label("agent_name"))
+            .join(agent_registry, agent_tasks.c.agent_id == agent_registry.c.id)
+            .where(agent_tasks.c.id == task_id)
+            .limit(1)
+        )
+        row = res.first()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        task_dict = dict(row._mapping)
+        
+        # Check permissions: users can only see their own tasks, admins can see all
+        if not is_admin and task_dict["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Parse JSON fields
+        try:
+            task_dict["input_data"] = json.loads(task_dict["input_data"] or "{}")
+            task_dict["output_data"] = json.loads(task_dict["output_data"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            task_dict["input_data"] = {}
+            task_dict["output_data"] = {}
+        
+        return task_dict
+
+# Results Storage (user-scoped)
+@app.post("/api/agents/tasks/{task_id}/results")
+async def create_task_result(task_id: str, body: ResultCreate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Create a result for a task (called by external agents)"""
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    # Verify agent authentication
+    agent_id = request.headers.get("X-Agent-ID")
+    api_key = request.headers.get("X-Agent-API-Key")
+    
+    if not agent_id or not api_key:
+        raise HTTPException(status_code=401, detail="Agent authentication required")
+    
+    if not await _validate_agent_auth(agent_id, api_key, engine):
+        raise HTTPException(status_code=403, detail="Invalid agent credentials")
+    
+    async with engine.begin() as conn:
+        # Get task to verify it exists, get user_id for isolation, and verify agent assignment
+        res = await conn.execute(
+            select(agent_tasks.c.user_id, agent_tasks.c.agent_id)
+            .where(agent_tasks.c.id == task_id)
+            .limit(1)
+        )
+        task = res.first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Verify agent is assigned to this task
+        if task.agent_id != agent_id:
+            raise HTTPException(status_code=403, detail="Agent not assigned to this task")
+        
+        user_id = task.user_id
+        result_id = str(uuid.uuid4())
+        now = current_timestamp()
+        
+        await conn.execute(
+            agent_results.insert().values(
+                id=result_id,
+                task_id=task_id,
+                user_id=user_id,  # Ensure user isolation
+                result_type=body.result_type,
+                name=body.name,
+                description=body.description,
+                content=json.dumps(body.content) if body.content else None,
+                file_path=body.file_path,
+                file_size=body.file_size,
+                mime_type=body.mime_type,
+                metadata=json.dumps(body.metadata) if body.metadata else None,
+                created_at=now,
+            )
+        )
+    
+    return {"result_id": result_id, "success": True}
+
+# Get task results (user-scoped)
+@app.get("/api/agents/tasks/{task_id}/results")
+async def get_task_results(task_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Get results for a task (user-scoped access)"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    uid = current.get("id")
+    is_admin = current.get("role") == "admin"
+    
+    async with engine.connect() as conn:
+        # First verify user has access to this task
+        res = await conn.execute(
+            select(agent_tasks.c.user_id)
+            .where(agent_tasks.c.id == task_id)
+            .limit(1)
+        )
+        task = res.first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Check permissions
+        if not is_admin and task.user_id != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get results
+        res = await conn.execute(
+            select(agent_results)
+            .where(agent_results.c.task_id == task_id)
+            .order_by(agent_results.c.created_at.desc())
+        )
+        
+        results = []
+        for row in res.fetchall():
+            result_dict = dict(row._mapping)
+            # Parse JSON fields
+            try:
+                result_dict["content"] = json.loads(result_dict["content"] or "{}")
+                result_dict["metadata"] = json.loads(result_dict["metadata"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                result_dict["content"] = {}
+                result_dict["metadata"] = {}
+            results.append(result_dict)
+        
+        return results

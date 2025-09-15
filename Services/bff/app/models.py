@@ -107,3 +107,61 @@ agents = Table(
     Column("finished_at", String(40), nullable=True),
     Column("meta", Text, nullable=True),
 )
+
+# External agent registry - tracks available agent services
+agent_registry = Table(
+    "agent_registry",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("name", String(200), nullable=False),
+    Column("description", Text, nullable=True),
+    Column("capabilities", Text, nullable=True),  # JSON array
+    Column("version", String(32), nullable=True),
+    Column("health_endpoint", String(500), nullable=True),
+    Column("api_key", String(200), nullable=True),  # For agent authentication
+    Column("last_heartbeat", String(40), nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'available'")),
+    Column("created_at", String(40), nullable=False),
+    Column("updated_at", String(40), nullable=False),
+)
+
+# Agent tasks - user-scoped tasks for proper isolation
+agent_tasks = Table(
+    "agent_tasks", 
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("agent_id", String(128), ForeignKey("agent_registry.id", ondelete="CASCADE"), nullable=False),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),  # Required for isolation
+    Column("name", String(200), nullable=False),
+    Column("description", Text, nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'pending'")),
+    Column("progress", String(16), nullable=True),  # "75%" or "3/10"
+    Column("current_step", String(300), nullable=True),
+    Column("input_data", Text, nullable=True),  # JSON
+    Column("output_data", Text, nullable=True),  # JSON
+    Column("error_message", Text, nullable=True),
+    Column("priority", String(16), nullable=False, server_default=text("'normal'")),
+    Column("created_at", String(40), nullable=False),
+    Column("started_at", String(40), nullable=True), 
+    Column("completed_at", String(40), nullable=True),
+    Column("estimated_completion", String(40), nullable=True),
+    Column("updated_at", String(40), nullable=False),
+)
+
+# Agent results - user-scoped results storage
+agent_results = Table(
+    "agent_results",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("task_id", String(128), ForeignKey("agent_tasks.id", ondelete="CASCADE"), nullable=False),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),  # Explicit user isolation
+    Column("result_type", String(32), nullable=False),  # 'file', 'insight', 'metric', 'data'
+    Column("name", String(300), nullable=False),
+    Column("description", Text, nullable=True),
+    Column("content", Text, nullable=True),  # JSON content
+    Column("file_path", String(500), nullable=True),  # Path to uploaded file
+    Column("file_size", String(16), nullable=True),  # File size in bytes
+    Column("mime_type", String(100), nullable=True),  # MIME type for files
+    Column("metadata", Text, nullable=True),  # Additional JSON metadata
+    Column("created_at", String(40), nullable=False),
+)
