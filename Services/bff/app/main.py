@@ -4,20 +4,20 @@ import sys
 import json
 import ipaddress
 import urllib.parse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response
+import jwt
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from temporalio.client import Client
-import httpx
 from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import select, text
 from datetime import timedelta
 from pydantic import BaseModel
-from .auth import create_access_token, verify_password, get_current_user, require_admin
+from .auth import create_access_token, verify_password, get_current_user, require_admin, JWT_SECRET
 from .models import users, chat_settings as t_chat_settings, connection_settings as t_conn_settings, characters as t_characters, conversations as t_conversations, messages as t_messages, workflows as t_workflows
 
 
@@ -87,6 +87,7 @@ _chat_settings_store: Dict[str, Dict[str, Any]] = {}
 _connections_store: Dict[str, Dict[str, Any]] = {}
 _agents_store: Dict[str, Dict[str, Any]] = {}
 _folders_store: Dict[str, Dict[str, Any]] = {}
+_agent_stream_subscribers: Dict[asyncio.Queue, Dict[str, Any]] = {}
 
 def _default_chat_settings(uid: str) -> Dict[str, Any]:
     """Fallback chat settings when nothing is persisted in DB or memory.
@@ -2074,17 +2075,91 @@ async def dashboard_status(engine: Optional[AsyncEngine] = Depends(get_engine), 
 from datetime import datetime as _dt
 
 
+def _agents_for_viewer(viewer_id: Optional[str], viewer_role: Optional[str]) -> List[Dict[str, Any]]:
+    viewer_is_admin = (viewer_role or "").lower() == "admin"
+    out: List[Dict[str, Any]] = []
+    for ag in _agents_store.values():
+        if viewer_is_admin or ag.get("userId") == viewer_id:
+            out.append(ag)
+    return out
+
+
+def _agents_payload(viewer_id: Optional[str], viewer_role: Optional[str]) -> str:
+    return json.dumps(
+        {
+            "type": "agents",
+            "agents": _agents_for_viewer(viewer_id, viewer_role),
+            "timestamp": _dt.utcnow().isoformat() + "Z",
+        }
+    )
+
+
+async def _broadcast_agents_update() -> None:
+    if not _agent_stream_subscribers:
+        return
+
+    to_remove: List[asyncio.Queue] = []
+    for queue, meta in list(_agent_stream_subscribers.items()):
+        try:
+            payload = _agents_payload(meta.get("userId"), meta.get("role"))
+            if queue.full():
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+            await queue.put(payload)
+        except Exception:
+            to_remove.append(queue)
+
+    for queue in to_remove:
+        _agent_stream_subscribers.pop(queue, None)
+
+
+@app.websocket("/api/agents/ws")
+async def agents_ws(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4401, reason="Missing token")
+        return
+
+    try:
+        token_data = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        await websocket.close(code=4401, reason="Token expired")
+        return
+    except Exception:
+        await websocket.close(code=4401, reason="Invalid token")
+        return
+
+    user_id = token_data.get("sub")
+    role = token_data.get("role") or "user"
+    if not user_id:
+        await websocket.close(code=4401, reason="Invalid token payload")
+        return
+
+    await websocket.accept()
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    _agent_stream_subscribers[queue] = {"userId": user_id, "role": role}
+
+    try:
+        await websocket.send_text(_agents_payload(user_id, role))
+        while True:
+            payload = await queue.get()
+            await websocket.send_text(payload)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        _agent_stream_subscribers.pop(queue, None)
+
+
 @app.get("/api/agents")
 async def agents_list(current=Depends(current_user_dep)):
     if not current:
         raise HTTPException(status_code=401, detail="Authentication required")
-    viewer_is_admin = current.get("role") == "admin"
-    uid = current.get("id")
-    out = []
-    for ag in _agents_store.values():
-        if viewer_is_admin or ag.get("userId") == uid:
-            out.append(ag)
-    return out
+    return _agents_for_viewer(current.get("id"), current.get("role"))
 
 
 @app.post("/api/agents/{agent_id}/start")
@@ -2102,6 +2177,7 @@ async def agents_start(agent_id: str, body: dict = {}, current=Depends(current_u
         "meta": body.get("meta") or ag.get("meta") or {},
     })
     _agents_store[agent_id] = ag
+    await _broadcast_agents_update()
     return {"success": True, "agent": ag}
 
 
@@ -2118,12 +2194,14 @@ async def agents_stop(agent_id: str, body: dict = {}, current=Depends(current_us
         "meta": body.get("meta") or ag.get("meta") or {},
     })
     _agents_store[agent_id] = ag
+    await _broadcast_agents_update()
     return {"success": True, "agent": ag}
 
 
 @app.delete("/api/agents/{agent_id}")
 async def agents_delete(agent_id: str, current=Depends(current_user_dep)):
     _agents_store.pop(agent_id, None)
+    await _broadcast_agents_update()
     return {"success": True}
 
 
