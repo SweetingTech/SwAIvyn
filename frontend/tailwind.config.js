@@ -2,6 +2,14 @@
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
+    screens: {
+      'xs': '375px',    // iPhone SE, small phones
+      'sm': '390px',    // iPhone 12/13/14 mini
+      'md': '430px',    // iPhone 12/13/14 Pro Max
+      'lg': '768px',    // iPad mini/portrait
+      'xl': '1024px',   // iPad landscape, desktop
+      '2xl': '1280px',  // Large desktop
+    },
     extend: {
       colors: {
         primary: {

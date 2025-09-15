@@ -148,16 +148,16 @@ const DashboardPage = () => {
 
   return (
     <motion.div
-      className="min-h-[calc(100vh-64px)] bg-gray-50 p-4"
+      className="min-h-[calc(100vh-64px)] bg-gray-50 p-3 sm:p-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
       <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-medium text-gray-800">Dashboard</h1>
-          <p className="text-gray-600">System overview and status</p>
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-xl sm:text-2xl font-medium text-gray-800">Dashboard</h1>
+          <p className="text-sm sm:text-base text-gray-600">System overview and status</p>
         </div>
 
         {loading ? (
@@ -165,7 +165,7 @@ const DashboardPage = () => {
             <InlineSpinner />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* LLM Status */}
             <StatusCard
               title="LLM Engine"
@@ -233,7 +233,7 @@ const DashboardPage = () => {
         {/* Agents Summary (reported by workers) */}
         <div className="mt-8">
           <h2 className="text-lg font-medium text-gray-800 mb-4">Agents</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <StatusCard title="Running" value={String(agents.running.length)} subtitle="Active agents" icon={<Bot size={24} />} status="info" />
             <StatusCard title="Completed" value={String(agents.completed)} subtitle="Finished runs" icon={<CheckCircle size={24} />} status="info" />
             <StatusCard title="Failed" value={String(agents.failed)} subtitle="Error runs" icon={<XCircle size={24} />} status="info" />
