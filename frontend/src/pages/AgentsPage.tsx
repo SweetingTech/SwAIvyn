@@ -1,6 +1,6 @@
+import axios from 'axios';
 import { motion } from 'framer-motion';
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useInitialization } from '../contexts/InitializationContext';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import {
   Bot,
@@ -16,8 +16,11 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  Edit3,
+  Settings,
 } from 'lucide-react';
 import InlineSpinner from '../components/ui/InlineSpinner';
+import AgentForm from '../components/AgentForm';
 
 interface AgentEvent {
   id: string;
@@ -58,9 +61,7 @@ const isActiveStatus = (status: string) => ACTIVE_STATUSES.has(normalizeStatus(s
 
 const getAgentType = (agent: Agent): string => {
   const raw = agent.meta?.type;
-  if (typeof raw === 'string' && raw.trim()) {
-    return raw.trim();
-  }
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
   return 'custom';
 };
 
@@ -136,48 +137,81 @@ const humanize = (value: string) => {
 const isNonEmptyObject = (value: unknown): value is Record<string, unknown> =>
   isRecord(value) && Object.keys(value).length > 0;
 
+const extractAgentYaml = (agent: Agent | null): string => {
+  if (!agent || !agent.meta) return '';
+  const meta = agent.meta as Record<string, unknown>;
+  for (const key of ['yaml', 'definition', 'config']) {
+    const value = meta[key];
+    if (typeof value === 'string') return value;
+  }
+  return '';
+};
+
 const AgentsPage = () => {
-  const { user } = useInitialization();
   const eff = useEffectiveUser();
+
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [eventLogs, setEventLogs] = useState<Record<string, AgentEvent[]>>({});
   const [loadingEvents, setLoadingEvents] = useState<Record<string, boolean>>({});
-  const initUserId = user?.id ?? null;
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
+  const [formAgent, setFormAgent] = useState<Agent | null>(null);
+  const [formYaml, setFormYaml] = useState<string>('');
+
+  const parseErrorMessage = useCallback((err: unknown, fallback: string) => {
+    if (axios.isAxiosError(err)) {
+      const data = err.response?.data;
+      if (typeof data === 'string' && data.trim().length > 0) return data;
+      if (data && typeof data === 'object') {
+        const detail = (data as { detail?: unknown }).detail;
+        if (typeof detail === 'string') return detail;
+        if (detail) {
+          try {
+            return JSON.stringify(detail);
+          } catch {
+            return fallback;
+          }
+        }
+      }
+      return err.message || fallback;
+    }
+    if (err instanceof Error) return err.message || fallback;
+    return fallback;
+  }, []);
 
   const loadAgents = useCallback(async () => {
-    const targetUserId = eff.userId || initUserId;
-    if (!targetUserId) return;
+    if (!eff.userId) return;
     setLoading(true);
     try {
       const resp = await fetch('/api/agents', { headers: eff.headers });
-      if (resp.ok) {
-        const data = (await resp.json()) as Agent[];
-        setAgents(data.map((agent) => normalizeAgent(agent)));
-      } else {
-        setAgents([]);
-      }
+      if (!resp.ok) throw new Error('Failed to fetch agents');
+      const data = (await resp.json()) as Agent[];
+      setAgents((Array.isArray(data) ? data : []).map((a) => normalizeAgent(a)));
+      setError(null);
     } catch (err) {
       console.error('Failed to load agents', err);
+      const message = parseErrorMessage(err, 'Failed to load agents.');
+      setError(message);
       setAgents([]);
     } finally {
       setLoading(false);
     }
-  }, [eff.headers, eff.userId, initUserId]);
+  }, [eff.headers, eff.userId, parseErrorMessage]);
 
   useEffect(() => {
-    if (eff.userId || initUserId) {
-      void loadAgents();
-    }
-  }, [eff.userId, initUserId, loadAgents]);
+    if (eff.userId) void loadAgents();
+  }, [eff.userId, loadAgents]);
 
   const fetchAgentDetail = useCallback(
     async (id: string, force = false) => {
-      const targetUserId = eff.userId || initUserId;
-      if (!targetUserId) return;
+      if (!eff.userId) return;
       if (!force) {
         if (loadingEvents[id]) return;
         if (eventLogs[id]) return;
@@ -189,9 +223,7 @@ const AgentsPage = () => {
           const detail = (await resp.json()) as Agent;
           const { events = [], ...rest } = detail;
           setEventLogs((prev) => ({ ...prev, [id]: events }));
-          setAgents((prev) =>
-            prev.map((agent) => (agent.id === id ? normalizeAgent({ ...agent, ...rest }) : agent)),
-          );
+          setAgents((prev) => prev.map((a) => (a.id === id ? normalizeAgent({ ...a, ...rest }) : a)));
         }
       } catch (err) {
         console.error('Failed to load agent detail', err);
@@ -199,7 +231,7 @@ const AgentsPage = () => {
         setLoadingEvents((prev) => ({ ...prev, [id]: false }));
       }
     },
-    [eff.headers, eff.userId, initUserId, eventLogs, loadingEvents],
+    [eff.headers, eff.userId, eventLogs, loadingEvents],
   );
 
   const updateAgent = useCallback(
@@ -242,7 +274,7 @@ const AgentsPage = () => {
     try {
       const resp = await fetch(`/api/agents/${id}`, { method: 'DELETE', headers: eff.headers });
       if (!resp.ok) throw new Error('delete failed');
-      setAgents((prev) => prev.filter((agent) => agent.id !== id));
+      setAgents((prev) => prev.filter((a) => a.id !== id));
       setEventLogs((prev) => {
         const next = { ...prev };
         delete next[id];
@@ -253,9 +285,7 @@ const AgentsPage = () => {
         delete next[id];
         return next;
       });
-      if (expandedAgent === id) {
-        setExpandedAgent(null);
-      }
+      if (expandedAgent === id) setExpandedAgent(null);
     } catch (err) {
       console.error('Failed to delete agent', err);
     }
@@ -268,6 +298,28 @@ const AgentsPage = () => {
     }
     setExpandedAgent(id);
     void fetchAgentDetail(id);
+  };
+
+  const openCreateForm = () => {
+    setFormMode('create');
+    setFormAgent(null);
+    setFormYaml('');
+    setFormOpen(true);
+    setError(null);
+  };
+
+  const openEditForm = (agent: Agent) => {
+    setFormMode('edit');
+    setFormAgent(agent);
+    setFormYaml(extractAgentYaml(agent));
+    setFormOpen(true);
+    setError(null);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setFormAgent(null);
+    setFormYaml('');
   };
 
   const typeOptions = useMemo(() => {
@@ -304,18 +356,24 @@ const AgentsPage = () => {
               <h1 className="text-2xl font-medium text-gray-800">Native Agents</h1>
               <p className="text-gray-600">Monitor agent status and review their activity logs</p>
             </div>
-            <button className="btn btn-primary mt-2 sm:mt-0 flex items-center">
+            <button className="btn btn-primary mt-2 sm:mt-0 flex items-center" onClick={openCreateForm}>
               <Plus size={16} className="mr-1.5" />
               Create Agent
             </button>
           </div>
         </div>
 
+        {error && (
+          <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <div className="flex-1">
               <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search agents..."
@@ -372,6 +430,18 @@ const AgentsPage = () => {
                           </span>
                         </div>
                       </div>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                        onClick={() => openEditForm(agent)}
+                        title="Edit agent definition"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button className="p-1 text-gray-400 hover:text-gray-600 rounded" title="Settings">
+                        <Settings size={14} />
+                      </button>
                     </div>
                   </div>
 
@@ -472,7 +542,7 @@ const AgentsPage = () => {
                 ? 'Try adjusting your search or filter criteria.'
                 : 'Create your first agent to get started with automation.'}
             </p>
-            <button className="btn btn-primary">
+            <button className="btn btn-primary" onClick={openCreateForm}>
               <Plus size={16} className="mr-1.5" />
               Create Agent
             </button>
@@ -492,6 +562,15 @@ const AgentsPage = () => {
           </div>
         </div>
       </div>
+
+      <AgentForm
+        open={formOpen}
+        mode={formMode}
+        agentId={formMode === 'edit' ? formAgent?.id : undefined}
+        initialYaml={formMode === 'edit' ? formYaml : ''}
+        onClose={closeForm}
+        onSaved={loadAgents}
+      />
     </motion.div>
   );
 };
