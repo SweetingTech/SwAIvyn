@@ -3,7 +3,9 @@ param(
     [string]$StackName = 'swaivyn',
     [switch]$DownCompose = $false,
     [switch]$Prune = $false,
-    [switch]$Aggressive = $false
+    [switch]$PruneVolumes = $false,
+    [switch]$Force = $false,
+    [switch]$Verbose = $false
 )
 
 $ErrorActionPreference = 'Stop'

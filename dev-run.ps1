@@ -432,6 +432,19 @@ if (-not (Test-Path $stackFile)) { throw "Stack file not found: $stackFile" }
 
 Ensure-SwarmActive
 Ensure-Images
+
+# Ensure overlay network exists
+$networkName = "${StackName}_swai-public"
+try {
+    $networkExists = & docker network inspect $networkName 2>$null
+    if (-not $networkExists) {
+        Write-Host "Creating overlay network '$networkName'..." -ForegroundColor DarkGray
+        & docker network create -d overlay --attachable $networkName | Out-Null
+    }
+} catch {
+    Write-Warning "Failed to ensure network '$networkName': $($_.Exception.Message)"
+}
+
 Ensure-StackNetwork -StackName $StackName
 
 # Smart deployment - only deploy if needed
@@ -479,8 +492,104 @@ if (-not $env:POSTGRES_PASSWORD) {
     Write-Host "✅ POSTGRES_PASSWORD is set" -ForegroundColor Green
 }
 
-# Wait for Temporal (critical for orchestrator) with proper gRPC health check
-$temporalReady = Wait-TemporalService -HostName 'localhost' -Port 7233
+# Wait for critical infrastructure services with endpoint polling
+Write-Host "🔍 Checking infrastructure service health..." -ForegroundColor Cyan
+
+# Check Traefik with retry logic
+$traefikReady = $false
+Write-Host "Checking Traefik readiness..." -ForegroundColor DarkGray
+for ($i = 1; $i -le 20; $i++) {
+    try {
+        $traefikUrl = "http://localhost:$TraefikPort/ping"
+        $response = Invoke-WebRequest -Uri $traefikUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        if ($response.StatusCode -eq 200) {
+            $traefikReady = $true
+            Write-Host "✅ Traefik is ready (attempt $i)" -ForegroundColor Green
+            break
+        }
+    } catch {
+        if ($i % 5 -eq 0) {
+            Write-Host "  Still waiting for Traefik (attempt $i)..." -ForegroundColor DarkGray
+        }
+    }
+    Start-Sleep -Seconds 3
+}
+if (-not $traefikReady) {
+    Write-Warning "Traefik not ready after 60 seconds, continuing anyway"
+}
+
+# Check Qdrant with retry logic  
+$qdrantReady = $false
+Write-Host "Checking Qdrant readiness..." -ForegroundColor DarkGray
+for ($i = 1; $i -le 15; $i++) {
+    try {
+        $qdrantUrl = "http://localhost:6333/readyz"
+        $response = Invoke-WebRequest -Uri $qdrantUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        if ($response.StatusCode -eq 200) {
+            $qdrantReady = $true
+            Write-Host "✅ Qdrant is ready (attempt $i)" -ForegroundColor Green
+            break
+        }
+    } catch {
+        if ($i % 5 -eq 0) {
+            Write-Host "  Still waiting for Qdrant (attempt $i)..." -ForegroundColor DarkGray
+        }
+    }
+    Start-Sleep -Seconds 4
+}
+if (-not $qdrantReady) {
+    Write-Warning "Qdrant not ready after 60 seconds, continuing anyway"
+}
+
+# Enhanced Temporal check with retry and unified approach
+$temporalReady = $false
+Write-Host "Checking Temporal cluster health..." -ForegroundColor DarkGray
+for ($i = 1; $i -le 40; $i++) {
+    try {
+        # Find Temporal container using proper Swarm service label
+        $containers = & docker ps --filter "label=com.docker.swarm.service.name=${StackName}_temporal" --format "{{.ID}}" 2>$null
+        if ($containers) {
+            $containerId = $containers | Select-Object -First 1
+            
+            # Try primary health check
+            $healthResult = & docker exec $containerId temporal operator cluster health 2>$null
+            if ($healthResult -and $healthResult -match "SERVING") {
+                $temporalReady = $true
+                Write-Host "✅ Temporal cluster is healthy (attempt $i)" -ForegroundColor Green
+                break
+            }
+            
+            # Try fallback health check
+            $fallbackResult = & docker exec $containerId tctl --address localhost:7233 cluster health 2>$null
+            if ($fallbackResult -and $fallbackResult -match "SERVING") {
+                $temporalReady = $true
+                Write-Host "✅ Temporal cluster is healthy via tctl (attempt $i)" -ForegroundColor Green
+                break
+            }
+            
+            if ($i % 10 -eq 0) {
+                Write-Host "  Temporal container found but cluster not yet healthy (attempt $i)..." -ForegroundColor DarkGray
+            }
+        } else {
+            if ($i % 8 -eq 0) {
+                Write-Host "  Waiting for Temporal container to start (attempt $i)..." -ForegroundColor DarkGray
+            }
+        }
+    } catch {
+        if ($i % 15 -eq 0) {
+            Write-Host "  Temporal health check error (attempt $i): $($_.Exception.Message)" -ForegroundColor DarkGray
+        }
+    }
+    Start-Sleep -Seconds 3
+}
+if (-not $temporalReady) {
+    Write-Warning "Temporal cluster health check failed after 2 minutes"
+    try {
+        Write-Host "📋 Temporal diagnostics:" -ForegroundColor Yellow
+        & docker service ps "${StackName}_temporal" --no-trunc 2>$null
+        & docker service logs "${StackName}_temporal" --tail 20 2>$null
+    } catch {}
+}
 
 if (-not $temporalReady) {
     Write-Warning "Temporal gRPC services are not ready. Orchestrator startup will be attempted but may fail and retry."
