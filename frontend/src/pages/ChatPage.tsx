@@ -494,28 +494,76 @@ const ChatPage: React.FC = () => {
   /* ---------------------------------------------------------------------- */
 
   const handleNewConversation = async () => {
-    console.log('🔄 Chat: Starting new conversation');
-    setMessages([
-      {
-        id: 'welcome',
-        sender: 'ai',
-        text: `Hello ${USER_NAME}! How can I help you today?`,
-        timestamp: new Date().toISOString()
-      }
-    ]);
+    if (!effectiveUserId) {
+      console.warn('🔄 Chat: No effective user ID, cannot create conversation');
+      return;
+    }
 
-    setCurrentConversation({ id: '', title: 'New Chat' });
+    try {
+      console.log('🔄 Chat: Starting new conversation');
+      
+      // Create the conversation in the backend first
+      const newConversation = await conversationService.createConversation(
+        'New Chat',
+        effectiveUserId
+      );
+      
+      console.log('🔄 Chat: Created conversation:', newConversation);
 
-    navigate(
-      generateChatUrl({
-        conversationId: 'new',
-        characterName: selectedCharacter?.name
-      }),
-      { replace: true }
-    );
+      // Set initial welcome message
+      setMessages([
+        {
+          id: 'welcome',
+          sender: 'ai',
+          text: `Hello ${USER_NAME}! How can I help you today?`,
+          timestamp: new Date().toISOString()
+        }
+      ]);
 
-    isFirstMessage.current = true;
-    setInputText('');
+      // Update current conversation with the real conversation ID
+      setCurrentConversation({ 
+        id: newConversation.id, 
+        title: newConversation.title 
+      });
+
+      // Navigate to the new conversation
+      navigate(
+        generateChatUrl({
+          conversationId: newConversation.id,
+          characterName: selectedCharacter?.name
+        }),
+        { replace: true }
+      );
+
+      isFirstMessage.current = true;
+      setInputText('');
+      
+      console.log('🔄 Chat: New conversation created and navigated');
+    } catch (error) {
+      console.error('🔄 Chat: Failed to create new conversation:', error);
+      // Fallback to the old behavior
+      setMessages([
+        {
+          id: 'welcome',
+          sender: 'ai',
+          text: `Hello ${USER_NAME}! How can I help you today?`,
+          timestamp: new Date().toISOString()
+        }
+      ]);
+
+      setCurrentConversation({ id: '', title: 'New Chat' });
+
+      navigate(
+        generateChatUrl({
+          conversationId: 'new',
+          characterName: selectedCharacter?.name
+        }),
+        { replace: true }
+      );
+
+      isFirstMessage.current = true;
+      setInputText('');
+    }
   };
 
   /* ---------------------------------------------------------------------- */
@@ -564,6 +612,94 @@ const ChatPage: React.FC = () => {
   };
 
   /* ---------------------------------------------------------------------- */
+  /*  Handle "remember this" command                                        */
+  /* ---------------------------------------------------------------------- */
+
+  const handleRememberCommand = async (memoryContent: string) => {
+    if (!effectiveUserId) {
+      console.warn('🧠 Memory: No effective user ID, cannot save memory');
+      // Show user message that memory couldn't be saved
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        sender: 'ai',
+        text: 'I cannot save memories right now because no user is logged in.',
+        timestamp: new Date().toISOString()
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+      setInputText('');
+      return;
+    }
+
+    try {
+      console.log('🧠 Memory: Saving memory:', memoryContent);
+      
+      // Show user message first
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        sender: 'user',
+        text: `Remember this: ${memoryContent}`,
+        timestamp: new Date().toISOString()
+      };
+      setMessages((prev) => [...prev, userMessage]);
+      setInputText('');
+      setIsLoading(true);
+
+      // Save to memory API
+      const response = await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(effectiveUserId && { 'Authorization': `Bearer ${effectiveUserId}` })
+        },
+        body: JSON.stringify({
+          userId: effectiveUserId,
+          content: memoryContent,
+          category: 'Personal',
+          isShared: false
+        }),
+      });
+
+      if (response.ok) {
+        const savedMemory = await response.json();
+        console.log('🧠 Memory: Saved successfully:', savedMemory);
+        
+        // Show success message
+        const successMessage: Message = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: `✅ I've remembered: "${memoryContent}". I'll keep this in mind for our future conversations.`,
+          timestamp: new Date().toISOString()
+        };
+        setMessages((prev) => [...prev, successMessage]);
+      } else {
+        console.error('🧠 Memory: Failed to save memory:', response.status);
+        
+        // Show error message
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: `❌ Sorry, I couldn't save that memory. Please try again later.`,
+          timestamp: new Date().toISOString()
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('🧠 Memory: Error saving memory:', error);
+      
+      // Show error message
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        sender: 'ai',
+        text: `❌ Sorry, I encountered an error while trying to save that memory.`,
+        timestamp: new Date().toISOString()
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /* ---------------------------------------------------------------------- */
   /*  Submit message                                                        */
   /* ---------------------------------------------------------------------- */
 
@@ -572,6 +708,28 @@ const ChatPage: React.FC = () => {
     if (!inputText.trim() || isLoading) return;
 
     const textToSend = inputText.trim();
+
+    // Check for "remember this" command
+    const rememberRegex = /^(?:remember this:?\s*|remember:?\s*|\/remember\s*)(.*)/i;
+    const rememberMatch = textToSend.match(rememberRegex);
+    
+    if (rememberMatch) {
+      const memoryContent = rememberMatch[1].trim();
+      if (memoryContent) {
+        await handleRememberCommand(memoryContent);
+      } else {
+        // Show error for empty remember command
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: 'Please provide content to remember. Example: "remember this: my dog\'s name is Fede"',
+          timestamp: new Date().toISOString()
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+        setInputText('');
+      }
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
