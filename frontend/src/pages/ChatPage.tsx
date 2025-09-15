@@ -19,7 +19,6 @@ import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import apiService from '../services/apiService';
 import { Message } from '../types/chat';
-import { USER_NAME } from '../constants';
 import {
   parseChatUrl,
   generateChatUrl,
@@ -495,7 +494,7 @@ const ChatPage: React.FC = () => {
             {
               id: 'welcome',
               sender: 'ai',
-              text: `Hello ${USER_NAME}! How can I help you today?`,
+              text: `Hello ${user?.username || 'there'}! How can I help you today?`,
               timestamp: new Date().toISOString()
             }
           ]);
@@ -508,6 +507,23 @@ const ChatPage: React.FC = () => {
 
     loadConversation();
   }, [effectiveUserId]);
+
+  /* -------------------- Update welcome message with username ----------- */
+  useEffect(() => {
+    if (!user?.username || messages.length === 0) return;
+    
+    // Find and update welcome message if it exists and still has fallback text
+    const welcomeMsg = messages.find(msg => msg.id === 'welcome' && msg.sender === 'ai');
+    if (welcomeMsg && (welcomeMsg.text.includes('there!') || welcomeMsg.text.includes('Default User'))) {
+      setMessages(prevMessages => 
+        prevMessages.map(msg => 
+          msg.id === 'welcome' && msg.sender === 'ai'
+            ? { ...msg, text: `Hello ${user.username}! How can I help you today?` }
+            : msg
+        )
+      );
+    }
+  }, [user?.username, messages]);
 
   /* ---------------------------------------------------------------------- */
   /*  Character select handler                                               */
@@ -575,7 +591,7 @@ const ChatPage: React.FC = () => {
         {
           id: 'welcome',
           sender: 'ai',
-          text: `Hello ${USER_NAME}! How can I help you today?`,
+          text: `Hello ${user?.username || 'there'}! How can I help you today?`,
           timestamp: new Date().toISOString()
         }
       ]);
@@ -606,7 +622,7 @@ const ChatPage: React.FC = () => {
         {
           id: 'welcome',
           sender: 'ai',
-          text: `Hello ${USER_NAME}! How can I help you today?`,
+          text: `Hello ${user?.username || 'there'}! How can I help you today?`,
           timestamp: new Date().toISOString()
         }
       ]);
