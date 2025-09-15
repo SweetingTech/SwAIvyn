@@ -35,7 +35,7 @@ function Resolve-PythonExe {
             try {
                 $cmd = Get-Command $prefCmd -ErrorAction Stop
                 return @{ Exe = $cmd.Path; PreArgs = $prefArgs }
-            } catch {}
+            } catch { $null }
         }
     }
     foreach ($name in @('py','python','python3')) {
@@ -44,7 +44,7 @@ function Resolve-PythonExe {
             $args = @()
             if ($name -eq 'py') { $args = @('-3') }
             return @{ Exe = $cmd.Path; PreArgs = $args }
-        } catch {}
+        } catch { $null }
     }
     throw 'Python not found in PATH. Install Python 3 and restart your shell.'
 }
@@ -178,7 +178,7 @@ function Get-StackInfo {
     if ($LASTEXITCODE -eq 0 -and $services) {
       return @{ Exists = $true; Services = $services }
     }
-  } catch {}
+  } catch { $null }
   return @{ Exists = $false; Services = @() }
 }
 
@@ -588,7 +588,7 @@ if (-not $temporalReady) {
         Write-Host "📋 Temporal diagnostics:" -ForegroundColor Yellow
         & docker service ps "${StackName}_temporal" --no-trunc 2>$null
         & docker service logs "${StackName}_temporal" --tail 20 2>$null
-    } catch {}
+    } catch { $null }
 }
 
 if (-not $temporalReady) {
@@ -700,7 +700,7 @@ try {
             }
         }
     }
-} catch {}
+} catch { $null }
 
 Write-Host "`n💡 TIPS:" -ForegroundColor Yellow
 Write-Host "• Frontend supports hot reloading - changes will refresh automatically" -ForegroundColor White
