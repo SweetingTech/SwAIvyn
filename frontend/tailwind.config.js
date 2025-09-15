@@ -2,15 +2,14 @@
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
-    screens: {
-      'xs': '375px',    // iPhone SE, small phones
-      'sm': '390px',    // iPhone 12/13/14 mini
-      'md': '430px',    // iPhone 12/13/14 Pro Max
-      'lg': '768px',    // iPad mini/portrait
-      'xl': '1024px',   // iPad landscape, desktop
-      '2xl': '1280px',  // Large desktop
-    },
     extend: {
+      screens: {
+        'xs': '375px',        // iPhone SE, small phones
+        'iphone-mini': '390px', // iPhone 12/13/14 mini  
+        'iphone-pro': '430px',  // iPhone 12/13/14 Pro Max
+        'ipad-mini': '768px',   // iPad mini portrait
+        '3xl': '1440px',       // Large desktop
+      },
       colors: {
         primary: {
           50: '#f5f3ff',

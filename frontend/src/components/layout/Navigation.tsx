@@ -90,7 +90,8 @@ interface MobileMenuProps {
 
 const MobileMenu = ({ isOpen, setIsOpen }: MobileMenuProps) => {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <>
@@ -133,6 +134,21 @@ const MobileMenu = ({ isOpen, setIsOpen }: MobileMenuProps) => {
               {user?.role === 'admin' && (
                 <MobileNavItem to="/admin/users" icon={<User size={20} />} label="Admin" onClick={() => setIsOpen(false)} />
               )}
+              
+              {/* Mobile Logout Button */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <button
+                  className="flex items-center w-full px-4 py-3 text-base font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
+                  onClick={() => { 
+                    logout(); 
+                    navigate('/'); 
+                    setIsOpen(false); 
+                  }}
+                >
+                  <span className="mr-3">🚪</span>
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </>
