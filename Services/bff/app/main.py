@@ -27,6 +27,8 @@ from sqlalchemy import select, text
 from datetime import timedelta, datetime
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 # Local imports
 from .auth import create_access_token, verify_password, get_current_user, require_admin, JWT_SECRET  # JWT_SECRET may be unused if WS disabled
@@ -182,6 +184,51 @@ async def _ensure_temporal_connected():
 app = FastAPI(title="SwAIvyn BFF", version="0.1.0")
 os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
 
+# ------------------------- Security Middleware -------------------------
+
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    """Global authentication middleware to secure all API endpoints"""
+    
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        
+        # Allow unauthenticated access to specific endpoints
+        unauthenticated_paths = [
+            "/healthz", "/readyz", "/api/healthz", "/api/readyz", "/api",
+            "/api/auth/login"
+        ]
+        
+        # Allow static files, frontend routes, and OPTIONS requests (CORS preflight)
+        if not path.startswith("/api") or path in unauthenticated_paths or request.method == "OPTIONS":
+            return await call_next(request)
+        
+        # Require authentication for all other /api/* endpoints
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authentication required"}
+            )
+        
+        # Validate JWT token
+        try:
+            from fastapi.security import HTTPAuthorizationCredentials
+            token = auth_header.split(" ")[1]
+            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+            user = await get_current_user(_engine, creds)
+            if not user:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or expired token"}
+                )
+        except Exception:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid authentication token"}
+            )
+        
+        return await call_next(request)
+
 try:
     from fastapi.staticfiles import StaticFiles
     frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
@@ -190,18 +237,22 @@ try:
 except Exception:
     pass
 
+# Add authentication middleware FIRST (before CORS)
+app.add_middleware(AuthenticationMiddleware)
+
+# Fix CORS configuration for security
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5000",
         "http://127.0.0.1:5000",
-        "http://localhost:5173",
+        "http://localhost:5173",  # Vite dev server
         "http://127.0.0.1:5173",
     ],
-    allow_origin_regex=r"^https?://.*\.repl\.co(:\d+)?$",
+    allow_origin_regex=r"^https?://[a-zA-Z0-9\-]+\.replit\.dev$" if os.getenv("REPLIT_DEV_DOMAIN") else None,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Agent-ID", "X-Agent-API-Key"],
 )
 
 # ------------------------- Startup -------------------------
@@ -318,6 +369,88 @@ async def get_default_user(current=Depends(current_user_dep)):
     if not current:
         raise HTTPException(status_code=401, detail="Authentication required")
     return {"id": current.get("id"), "username": current.get("username"), "role": current.get("role")}
+
+# ------------------------- Missing API endpoints that frontend expects -------------------------
+
+@app.get("/api/dashboard/status")
+async def dashboard_status(userId: str = Query(), current=Depends(current_user_dep)):
+    """Dashboard status endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return basic dashboard status
+    return {
+        "user_id": userId,
+        "status": "active",
+        "character_count": 3,  # We have 3 default characters
+        "agent_count": 0,      # No external agents yet
+        "conversation_count": 0
+    }
+
+@app.get("/api/agents/catalog")
+async def agents_catalog(current=Depends(current_user_dep)):
+    """Available agents catalog that frontend expects"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return available agents - for now empty, will be populated when agents are registered
+    return []
+
+@app.get("/api/folder/user/{user_id}")
+async def get_user_folders(user_id: str, current=Depends(current_user_dep)):
+    """User folders endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return empty folders for now - this will store user file organization
+    return {"folders": []}
+
+@app.get("/api/conversation/user/{user_id}")
+async def get_user_conversations(user_id: str, current=Depends(current_user_dep)):
+    """User conversations endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return empty conversations for now - this will store chat history
+    return {"conversations": []}
+
+@app.get("/api/chat/settings/{user_id}")
+async def get_chat_settings(user_id: str, current=Depends(current_user_dep)):
+    """Chat settings endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return default chat settings
+    settings = _chat_settings_store.get(user_id, _default_chat_settings(user_id))
+    return settings
+
+@app.put("/api/chat/settings/{user_id}")
+async def update_chat_settings(user_id: str, settings: dict, current=Depends(current_user_dep)):
+    """Update chat settings endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Store chat settings in memory for now
+    _chat_settings_store[user_id] = settings
+    return {"success": True}
+
+@app.get("/api/llm/models")
+async def get_llm_models(engine: str = Query(), userId: str = Query(), current=Depends(current_user_dep)):
+    """LLM models endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return empty models for now - these would come from Ollama/LMStudio
+    return {"models": []}
+
+@app.get("/api/llm/lmstudio/model")
+async def get_lmstudio_model(userId: str = Query(), current=Depends(current_user_dep)):
+    """LMStudio model endpoint that frontend calls"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Return no model selected for now
+    return {"model": None}
 
 class LoginRequest(BaseModel):
     username: Optional[str] = None

@@ -48,6 +48,8 @@ const DashboardPage = () => {
   });
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<{ running: any[]; completed: number; failed: number; pending: number }>({ running: [], completed: 0, failed: 0, pending: 0 });
+  const [characters, setCharacters] = useState<any[]>([]);
+  const [agentTasks, setAgentTasks] = useState<any[]>([]);
   const traefikUrl = useMemo(() => {
     // Check environment variable first
     const envUrl = (import.meta as any).env?.VITE_TRAEFIK_URL;
@@ -73,8 +75,14 @@ const DashboardPage = () => {
 
   useEffect(() => {
     loadSystemStatus();
+    loadCharacters();
+    loadAgentTasks();
     // Refresh status every 30 seconds
-    const interval = setInterval(loadSystemStatus, 30000);
+    const interval = setInterval(() => {
+      loadSystemStatus();
+      loadCharacters();
+      loadAgentTasks();
+    }, 30000);
 
     return () => {
       clearInterval(interval);
