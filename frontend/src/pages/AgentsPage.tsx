@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useInitialization } from '../contexts/InitializationContext';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import {
@@ -36,15 +36,9 @@ const AgentsPage = () => {
   const eff = useEffectiveUser();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [socketConnected, setSocketConnected] = useState(false);
 
-  // Fetch agents whenever the user becomes available
-  useEffect(() => {
-    if (eff.userId) {
-      loadAgents();
-    }
-  }, [eff.userId]);
-
-  const loadAgents = async () => {
+  const loadAgents = useCallback(async () => {
     if (!eff.userId) return;
     setLoading(true);
 
@@ -62,16 +56,109 @@ const AgentsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [eff.headers, eff.userId]);
+
+  // Fetch agents whenever the user becomes available
+  useEffect(() => {
+    if (eff.userId) {
+      loadAgents();
+    }
+  }, [eff.userId, loadAgents]);
+
+  useEffect(() => {
+    if (!eff.userId || !eff.token) {
+      setSocketConnected(false);
+      return;
+    }
+
+    let ws: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let manuallyClosed = false;
+
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${protocol}://${window.location.host}/api/agents/ws?token=${encodeURIComponent(eff.token!)}`;
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        setSocketConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (Array.isArray(payload)) {
+            setAgents(payload as Agent[]);
+          } else if (payload?.type === 'agents' && Array.isArray(payload.agents)) {
+            setAgents(payload.agents as Agent[]);
+          }
+        } catch (err) {
+          console.error('Failed to parse agent stream payload', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleClose = (event: CloseEvent) => {
+        setSocketConnected(false);
+        if (manuallyClosed) return;
+        if (event && (event.code === 4401 || event.code === 4403)) {
+          return;
+        }
+        if (reconnectTimer) {
+          window.clearTimeout(reconnectTimer);
+        }
+        reconnectTimer = window.setTimeout(() => {
+          connect();
+        }, 5000);
+      };
+
+      ws.onclose = handleClose;
+      ws.onerror = () => {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+          ws.close();
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      manuallyClosed = true;
+      setSocketConnected(false);
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close();
+      }
+    };
+  }, [eff.token, eff.userId]);
+
+  useEffect(() => {
+    if (!eff.userId || socketConnected) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      loadAgents();
+    }, 10000);
+
+    loadAgents();
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [eff.userId, socketConnected, loadAgents]);
 
   const startAgent = async (id: string) => {
     await fetch(`/api/agents/${id}/start`, { method: 'POST' });
-    loadAgents();
+    await loadAgents();
   };
 
   const stopAgent = async (id: string) => {
     await fetch(`/api/agents/${id}/stop`, { method: 'POST' });
-    loadAgents();
+    await loadAgents();
   };
 
   const deleteAgent = async (id: string) => {
