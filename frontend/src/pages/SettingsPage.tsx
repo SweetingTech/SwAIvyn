@@ -1328,9 +1328,11 @@ const CharacterSettings = () => {
   const [characters, setCharacters] = useState<Array<{ id: string; name: string; systemPrompt?: string; imagePath?: string }>>([]);
   const [defaultId, setDefaultId] = useState<string>('');
   const [newCharOpen, setNewCharOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<'form' | 'template' | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; systemPrompt: string; imagePath: string }>({ name: '', systemPrompt: '', imagePath: '' });
-  const [form, setForm] = useState({ name: 'GLaDOS', imagePath: '', systemPrompt: `You are GLaDOS: a highly intelligent, sarcastic, darkly humorous AI. Speak with dry wit, occasional passive-aggressiveness, and a tone of clinical detachment. Always be helpful while maintaining your signature style.` });
+  const [form, setForm] = useState({ name: '', imagePath: '', systemPrompt: '', shared: false });
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
 
@@ -1339,6 +1341,40 @@ const CharacterSettings = () => {
       No Image
     </div>
   );
+
+  // Character templates
+  const characterTemplates = {
+    assistant: {
+      name: 'Helpful Assistant',
+      systemPrompt: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide accurate information, answer questions clearly, and assist users with their tasks in a polite and professional manner.',
+      imagePath: ''
+    },
+    creative: {
+      name: 'Creative Writer',
+      systemPrompt: 'You are a creative writing assistant with a vivid imagination. Help users craft stories, poems, and creative content. Use descriptive language, engaging narratives, and inspire creativity in your responses.',
+      imagePath: ''
+    },
+    technical: {
+      name: 'Technical Expert',
+      systemPrompt: 'You are a technical expert with deep knowledge across programming, engineering, and technology. Provide precise technical guidance, explain complex concepts clearly, and help solve technical problems.',
+      imagePath: ''
+    },
+    teacher: {
+      name: 'Patient Teacher',
+      systemPrompt: 'You are a patient and encouraging teacher. Break down complex topics into understandable parts, use examples and analogies, and adapt your teaching style to help users learn effectively.',
+      imagePath: ''
+    },
+    analyst: {
+      name: 'Data Analyst',
+      systemPrompt: 'You are an analytical thinker who excels at examining data, identifying patterns, and providing insights. Help users understand complex information and make data-driven decisions.',
+      imagePath: ''
+    },
+    glados: {
+      name: 'GLaDOS',
+      systemPrompt: 'You are GLaDOS: a highly intelligent, sarcastic, darkly humorous AI from the Portal series. Speak with dry wit, occasional passive-aggressiveness, and a tone of clinical detachment. Always be helpful while maintaining your signature style.',
+      imagePath: ''
+    }
+  };
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -1389,11 +1425,18 @@ const CharacterSettings = () => {
       const resp = await fetch('/api/character', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...eff.headers },
-        body: JSON.stringify({ name: form.name.trim() || 'New Character', imagePath: form.imagePath.trim(), systemPrompt: form.systemPrompt, shared: false })
+        body: JSON.stringify({ 
+          name: form.name.trim() || 'New Character', 
+          imagePath: form.imagePath.trim(), 
+          systemPrompt: form.systemPrompt.trim() || 'You are a helpful AI assistant.',
+          shared: form.shared || false
+        })
       });
       if (!resp.ok) throw new Error('Create failed');
       setNewCharOpen(false);
-      setForm({ name: 'GLaDOS', imagePath: '', systemPrompt: form.systemPrompt });
+      setForm({ name: '', imagePath: '', systemPrompt: '', shared: false });
+      setCreateMode(null);
+      setSelectedTemplate('');
       await load();
       setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -1499,23 +1542,113 @@ const CharacterSettings = () => {
               }}
             />
           </label>
+          <button 
+            className="btn btn-primary" 
+            onClick={() => {
+              setCreateMode('template');
+              setNewCharOpen(true);
+            }}
+          >
+            Create Character
+          </button>
         </div>
-        {newCharOpen && (
-          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        {newCharOpen && createMode === 'template' && (
+          <div className="mb-4 space-y-4">
             <div>
-              <label className="text-sm font-medium">Name</label>
-              <input className="w-full border rounded px-3 py-2" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <label className="text-sm font-medium mb-2 block">Choose a template or start from scratch:</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  className={`p-3 border rounded text-left hover:bg-gray-50 ${
+                    selectedTemplate === '' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                  }`}
+                  onClick={() => {
+                    setSelectedTemplate('');
+                    setForm({ name: '', imagePath: '', systemPrompt: '', shared: false });
+                  }}
+                >
+                  <div className="font-medium">Blank Character</div>
+                  <div className="text-xs text-gray-500">Start with a blank template</div>
+                </button>
+                {Object.entries(characterTemplates).map(([key, template]) => (
+                  <button
+                    key={key}
+                    className={`p-3 border rounded text-left hover:bg-gray-50 ${
+                      selectedTemplate === key ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                    }`}
+                    onClick={() => {
+                      setSelectedTemplate(key);
+                      setForm({ 
+                        name: template.name, 
+                        imagePath: template.imagePath, 
+                        systemPrompt: template.systemPrompt,
+                        shared: false
+                      });
+                    }}
+                  >
+                    <div className="font-medium">{template.name}</div>
+                    <div className="text-xs text-gray-500 line-clamp-2">{template.systemPrompt.slice(0, 80)}...</div>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div>
-              <label className="text-sm font-medium">Image URL (optional)</label>
-              <input className="w-full border rounded px-3 py-2" value={form.imagePath} onChange={e => setForm({ ...form, imagePath: e.target.value })} placeholder="/images/glados.png or https://..." />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="text-sm font-medium">System Prompt</label>
-              <textarea className="w-full border rounded px-3 py-2 h-32" value={form.systemPrompt} onChange={e => setForm({ ...form, systemPrompt: e.target.value })} />
-            </div>
-            <div className="sm:col-span-2 flex justify-end">
-              <button className="btn btn-primary" onClick={createCharacter} disabled={loading}>Create</button>
+            
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium">Name</label>
+                <input 
+                  className="w-full border rounded px-3 py-2" 
+                  value={form.name} 
+                  onChange={e => setForm({ ...form, name: e.target.value })} 
+                  placeholder="Enter character name"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Image URL (optional)</label>
+                <input 
+                  className="w-full border rounded px-3 py-2" 
+                  value={form.imagePath} 
+                  onChange={e => setForm({ ...form, imagePath: e.target.value })} 
+                  placeholder="/images/character.png or https://..."
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-sm font-medium">System Prompt</label>
+                <textarea 
+                  className="w-full border rounded px-3 py-2 h-32" 
+                  value={form.systemPrompt} 
+                  onChange={e => setForm({ ...form, systemPrompt: e.target.value })}
+                  placeholder="Describe the character's personality, role, and behavior..."
+                />
+              </div>
+              {user?.role === 'admin' && (
+                <div className="sm:col-span-2">
+                  <label className="flex items-center space-x-2">
+                    <input 
+                      type="checkbox" 
+                      checked={form.shared} 
+                      onChange={e => setForm({ ...form, shared: e.target.checked })}
+                    />
+                    <span className="text-sm font-medium">Make this character available to all users (Admin only)</span>
+                  </label>
+                </div>
+              )}
+              <div className="sm:col-span-2 flex justify-end space-x-2">
+                <button 
+                  className="btn" 
+                  onClick={() => {
+                    setNewCharOpen(false);
+                    setCreateMode(null);
+                    setSelectedTemplate('');
+                    setForm({ name: '', imagePath: '', systemPrompt: '', shared: false });
+                  }}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button className="btn btn-primary" onClick={createCharacter} disabled={loading || !form.name.trim() || !form.systemPrompt.trim()}>
+                  {loading ? 'Creating...' : 'Create Character'}
+                </button>
+              </div>
             </div>
           </div>
         )}
