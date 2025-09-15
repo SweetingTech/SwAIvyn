@@ -1134,6 +1134,43 @@ async def stt_transcribe(audio: UploadFile = File(...), language: Optional[str] 
         raise HTTPException(status_code=503, detail=f"STT unavailable: {e}")
 
 
+@app.post("/api/character")
+async def create_character(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    """Create a new character from form data"""
+    name = payload.get("name", "New Character").strip()
+    system_prompt = payload.get("systemPrompt", "You are a helpful AI assistant.").strip()
+    image_path = payload.get("imagePath", "").strip()
+    shared = payload.get("shared", False)
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="Character name is required")
+    
+    import uuid
+    cid = str(uuid.uuid4())
+    
+    # Determine user_id based on sharing preference and permissions
+    current_user_id = (current or {}).get("id")
+    current_role = (current or {}).get("role")
+    
+    # Only admins can create shared/global characters (user_id = None)
+    if shared and current_role == "admin":
+        user_id = None  # Global character
+    else:
+        user_id = current_user_id  # User-specific character
+    
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_characters.insert().values(
+                id=cid,
+                user_id=user_id,
+                name=name,
+                system_prompt=system_prompt,
+                image_path=image_path,
+            ))
+    
+    return {"id": cid, "name": name, "systemPrompt": system_prompt, "imagePath": image_path, "shared": user_id is None}
+
+
 @app.post("/api/character/import-yaml")
 async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     try:
