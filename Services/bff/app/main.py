@@ -1137,20 +1137,51 @@ async def stt_transcribe(audio: UploadFile = File(...), language: Optional[str] 
 @app.post("/api/character")
 async def create_character(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     """Create a new character from form data"""
+    # CRITICAL SECURITY FIX: Require authentication for character creation
+    if current is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     name = payload.get("name", "New Character").strip()
     system_prompt = payload.get("systemPrompt", "You are a helpful AI assistant.").strip()
     image_path = payload.get("imagePath", "").strip()
     shared = payload.get("shared", False)
     
+    # Input validation
     if not name:
         raise HTTPException(status_code=400, detail="Character name is required")
+    if len(name) > 100:
+        raise HTTPException(status_code=400, detail="Character name too long (max 100 characters)")
+    if len(system_prompt) > 10000:
+        raise HTTPException(status_code=400, detail="System prompt too long (max 10,000 characters)")
+    
+    # Validate image path (if provided) to prevent path traversal and XSS
+    if image_path:
+        # Only allow relative paths starting with /uploads/ or /static/
+        if not (image_path.startswith("/uploads/") or image_path.startswith("/static/")):
+            raise HTTPException(status_code=400, detail="Invalid image path")
+        # Prevent path traversal
+        if ".." in image_path or "~" in image_path:
+            raise HTTPException(status_code=400, detail="Invalid image path")
+        if len(image_path) > 500:
+            raise HTTPException(status_code=400, detail="Image path too long")
+    
+    # Basic XSS prevention - reject content with script tags
+    import re
+    if re.search(r'<script[^>]*>.*?</script>', system_prompt, re.IGNORECASE | re.DOTALL):
+        raise HTTPException(status_code=400, detail="Invalid content in system prompt")
+    if re.search(r'<script[^>]*>.*?</script>', name, re.IGNORECASE | re.DOTALL):
+        raise HTTPException(status_code=400, detail="Invalid content in character name")
     
     import uuid
     cid = str(uuid.uuid4())
     
-    # Determine user_id based on sharing preference and permissions
-    current_user_id = (current or {}).get("id")
-    current_role = (current or {}).get("role")
+    # Extract user info from authenticated user (guaranteed to be non-None at this point)
+    current_user_id = current.get("id")
+    current_role = current.get("role")
+    
+    # Additional security: ensure we have a valid user ID
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Invalid user authentication")
     
     # Only admins can create shared/global characters (user_id = None)
     if shared and current_role == "admin":
@@ -1173,6 +1204,9 @@ async def create_character(payload: dict, engine: Optional[AsyncEngine] = Depend
 
 @app.post("/api/character/import-yaml")
 async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    # CRITICAL SECURITY FIX: Require authentication for character creation
+    if current is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
         import yaml  # type: ignore
     except Exception:
@@ -1191,6 +1225,20 @@ async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = D
         if isinstance(v, str) and v.strip():
             parts.append(v.strip())
     system_prompt = "\n\n".join(parts) or "You are a helpful AI assistant."
+    
+    # Input validation for YAML import
+    if len(name) > 100:
+        raise HTTPException(status_code=400, detail="Character name too long (max 100 characters)")
+    if len(system_prompt) > 10000:
+        raise HTTPException(status_code=400, detail="System prompt too long (max 10,000 characters)")
+    
+    # Basic XSS prevention
+    import re
+    if re.search(r'<script[^>]*>.*?</script>', system_prompt, re.IGNORECASE | re.DOTALL):
+        raise HTTPException(status_code=400, detail="Invalid content in system prompt")
+    if re.search(r'<script[^>]*>.*?</script>', name, re.IGNORECASE | re.DOTALL):
+        raise HTTPException(status_code=400, detail="Invalid content in character name")
+    
     # optional image download
     img_url = None
     for key in ("image", "image_url", "imageUrl", "avatar", "avatar_url", "avatarUrl"):
@@ -1223,18 +1271,35 @@ async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = D
                 image_path = f"/uploads/characters/{fname}"
         except Exception:
             image_path = ""
+    # Check if this should be a shared character (from payload)
+    shared = payload.get("shared", False)
+    
+    # Extract user info from authenticated user (guaranteed to be non-None at this point)
+    current_user_id = current.get("id")
+    current_role = current.get("role")
+    
+    # Additional security: ensure we have a valid user ID
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Invalid user authentication")
+    
+    # Only admins can create shared/global characters (user_id = None)
+    if shared and current_role == "admin":
+        user_id = None  # Global character
+    else:
+        user_id = current_user_id  # User-specific character
+    
     import uuid
     cid = str(uuid.uuid4())
     if engine is not None:
         async with engine.begin() as conn:
             await conn.execute(t_characters.insert().values(
                 id=cid,
-                user_id=(current or {}).get("id"),
+                user_id=user_id,
                 name=name,
                 system_prompt=system_prompt,
                 image_path=image_path,
             ))
-    return {"id": cid, "name": name, "imagePath": image_path}
+    return {"id": cid, "name": name, "imagePath": image_path, "shared": user_id is None}
 
 
 # ------------------------- Conversations (CRUD + messages) -------------------------

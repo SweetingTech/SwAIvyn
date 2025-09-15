@@ -14,6 +14,7 @@ interface CharacterSelectorProps {
   selectedCharacterId: string | null;
   onCharacterSelect: (character: Character | null) => void;
   disabled?: boolean;
+  refreshTrigger?: number; // Optional prop to trigger refresh from parent
 }
 
 /**
@@ -23,7 +24,8 @@ interface CharacterSelectorProps {
 const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   selectedCharacterId,
   onCharacterSelect,
-  disabled = false
+  disabled = false,
+  refreshTrigger
 }) => {
   const { user } = useInitialization();
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -47,6 +49,13 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
       loadCharacters();
     }
   }, [user?.id]);
+
+  // Refresh characters when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger && user?.id) {
+      loadCharacters();
+    }
+  }, [refreshTrigger, user?.id]);
 
   // Validate current selection when characters are loaded
   useEffect(() => {
@@ -84,11 +93,14 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
       const response = await apiService.get(`/api/character/user/${user.id}`);
       const charactersData = Array.isArray(response) ? response : [];
 
+      console.log('Received characters data:', charactersData);
+
       // Validate each character object
       const validCharacters = charactersData.filter(char =>
         char && typeof char === 'object' && char.id && typeof char.id === 'string'
       );
 
+      console.log('Valid characters after filtering:', validCharacters);
       setCharacters(validCharacters);
     } catch (err) {
       console.error('Error loading characters:', err);
