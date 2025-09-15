@@ -27,6 +27,18 @@ LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234")
 DATABASE_URL = os.getenv("DATABASE_URL")
 UPLOADS_DIR = os.getenv("UPLOADS_DIR", "./wwwroot/uploads")
 CHAR_UPLOADS_DIR = os.path.join(UPLOADS_DIR, "characters")
+
+def get_user_upload_dir(user_id: str) -> str:
+    """Get user-specific upload directory"""
+    user_dir = os.path.join(UPLOADS_DIR, "users", user_id)
+    os.makedirs(user_dir, exist_ok=True)
+    return user_dir
+
+def get_shared_upload_dir() -> str:
+    """Get shared upload directory for admin-uploaded content"""
+    shared_dir = os.path.join(UPLOADS_DIR, "shared")
+    os.makedirs(shared_dir, exist_ok=True)
+    return shared_dir
 WORKERS_ORCH_URL = os.getenv("WORKERS_ORCH_URL", os.getenv("ORCHESTRATOR_URL", "http://localhost:8000"))
 
 
@@ -52,7 +64,7 @@ app = FastAPI(title="SwAIvyn BFF", version="0.1.0")
 os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
 try:
     from fastapi.staticfiles import StaticFiles
-    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+    # NOTE: /uploads removed for security - using authenticated file serving instead
     # Mount frontend dist for production deployment
     frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
     if os.path.exists(frontend_dist):
@@ -71,7 +83,6 @@ _temporal_client: Optional[Client] = None
 _engine: Optional[AsyncEngine] = None
 _chat_settings_store: Dict[str, Dict[str, Any]] = {}
 _connections_store: Dict[str, Dict[str, Any]] = {}
-_agents_store: Dict[str, Dict[str, Any]] = {}
 _agents_store: Dict[str, Dict[str, Any]] = {}
 _folders_store: Dict[str, Dict[str, Any]] = {}
 
@@ -205,9 +216,13 @@ async def api_root():
 
 
 @app.get("/api/llm/health")
-async def llm_health(userId: Optional[str] = None):
+async def llm_health(current=Depends(current_user_dep)):
+    """Get LLM service health status - REQUIRES AUTHENTICATION to prevent SSRF"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     status = {"ollama": None, "lmstudio": None}
-    uid = userId or "default"
+    uid = current.get("id") or "default"
     user_conn = _connections_store.get(uid, {})
     ollama_base = user_conn.get("OllamaApiUrl")
     if ollama_base is None:
@@ -496,12 +511,14 @@ async def generate_recovery_codes(user_id: str, engine: Optional[AsyncEngine] = 
 
 
 @app.get("/api/settings/llm")
-async def get_llm_settings(userId: Optional[str] = None, engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def get_llm_settings(current=Depends(current_user_dep), engine: Optional[AsyncEngine] = Depends(get_engine)):
     """Return saved LLM engine/model from DB if available; otherwise memory defaults.
     Never performs external network calls; safe fallbacks to avoid 500s.
     """
     try:
-        uid = userId or "default"
+        if not current:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        uid = current.get("id") or "default"
 
         if engine is not None:
             try:
@@ -820,8 +837,10 @@ def _resolve_llm_base(engine_name: str, uid: str, base_url_override: Optional[st
 
 
 @app.get("/api/llm/models")
-async def list_llm_models(engine: str, userId: Optional[str] = None, baseUrl: Optional[str] = None):
-    uid = userId or "default"
+async def list_llm_models(engine: str, baseUrl: Optional[str] = None, current=Depends(current_user_dep)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = current.get("id") or "default"
     engine_name = (engine or "").lower()
     base = _resolve_llm_base(engine_name, uid, baseUrl)
     if not base:
@@ -852,8 +871,10 @@ async def list_llm_models(engine: str, userId: Optional[str] = None, baseUrl: Op
 
 
 @app.get("/api/llm/lmstudio/model")
-async def lmstudio_loaded_model(userId: Optional[str] = None, baseUrl: Optional[str] = None):
-    uid = userId or "default"
+async def lmstudio_loaded_model(baseUrl: Optional[str] = None, current=Depends(current_user_dep)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = current.get("id") or "default"
     base = _resolve_llm_base("lmstudio", uid, baseUrl)
     model_id = ""
     if not base:
@@ -885,9 +906,11 @@ async def lmstudio_loaded_model(userId: Optional[str] = None, baseUrl: Optional[
 
 
 @app.get("/api/tts/settings")
-async def get_tts_settings(userId: Optional[str] = None, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+async def get_tts_settings(engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     # Per-user TTS settings, persisted in chat_settings when DB is available; otherwise env defaults
-    uid = userId or (current or {}).get("id") or "default"
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = current.get("id") or "default"
     out = {
         "apiKey": os.getenv("FISHSPEECH_API_KEY", ""),
         "voiceId": os.getenv("DEFAULT_TTS_VOICE", ""),
@@ -1096,24 +1119,67 @@ async def get_user_characters(user_id: str, engine: Optional[AsyncEngine] = Depe
 
 
 @app.post("/api/character/image")
-async def upload_character_image(file: UploadFile = File(...), character_id: Optional[str] = Form(None), engine: Optional[AsyncEngine] = Depends(get_engine)):
+async def upload_character_image(file: UploadFile = File(...), character_id: Optional[str] = Form(None), engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Verify character ownership before allowing image upload
+    if character_id and engine is not None:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                select(t_characters.c.user_id).where(t_characters.c.id == character_id)
+            )
+            character_row = result.first()
+            if not character_row:
+                raise HTTPException(status_code=404, detail="Character not found")
+            
+            character_user_id = character_row[0]
+            # Allow access if: user owns character, character is shared (user_id is None), or user is admin
+            if character_user_id and character_user_id != current.get("id") and current.get("role") != "admin":
+                raise HTTPException(status_code=403, detail="Access denied")
+    
     import uuid as _uuid
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]:
         ext = ".png"
+    
     fname = f"{_uuid.uuid4().hex}{ext}"
-    dest = os.path.join(CHAR_UPLOADS_DIR, fname)
-    os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
+    
+    # Determine if this is a user-specific or shared character image
+    if character_id and engine is not None:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                select(t_characters.c.user_id).where(t_characters.c.id == character_id)
+            )
+            character_row = result.first()
+            if character_row and character_row[0] is None:
+                # Shared character - store in shared directory
+                dest = os.path.join(get_shared_upload_dir(), fname)
+                public_path = f"/api/file/shared/{fname}"
+            else:
+                # User-specific character - store in user directory
+                user_dir = get_user_upload_dir(current.get("id"))
+                dest = os.path.join(user_dir, fname)
+                public_path = f"/api/file/users/{current.get('id')}/{fname}"
+    else:
+        # Default to user-specific
+        user_dir = get_user_upload_dir(current.get("id"))
+        dest = os.path.join(user_dir, fname)
+        public_path = f"/api/file/users/{current.get('id')}/{fname}"
+    
+    # Save the file
     content = await file.read()
     with open(dest, "wb") as f:
         f.write(content)
-    public_path = f"/uploads/characters/{fname}"
+    
+    # Update character record if provided
     if engine is not None and character_id:
         try:
             async with engine.begin() as conn:
                 await conn.execute(t_characters.update().where(t_characters.c.id == character_id).values(image_path=public_path))
         except Exception:
             pass
+    
     return {"imagePath": public_path}
 
 
@@ -1156,8 +1222,8 @@ async def create_character(payload: dict, engine: Optional[AsyncEngine] = Depend
     
     # Validate image path (if provided) to prevent path traversal and XSS
     if image_path:
-        # Only allow relative paths starting with /uploads/ or /static/
-        if not (image_path.startswith("/uploads/") or image_path.startswith("/static/")):
+        # Only allow relative paths starting with /api/file/ or /static/
+        if not (image_path.startswith("/api/file/") or image_path.startswith("/static/")):
             raise HTTPException(status_code=400, detail="Invalid image path")
         # Prevent path traversal
         if ".." in image_path or "~" in image_path:
@@ -1207,6 +1273,10 @@ async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = D
     # CRITICAL SECURITY FIX: Require authentication for character creation
     if current is None:
         raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Extract shared parameter early in the function
+    shared = payload.get("shared", False)
+    
     try:
         import yaml  # type: ignore
     except Exception:
@@ -1265,14 +1335,29 @@ async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = D
                         ext = ".png"
                 import uuid as _uuid
                 fname = f"{_uuid.uuid4().hex}{ext}"
-                os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
-                with open(os.path.join(CHAR_UPLOADS_DIR, fname), "wb") as f:
+                
+                # Determine storage location based on user role and shared setting
+                current_user_id = (current or {}).get("id")
+                current_role = (current or {}).get("role")
+                
+                if shared and current_role == "admin":
+                    # Admin creating shared character - store in shared directory
+                    dest = os.path.join(get_shared_upload_dir(), fname)
+                    image_path = f"/api/file/shared/{fname}"
+                else:
+                    # User creating private character - store in user directory
+                    if current_user_id:
+                        dest = os.path.join(get_user_upload_dir(current_user_id), fname)
+                        image_path = f"/api/file/users/{current_user_id}/{fname}"
+                    else:
+                        # Fallback to shared for unauthenticated (shouldn't happen due to auth check)
+                        dest = os.path.join(get_shared_upload_dir(), fname)
+                        image_path = f"/api/file/shared/{fname}"
+                
+                with open(dest, "wb") as f:
                     f.write(resp.content)
-                image_path = f"/uploads/characters/{fname}"
         except Exception:
             image_path = ""
-    # Check if this should be a shared character (from payload)
-    shared = payload.get("shared", False)
     
     # Extract user info from authenticated user (guaranteed to be non-None at this point)
     current_user_id = current.get("id")
@@ -1305,6 +1390,64 @@ async def import_character_yaml(payload: dict, engine: Optional[AsyncEngine] = D
 # ------------------------- Conversations (CRUD + messages) -------------------------
 
 import uuid as _uuid_mod
+from fastapi.responses import FileResponse
+
+
+@app.get("/api/file/{file_path:path}")
+async def serve_file(file_path: str, current=Depends(current_user_dep)):
+    """Serve uploaded files with proper authentication and authorization"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Validate file path format
+    if not file_path or ".." in file_path or "~" in file_path or file_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    
+    # Parse file path to determine access permissions
+    path_parts = file_path.split("/")
+    
+    if len(path_parts) < 2:
+        raise HTTPException(status_code=400, detail="Invalid file path format")
+    
+    file_type = path_parts[0]  # 'users', 'shared', 'characters'
+    
+    if file_type == "users":
+        # User-specific files: users/{user_id}/{filename}
+        if len(path_parts) < 3:
+            raise HTTPException(status_code=400, detail="Invalid user file path")
+        
+        requested_user_id = path_parts[1]
+        
+        # Only allow access to own files (or admin can access any)
+        if current.get("id") != requested_user_id and current.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        actual_path = os.path.join(UPLOADS_DIR, *path_parts)
+        
+    elif file_type == "shared":
+        # Shared files: shared/{filename} - accessible to all authenticated users
+        actual_path = os.path.join(UPLOADS_DIR, *path_parts)
+        
+    elif file_type == "characters":
+        # Legacy character files: characters/{filename} - accessible to all for backward compatibility
+        # TODO: Migrate these to user-specific or shared directories
+        actual_path = os.path.join(UPLOADS_DIR, *path_parts)
+        
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    
+    # Verify file exists and is within uploads directory
+    if not os.path.exists(actual_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Ensure path is within uploads directory (prevent path traversal)
+    real_path = os.path.realpath(actual_path)
+    real_uploads = os.path.realpath(UPLOADS_DIR)
+    
+    if not real_path.startswith(real_uploads):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return FileResponse(actual_path)
 
 
 @app.post("/api/conversation")
@@ -1517,7 +1660,7 @@ async def append_conversation_message(body: dict, engine: Optional[AsyncEngine] 
 async def set_character_context(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     # Store/update a system message representing the character/system prompt
     conv_id = body.get("conversationId")
-    user_id = body.get("userId") or (current or {}).get("id")
+    user_id = (current or {}).get("id")  # Always use authenticated user's ID
     system_prompt = body.get("systemPrompt") or ""
     if not conv_id or not user_id:
         return {"success": False}
@@ -1697,13 +1840,13 @@ async def test_endpoint():
 
 
 @app.get("/api/dashboard/status")
-async def dashboard_status(userId: Optional[str] = None, engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
+async def dashboard_status(engine: Optional[AsyncEngine] = Depends(get_engine), current=Depends(current_user_dep)):
     """Dashboard summary strictly from saved state (DB/memory). No external API calls.
     - LLM: engine/model from chat_settings for the user
     - TTS: provider/voice from chat_settings (tts columns)
     - Metrics: counts from DB (characters, conversations)
     """
-    uid = (current or {}).get("id") or userId or "default"
+    uid = (current or {}).get("id") or "default"
 
     # Load persisted user chat settings
     user_settings: Dict[str, Any] = {}
@@ -1797,9 +1940,11 @@ from datetime import datetime as _dt
 
 
 @app.get("/api/agents")
-async def agents_list(userId: Optional[str] = None, current=Depends(current_user_dep)):
-    viewer_is_admin = (current or {}).get("role") == "admin"
-    uid = userId or (current or {}).get("id")
+async def agents_list(current=Depends(current_user_dep)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    viewer_is_admin = current.get("role") == "admin"
+    uid = current.get("id")
     out = []
     for ag in _agents_store.values():
         if viewer_is_admin or ag.get("userId") == uid:

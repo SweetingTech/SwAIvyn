@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, text
+from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, text, ForeignKey
 
 
 metadata = MetaData()
@@ -26,7 +26,7 @@ users = Table(
 chat_settings = Table(
     "chat_settings",
     metadata,
-    Column("user_id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
     Column("llm_engine", String(32), nullable=False, server_default=text("'ollama'")),
     Column("llm_model", String(200), nullable=True),
     Column("tts_provider", String(64), nullable=True),
@@ -40,7 +40,7 @@ chat_settings = Table(
 connection_settings = Table(
     "connection_settings",
     metadata,
-    Column("user_id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
     Column("OpenAiApiKey", Text, nullable=True),
     Column("ClaudeApiKey", Text, nullable=True),
     Column("ClaudeApiUrl", Text, nullable=True),
@@ -56,7 +56,7 @@ characters = Table(
     "characters",
     metadata,
     Column("id", String(100), primary_key=True),
-    Column("user_id", String(64), nullable=True),  # null means shared/global
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True),  # null means shared/global
     Column("name", String(200), nullable=False),
     Column("system_prompt", Text, nullable=True),
     Column("image_path", Text, nullable=True),
@@ -67,7 +67,7 @@ conversations = Table(
     "conversations",
     metadata,
     Column("id", String(64), primary_key=True),
-    Column("user_id", String(64), nullable=False),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     Column("title", String(300), nullable=False),
     Column("folder_id", String(64), nullable=True),
     Column("created_at", String(40), nullable=False),
@@ -79,7 +79,7 @@ messages = Table(
     "messages",
     metadata,
     Column("id", String(64), primary_key=True),
-    Column("conversation_id", String(64), nullable=False),
+    Column("conversation_id", String(64), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False),
     Column("role", String(32), nullable=False),
     Column("content", Text, nullable=False),
     Column("timestamp", String(40), nullable=False),
