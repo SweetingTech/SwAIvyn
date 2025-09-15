@@ -1,6 +1,6 @@
+import axios from 'axios';
 import { motion } from 'framer-motion';
-import { useState, useEffect, useCallback } from 'react';
-import { useInitialization } from '../contexts/InitializationContext';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import {
   Bot,
@@ -18,164 +18,150 @@ import {
   Search,
 } from 'lucide-react';
 import InlineSpinner from '../components/ui/InlineSpinner';
-
-interface Agent {
-  id: string;
-  userId: string;
-  name: string;
-  description: string;
-  type: string;
-  status: string;
-  lastRun: string | null;
-  tasksCompleted: number;
-  enabled: boolean;
-}
+import AgentForm from '../components/AgentForm';
+import type { Agent } from '../services/agentService';
+import {
+  deleteAgentDefinition,
+  getAgents as fetchAgents,
+  startAgent as startAgentRequest,
+  stopAgent as stopAgentRequest,
+} from '../services/agentService';
 
 const AgentsPage = () => {
-  const { user } = useInitialization();
   const eff = useEffectiveUser();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [socketConnected, setSocketConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
+  const [formAgent, setFormAgent] = useState<Agent | null>(null);
+  const [formYaml, setFormYaml] = useState<string>('');
+
+  const parseErrorMessage = useCallback((err: unknown, fallback: string) => {
+    if (axios.isAxiosError(err)) {
+      const data = err.response?.data;
+      if (typeof data === 'string' && data.trim().length > 0) return data;
+      if (data && typeof data === 'object') {
+        const detail = (data as { detail?: unknown }).detail;
+        if (typeof detail === 'string') return detail;
+        if (detail) {
+          try {
+            return JSON.stringify(detail);
+          } catch {
+            return fallback;
+          }
+        }
+      }
+      return err.message || fallback;
+    }
+    if (err instanceof Error) return err.message || fallback;
+    return fallback;
+  }, []);
 
   const loadAgents = useCallback(async () => {
     if (!eff.userId) return;
     setLoading(true);
-
     try {
-      const resp = await fetch(`/api/agents?userId=${eff.userId}`, { headers: eff.headers });
-      if (resp.ok) {
-        const data: Agent[] = await resp.json();
-        setAgents(data);
-      } else {
-        setAgents([]);
-      }
+      const data = await fetchAgents();
+      setAgents(Array.isArray(data) ? data : []);
+      setError(null);
     } catch (err) {
       console.error('Failed to load agents', err);
+      const message = parseErrorMessage(err, 'Failed to load agents.');
+      setError(message);
       setAgents([]);
     } finally {
       setLoading(false);
     }
-  }, [eff.headers, eff.userId]);
+  }, [eff.userId, parseErrorMessage]);
 
-  // Fetch agents whenever the user becomes available
   useEffect(() => {
-    if (eff.userId) {
-      loadAgents();
-    }
+    if (eff.userId) loadAgents();
   }, [eff.userId, loadAgents]);
 
-  useEffect(() => {
-    if (!eff.userId || !eff.token) {
-      setSocketConnected(false);
-      return;
-    }
-
-    let ws: WebSocket | null = null;
-    let reconnectTimer: number | null = null;
-    let manuallyClosed = false;
-
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const url = `${protocol}://${window.location.host}/api/agents/ws?token=${encodeURIComponent(eff.token!)}`;
-      ws = new WebSocket(url);
-
-      ws.onopen = () => {
-        setSocketConnected(true);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (Array.isArray(payload)) {
-            setAgents(payload as Agent[]);
-          } else if (payload?.type === 'agents' && Array.isArray(payload.agents)) {
-            setAgents(payload.agents as Agent[]);
-          }
-        } catch (err) {
-          console.error('Failed to parse agent stream payload', err);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      const handleClose = (event: CloseEvent) => {
-        setSocketConnected(false);
-        if (manuallyClosed) return;
-        if (event && (event.code === 4401 || event.code === 4403)) {
-          return;
-        }
-        if (reconnectTimer) {
-          window.clearTimeout(reconnectTimer);
-        }
-        reconnectTimer = window.setTimeout(() => {
-          connect();
-        }, 5000);
-      };
-
-      ws.onclose = handleClose;
-      ws.onerror = () => {
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-          ws.close();
-        }
-      };
-    };
-
-    connect();
-
-    return () => {
-      manuallyClosed = true;
-      setSocketConnected(false);
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close();
-      }
-    };
-  }, [eff.token, eff.userId]);
-
-  useEffect(() => {
-    if (!eff.userId || socketConnected) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      loadAgents();
-    }, 10000);
-
-    loadAgents();
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [eff.userId, socketConnected, loadAgents]);
-
   const startAgent = async (id: string) => {
-    await fetch(`/api/agents/${id}/start`, { method: 'POST' });
-    await loadAgents();
+    setError(null);
+    try {
+      await startAgentRequest(id);
+      await loadAgents();
+    } catch (err) {
+      const message = parseErrorMessage(err, 'Failed to start agent.');
+      setError(message);
+    }
   };
 
   const stopAgent = async (id: string) => {
-    await fetch(`/api/agents/${id}/stop`, { method: 'POST' });
-    await loadAgents();
+    setError(null);
+    try {
+      await stopAgentRequest(id);
+      await loadAgents();
+    } catch (err) {
+      const message = parseErrorMessage(err, 'Failed to stop agent.');
+      setError(message);
+    }
   };
 
   const deleteAgent = async (id: string) => {
-    await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-    setAgents((prev) => prev.filter((a) => a.id !== id));
+    const confirmed = window.confirm('Are you sure you want to delete this agent?');
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await deleteAgentDefinition(id);
+      await loadAgents();
+      setError(null);
+    } catch (err) {
+      const message = parseErrorMessage(err, 'Failed to delete agent.');
+      setError(message);
+    }
+  };
+
+  const openCreateForm = () => {
+    setFormMode('create');
+    setFormAgent(null);
+    setFormYaml('');
+    setFormOpen(true);
+    setError(null);
+  };
+
+  const extractAgentYaml = (agent: Agent | null): string => {
+    if (!agent || !agent.meta) return '';
+    const meta = agent.meta as Record<string, unknown>;
+    for (const key of ['yaml', 'definition', 'config']) {
+      const value = meta[key];
+      if (typeof value === 'string') return value;
+    }
+    return '';
+  };
+
+  const openEditForm = (agent: Agent) => {
+    setFormMode('edit');
+    setFormAgent(agent);
+    setFormYaml(extractAgentYaml(agent));
+    setFormOpen(true);
+    setError(null);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setFormAgent(null);
+    setFormYaml('');
   };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
 
-  const filteredAgents = agents.filter((agent) => {
-    const matchesSearch =
-      agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      agent.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'all' || agent.type === filterType;
-    return matchesSearch && matchesType;
-  });
+  const filteredAgents = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase();
+    return agents.filter((agent) => {
+      const name = (agent.name || agent.id || '').toLowerCase();
+      const description = (agent.description || '').toLowerCase();
+      const matchesSearch = name.includes(searchLower) || description.includes(searchLower);
+      const normalizedType = (agent.type || '').toLowerCase();
+      const matchesType = filterType === 'all' || normalizedType === filterType;
+      return matchesSearch && matchesType;
+    });
+  }, [agents, filterType, searchTerm]);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -194,12 +180,16 @@ const AgentsPage = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'running':
       case 'active':
         return 'text-green-600 bg-green-50';
-      case 'inactive':
-        return 'text-gray-600 bg-gray-50';
+      case 'completed':
+        return 'text-blue-600 bg-blue-50';
+      case 'failed':
       case 'error':
         return 'text-red-600 bg-red-50';
+      case 'pending':
+        return 'text-amber-600 bg-amber-50';
       default:
         return 'text-gray-600 bg-gray-50';
     }
@@ -235,19 +225,25 @@ const AgentsPage = () => {
               <h1 className="text-2xl font-medium text-gray-800">Native Agents</h1>
               <p className="text-gray-600">Manage built-in AI agents and automation</p>
             </div>
-            <button className="btn btn-primary mt-2 sm:mt-0 flex items-center">
+            <button className="btn btn-primary mt-2 sm:mt-0 flex items-center" onClick={openCreateForm}>
               <Plus size={16} className="mr-1.5" />
               Create Agent
             </button>
           </div>
         </div>
 
+        {error && (
+          <div className="mb-6 rounded-md border border-red-2 00 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         {/* Filters & Search */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <div className="flex-1">
               <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search agents..."
@@ -282,75 +278,92 @@ const AgentsPage = () => {
           )}
 
           {!loading &&
-            filteredAgents.map((agent) => (
-              <div key={agent.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-2 rounded-lg ${getTypeColor(agent.type)}`}>{getTypeIcon(agent.type)}</div>
-                    <div>
-                      <h3 className="font-medium text-gray-900">{agent.name}</h3>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(agent.status)}`}>
-                          {agent.status}
-                        </span>
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(agent.type)}`}>
-                          {agent.type}
-                        </span>
+            filteredAgents.map((agent) => {
+              const agentType = (agent.type || '').toLowerCase();
+              const status = (agent.status || (agent.enabled ? 'running' : 'inactive') || '').toLowerCase();
+              const description = agent.description || '';
+              const lastRun = agent.lastRun || agent.finishedAt || agent.startedAt || '—';
+              const tasksCompleted = typeof agent.tasksCompleted === 'number' ? agent.tasksCompleted : 0;
+              const isRunning = typeof agent.enabled === 'boolean' ? agent.enabled : status === 'running';
+              const displayStatus = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Inactive';
+              const displayType = agentType ? agentType.charAt(0).toUpperCase() + agentType.slice(1) : 'Custom';
+
+              return (
+                <div key={agent.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center space-x-3">
+                      <div className={`p-2 rounded-lg ${getTypeColor(agentType)}`}>{getTypeIcon(agentType)}</div>
+                      <div>
+                        <h3 className="font-medium text-gray-900">{agent.name || agent.id}</h3>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(status)}`}>
+                            {displayStatus}
+                          </span>
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(agentType)}`}>
+                            {displayType}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                        onClick={() => openEditForm(agent)}
+                        title="Edit agent definition"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button className="p-1 text-gray-400 hover:text-gray-600 rounded" title="Settings">
+                        <Settings size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-1">
-                    <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
-                      <Edit3 size={14} />
-                    </button>
-                    <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
-                      <Settings size={14} />
+
+                  {/* Description */}
+                  <p className="text-sm text-gray-600 mb-4">{description || 'No description provided.'}</p>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <p className="text-xs text-gray-500">Last Run</p>
+                      <p className="text-sm font-medium text-gray-900">{lastRun || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Tasks Completed</p>
+                      <p className="text-sm font-medium text-gray-900">{tasksCompleted}</p>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => (isRunning ? stopAgent(agent.id) : startAgent(agent.id))}
+                        className={`p-2 rounded-md ${
+                          isRunning
+                            ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                            : 'text-gray-600 bg-gray-50 hover:bg-gray-100'
+                        }`}
+                        title={isRunning ? 'Pause Agent' : 'Start Agent'}
+                      >
+                        {isRunning ? <Pause size={16} /> : <Play size={16} />}
+                      </button>
+                      <button
+                        onClick={() => deleteAgent(agent.id)}
+                        className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
+                        title="Delete Agent"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">
+                      View Details
                     </button>
                   </div>
                 </div>
-
-                {/* Description */}
-                <p className="text-sm text-gray-600 mb-4">{agent.description}</p>
-
-                {/* Stats */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-gray-500">Last Run</p>
-                    <p className="text-sm font-medium text-gray-900">{agent.lastRun || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Tasks Completed</p>
-                    <p className="text-sm font-medium text-gray-900">{agent.tasksCompleted}</p>
-                  </div>
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => (agent.enabled ? stopAgent(agent.id) : startAgent(agent.id))}
-                      className={`p-2 rounded-md ${
-                        agent.enabled
-                          ? 'text-green-600 bg-green-50 hover:bg-green-100'
-                          : 'text-gray-600 bg-gray-50 hover:bg-gray-100'
-                      }`}
-                      title={agent.enabled ? 'Pause Agent' : 'Start Agent'}
-                    >
-                      {agent.enabled ? <Pause size={16} /> : <Play size={16} />}
-                    </button>
-                    <button
-                      onClick={() => deleteAgent(agent.id)}
-                      className="p-2 rounded-md text-red-600 bg-red-50 hover:bg-red-100"
-                      title="Delete Agent"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                  <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">View Details</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
 
         {/* Empty State */}
@@ -363,7 +376,7 @@ const AgentsPage = () => {
                 ? 'Try adjusting your search or filter criteria.'
                 : 'Create your first agent to get started with automation.'}
             </p>
-            <button className="btn btn-primary">
+            <button className="btn btn-primary" onClick={openCreateForm}>
               <Plus size={16} className="mr-1.5" />
               Create Agent
             </button>
@@ -377,13 +390,23 @@ const AgentsPage = () => {
             <div>
               <h3 className="text-lg font-medium text-blue-900">Coming Soon</h3>
               <p className="text-blue-700">
-                Native agent functionality is currently in development. This page shows a preview of the planned features. Agents will
-                be able to perform automated tasks, monitor system status, and enhance your AI experience.
+                Native agent functionality is currently in development. This page shows a preview of the planned
+                features. Agents will be able to perform automated tasks, monitor system status, and enhance your AI
+                experience.
               </p>
             </div>
           </div>
         </div>
       </div>
+
+      <AgentForm
+        open={formOpen}
+        mode={formMode}
+        agentId={formMode === 'edit' ? formAgent?.id : undefined}
+        initialYaml={formMode === 'edit' ? formYaml : ''}
+        onClose={closeForm}
+        onSaved={loadAgents}
+      />
     </motion.div>
   );
 };
