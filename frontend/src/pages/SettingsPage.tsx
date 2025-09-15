@@ -66,11 +66,116 @@ const tabs = [
   { id: 'model', label: 'AI Model', icon: <Database size={16} /> },
   { id: 'voice', label: 'Voice', icon: <Volume2 size={16} /> },
   { id: 'character', label: 'Character', icon: <ImageIcon size={16} /> },
+  { id: 'character-create', label: 'Create Character', icon: <User size={16} /> },
   { id: 'agents', label: 'Connections', icon: <ServerCog size={16} /> },
   { id: 'agentstack', label: 'Agent Stack', icon: <Bot size={16} /> },
+  { id: 'external-agents', label: 'External Agents', icon: <Bot size={16} /> },
   { id: 'appearance', label: 'Appearance', icon: <Palette size={16} /> },
   { id: 'network', label: 'Network', icon: <Network size={16} /> },
 ];
+
+// ============================ Character Creation Settings ===========================
+
+const CharacterCreateSettings = () => {
+  return (
+    <div className="space-y-6">
+      <div className="border-b border-gray-200 pb-4">
+        <h3 className="text-lg font-medium text-gray-900">Create New Character</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Design custom AI personalities with unique traits and behaviors. Create characters from templates or build from scratch.
+        </p>
+      </div>
+      
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-center">
+          <User className="text-blue-600 mr-3" size={20} />
+          <div>
+            <h4 className="text-blue-900 font-medium">Character Creation Available</h4>
+            <p className="text-blue-700 text-sm">
+              Go to the Character Editor page to create new characters with templates like Helper, Writer, Teacher, and more.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h4 className="font-medium text-gray-900 mb-2">Available Templates</h4>
+          <ul className="text-sm text-gray-600 space-y-1">
+            <li>• Helpful Assistant</li>
+            <li>• Creative Writer</li>
+            <li>• Technical Expert</li>
+            <li>• Patient Teacher</li>
+            <li>• Data Analyst</li>
+            <li>• GLaDOS (Sarcastic AI)</li>
+          </ul>
+        </div>
+        
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h4 className="font-medium text-gray-900 mb-2">Features</h4>
+          <ul className="text-sm text-gray-600 space-y-1">
+            <li>• Custom system prompts</li>
+            <li>• Personality traits</li>
+            <li>• Avatar images</li>
+            <li>• Shared or private characters</li>
+            <li>• YAML import support</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================ External Agents Settings ===========================
+
+const ExternalAgentsSettings = () => {
+  return (
+    <div className="space-y-6">
+      <div className="border-b border-gray-200 pb-4">
+        <h3 className="text-lg font-medium text-gray-900">External Agents</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Manage external agent services that can process tasks and provide specialized capabilities.
+        </p>
+      </div>
+      
+      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="flex items-center">
+          <Bot className="text-green-600 mr-3" size={20} />
+          <div>
+            <h4 className="text-green-900 font-medium">External Agent System Ready</h4>
+            <p className="text-green-700 text-sm">
+              The secure multi-tenant agent system is configured and ready for external agent registration.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h4 className="font-medium text-gray-900 mb-2">Security Features</h4>
+          <ul className="text-sm text-gray-600 space-y-1">
+            <li>• Admin-only agent registration</li>
+            <li>• Encrypted API keys</li>
+            <li>• User data isolation</li>
+            <li>• Task authorization</li>
+            <li>• Audit logging</li>
+          </ul>
+        </div>
+        
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h4 className="font-medium text-gray-900 mb-2">Agent Capabilities</h4>
+          <ul className="text-sm text-gray-600 space-y-1">
+            <li>• Task processing</li>
+            <li>• File generation</li>
+            <li>• Data analysis</li>
+            <li>• Progress tracking</li>
+            <li>• Result storage</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ============================ Voice Settings ===========================
 
@@ -1788,8 +1893,10 @@ const SettingsPage = () => {
               {activeTab === 'model' && <ModelSettings />}
               {activeTab === 'voice' && <VoiceSettings />}
               {activeTab === 'character' && <CharacterSettings />}
+              {activeTab === 'character-create' && <CharacterCreateSettings />}
               {activeTab === 'agents' && <AgentsSettings />}
               {activeTab === 'agentstack' && <AgentStackSettings />}
+              {activeTab === 'external-agents' && <ExternalAgentsSettings />}
               {activeTab === 'appearance' && <AppearanceSettings />}
               {activeTab === 'network' && <NetworkSettings />}
             </div>
