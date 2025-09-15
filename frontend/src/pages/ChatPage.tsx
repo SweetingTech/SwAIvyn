@@ -6,7 +6,7 @@ import React, {
   FormEvent
 } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff } from 'lucide-react';
+import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff, Menu, X, MessageSquare, Settings } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import ChatMessage from '../components/chat/ChatMessage';
@@ -108,10 +108,41 @@ const ChatPage: React.FC = () => {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const recordingChunks = useRef<Blob[]>([]);
 
+  // Mobile responsive state
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+
   /* ------------------------------ refs ----------------------------------- */
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const isFirstMessage = useRef(urlInfo.isNewConversation);
   const didLoadSettingsRef = useRef<string | null>(null);
+
+  /* -------------------------- Mobile handlers ---------------------------- */
+  const closeMobileSidebars = useCallback(() => {
+    setIsLeftSidebarOpen(false);
+    setIsRightSidebarOpen(false);
+  }, []);
+
+  const toggleLeftSidebar = useCallback(() => {
+    setIsLeftSidebarOpen(prev => !prev);
+    setIsRightSidebarOpen(false); // Close right if opening left
+  }, []);
+
+  const toggleRightSidebar = useCallback(() => {
+    setIsRightSidebarOpen(prev => !prev);
+    setIsLeftSidebarOpen(false); // Close left if opening right
+  }, []);
+
+  // Close mobile sidebars on escape key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeMobileSidebars();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [closeMobileSidebars]);
 
 
   /* -------------------------- persist prefs ------------------------------ */
@@ -211,6 +242,11 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  // Close mobile sidebars when conversation changes (mobile UX)
+  useEffect(() => {
+    closeMobileSidebars();
+  }, [currentConversation.id, closeMobileSidebars]);
 
   /* ------------------ character bootstrap from URL ---------------------- */
   useEffect(() => {
@@ -947,9 +983,10 @@ const ChatPage: React.FC = () => {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <div className="flex flex-grow overflow-hidden">
-        {/* --------------- LEFT SIDEBAR (sessions) ----------------------- */}
-        <div className="w-64 border-r">
+      <div className="flex flex-grow overflow-hidden relative">
+        {/* --------------- LEFT SIDEBAR (sessions) - RESPONSIVE ----------------------- */}
+        {/* Desktop: Fixed sidebar */}
+        <div className="hidden lg:flex w-64 border-r bg-white">
           <ChatSidebar
             userId={effectiveUserId || ''}
             currentSessionId={currentConversation.id || null}
@@ -958,178 +995,245 @@ const ChatPage: React.FC = () => {
           />
         </div>
 
-        {/* --------------- MAIN CHAT AREA -------------------------------- */}
-        <div className="flex-grow flex flex-col overflow-hidden">
-          {/* header */}
+        {/* Mobile/Tablet: Drawer overlay */}
+        {isLeftSidebarOpen && (
+          <div className="lg:hidden fixed inset-0 z-50 flex">
+            {/* Backdrop */}
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+              onClick={closeMobileSidebars}
+            />
+            {/* Drawer */}
+            <div className="relative flex flex-col w-80 max-w-[80vw] bg-white shadow-xl">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="text-lg font-medium">Conversations</h2>
+                <button 
+                  onClick={closeMobileSidebars}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <ChatSidebar
+                  userId={effectiveUserId || ''}
+                  currentSessionId={currentConversation.id || null}
+                  onSelectSession={handleSelectConversation}
+                  onNewSession={handleNewConversation}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --------------- MAIN CHAT AREA - RESPONSIVE -------------------------------- */}
+        <div className="flex-grow flex flex-col overflow-hidden min-w-0">
+          {/* header - Mobile-Responsive */}
           <div className="px-4 py-2 bg-white border-b">
             <div className="flex justify-between items-center mb-2">
-              <h1 className="text-xl font-semibold text-gray-800">
-                {currentConversation.title}
-              </h1>
-              <button
-                onClick={handleNewConversation}
-                className="p-2 text-gray-500 hover:text-primary-500"
-                title="New Chat"
-              >
-                <Plus size={20} />
-              </button>
+              <div className="flex items-center gap-3">
+                {/* Mobile: Hamburger menu for conversations */}
+                <button
+                  onClick={toggleLeftSidebar}
+                  className="lg:hidden p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Open conversations"
+                >
+                  <MessageSquare size={20} />
+                </button>
+                
+                <h1 className="text-lg sm:text-xl font-semibold text-gray-800 truncate">
+                  {currentConversation.title}
+                </h1>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                {/* Mobile: Tools menu */}
+                <button
+                  onClick={toggleRightSidebar}
+                  className="lg:hidden p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Open tools"
+                >
+                  <Settings size={20} />
+                </button>
+                
+                <button
+                  onClick={handleNewConversation}
+                  className="p-2 text-gray-500 hover:text-primary-500 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="New Chat"
+                >
+                  <Plus size={20} />
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-4">
-              {/* character */}
-              <CharacterSelector
-                selectedCharacterId={selectedCharacter?.id || null}
-                onCharacterSelect={handleCharacterSelect}
-              />
-              {selectedCharacter && (
-                <span className="flex items-center text-sm text-blue-600">
-                  <span className="w-2 h-2 bg-blue-500 rounded-full mr-2" />
-                  Active: {selectedCharacter.name}
-                </span>
-              )}
-
-              {/* toggle img */}
-              <label className="text-sm flex items-center gap-1">
-                <input
-                  type="checkbox"
-                  checked={showCharacterImages}
-                  onChange={(e) => setShowCharacterImages(e.target.checked)}
+            {/* Mobile-Responsive Chat Controls */}
+            <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 sm:gap-4">
+              {/* Top Row: Character & Status - Mobile Priority */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                <CharacterSelector
+                  selectedCharacterId={selectedCharacter?.id || null}
+                  onCharacterSelect={handleCharacterSelect}
                 />
-                <span>Use Image</span>
-              </label>
-
-              {/* voice selector */}
-              <VoiceSelector
-                disabled={isLoading}
-                provider={ttsProvider}
-                voiceId={ttsVoiceId}
-                onSettingsChange={async (newProvider, newVoiceId) => {
-                  if (!effectiveUserId) return;
-                  console.log('🔄 Chat: VoiceSelector changed TTS to Provider:', newProvider, 'VoiceID:', newVoiceId);
-                  setTtsProvider(newProvider);
-                  setTtsVoiceId(newVoiceId);
-                  try {
-                    await chatService.updateChatSettings(effectiveUserId, {
-                      llmEngine: chatEngineOverride || undefined,
-                      llmModel: chatModelOverride || undefined,
-                      ttsProvider: newProvider,
-                      ttsVoiceId: newVoiceId,
-                    });
-                    console.log('🔄 Chat: TTS settings updated successfully via chatService.');
-                  } catch (error) {
-                    console.error('Failed to update TTS settings via chatService:', error);
-                  }
-                }}
-              />
-
-              {/* Voice interaction toggles */}
-              <div className="flex items-center gap-2">
-                {/* TTS Toggle */}
-                <button
-                  onClick={() => setTtsEnabled(!ttsEnabled)}
-                  className={`p-2 rounded-lg transition-colors ${
-                    ttsEnabled 
-                      ? 'bg-blue-100 text-blue-600 border border-blue-300' 
-                      : 'bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200'
-                  }`}
-                  title={`Text-to-Speech: ${ttsEnabled ? 'ON' : 'OFF'}`}
-                  disabled={isLoading}
-                >
-                  {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-                </button>
-
-                {/* STT Toggle */}
-                <button
-                  onClick={() => setSttEnabled(!sttEnabled)}
-                  className={`p-2 rounded-lg transition-colors ${
-                    sttEnabled 
-                      ? 'bg-green-100 text-green-600 border border-green-300' 
-                      : 'bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200'
-                  }`}
-                  title={`Speech-to-Text: ${sttEnabled ? 'ON' : 'OFF'}`}
-                  disabled={isLoading}
-                >
-                  {sttEnabled ? <Mic size={16} /> : <MicOff size={16} />}
-                </button>
-
-                {/* Voice Mode Indicator */}
-                {ttsEnabled && sttEnabled && (
-                  <div className="flex items-center text-xs text-green-600 font-medium">
-                    <div className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse" />
-                    Voice Mode
-                  </div>
+                {selectedCharacter && (
+                  <span className="flex items-center text-sm text-blue-600">
+                    <span className="w-2 h-2 bg-blue-500 rounded-full mr-2" />
+                    <span className="hidden sm:inline">Active: </span>{selectedCharacter.name}
+                  </span>
                 )}
               </div>
 
-              {/* LLM dropdown */}
-              <select
-                id="llm-override-select"
-                value={
-                  chatEngineOverride && chatModelOverride
-                    ? `${chatEngineOverride}:${chatModelOverride}`
-                    : ''
-                }
-                onChange={async (e) => {
-                  const sel = availableLlms.find(
-                    (l) => l.value === e.target.value
-                  );
-                  if (!sel || !effectiveUserId) {
-                    console.warn('🔄 Chat: Selected LLM option not found or user ID missing:', e.target.value, effectiveUserId);
-                    return;
+              {/* Middle Row: Voice Controls & Options */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                {/* Voice interaction toggles - Touch-friendly */}
+                <div className="flex items-center gap-2">
+                  {/* TTS Toggle */}
+                  <button
+                    onClick={() => setTtsEnabled(!ttsEnabled)}
+                    className={`p-3 sm:p-2 rounded-lg transition-colors touch-manipulation ${
+                      ttsEnabled 
+                        ? 'bg-blue-100 text-blue-600 border border-blue-300' 
+                        : 'bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200'
+                    }`}
+                    title={`Text-to-Speech: ${ttsEnabled ? 'ON' : 'OFF'}`}
+                    disabled={isLoading}
+                  >
+                    {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                  </button>
+
+                  {/* STT Toggle */}
+                  <button
+                    onClick={() => setSttEnabled(!sttEnabled)}
+                    className={`p-3 sm:p-2 rounded-lg transition-colors touch-manipulation ${
+                      sttEnabled 
+                        ? 'bg-green-100 text-green-600 border border-green-300' 
+                        : 'bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200'
+                    }`}
+                    title={`Speech-to-Text: ${sttEnabled ? 'ON' : 'OFF'}`}
+                    disabled={isLoading}
+                  >
+                    {sttEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+                  </button>
+
+                  {/* Voice Mode Indicator */}
+                  {ttsEnabled && sttEnabled && (
+                    <div className="flex items-center text-xs text-green-600 font-medium">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse" />
+                      <span className="hidden sm:inline">Voice Mode</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Image toggle - Compact on mobile */}
+                <label className="text-sm flex items-center gap-1 touch-manipulation">
+                  <input
+                    type="checkbox"
+                    checked={showCharacterImages}
+                    onChange={(e) => setShowCharacterImages(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="hidden sm:inline">Use Image</span>
+                  <span className="sm:hidden">Img</span>
+                </label>
+              </div>
+
+              {/* Bottom Row: Voice & Model Selection */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                {/* Voice selector - More compact on mobile */}
+                <div className="flex-shrink-0">
+                  <VoiceSelector
+                    disabled={isLoading}
+                    provider={ttsProvider}
+                    voiceId={ttsVoiceId}
+                    onSettingsChange={async (newProvider, newVoiceId) => {
+                      if (!effectiveUserId) return;
+                      console.log('🔄 Chat: VoiceSelector changed TTS to Provider:', newProvider, 'VoiceID:', newVoiceId);
+                      setTtsProvider(newProvider);
+                      setTtsVoiceId(newVoiceId);
+                      try {
+                        await chatService.updateChatSettings(effectiveUserId, {
+                          llmEngine: chatEngineOverride || undefined,
+                          llmModel: chatModelOverride || undefined,
+                          ttsProvider: newProvider,
+                          ttsVoiceId: newVoiceId,
+                        });
+                        console.log('🔄 Chat: TTS settings updated successfully via chatService.');
+                      } catch (error) {
+                        console.error('Failed to update TTS settings via chatService:', error);
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* LLM dropdown - Full width on mobile */}
+                <select
+                  id="llm-override-select"
+                  value={
+                    chatEngineOverride && chatModelOverride
+                      ? `${chatEngineOverride}:${chatModelOverride}`
+                      : ''
                   }
-
-                  console.log('🔄 Chat: User changed LLM to:', sel);
-                  const newEngine = sel.engine;
-                  const newModel = sel.model;
-
-                  setChatEngineOverride(newEngine);
-                  setChatModelOverride(newModel);
-
-                  try {
-                    console.log('🔄 Chat: Updating all chat settings. New LLM:', newEngine, newModel, 'Current TTS:', ttsProvider, ttsVoiceId);
-                    const updatedEnabled = { ...enabledEngines };
-                    if (newEngine) updatedEnabled[newEngine] = true;
-                    const updatedModels = { ...engineModels };
-                    if (newEngine && newModel) updatedModels[newEngine] = newModel;
-                    setEnabledEngines(updatedEnabled);
-                    setEngineModels(updatedModels);
-                    if (effectiveUserId) {
-                      await chatService.updateChatSettings(effectiveUserId, {
-                        llmEngine: newEngine || undefined,
-                        llmModel: newModel || undefined,
-                        ttsProvider: ttsProvider || 'fishspeech',
-                        ttsVoiceId: ttsVoiceId || 'glados',
-                        enabledEngines: updatedEnabled,
-                        engineModels: updatedModels,
-                      });
+                  onChange={async (e) => {
+                    const sel = availableLlms.find(
+                      (l) => l.value === e.target.value
+                    );
+                    if (!sel || !effectiveUserId) {
+                      console.warn('🔄 Chat: Selected LLM option not found or user ID missing:', e.target.value, effectiveUserId);
+                      return;
                     }
 
-                    // Notify dashboard about LLM part of the change
-                    window.dispatchEvent(
-                      new CustomEvent('llmSettingsChanged', {
-                        detail: { engine: newEngine, model: newModel }
-                      })
-                    );
-                    console.log('🔄 Chat: Chat settings (including LLM) updated and Dashboard notified.');
-                    setNotice('LLM selection saved');
-                    setTimeout(() => setNotice(''), 2000);
-                  } catch (err) {
-                    console.error('Failed to update chat settings:', err);
-                  }
-                }}
-                className="px-3 py-2 border rounded-lg text-sm disabled:opacity-50"
-                disabled={isLoading || availableLlms.length === 0}
-              >
-                {availableLlms.length === 0 ? (
-                  <option value="">No activated models - Configure in Settings</option>
-                ) : (
-                  availableLlms.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
-                  ))
-                )}
-              </select>
+                    console.log('🔄 Chat: User changed LLM to:', sel);
+                    const newEngine = sel.engine;
+                    const newModel = sel.model;
+
+                    setChatEngineOverride(newEngine);
+                    setChatModelOverride(newModel);
+
+                    try {
+                      console.log('🔄 Chat: Updating all chat settings. New LLM:', newEngine, newModel, 'Current TTS:', ttsProvider, ttsVoiceId);
+                      const updatedEnabled = { ...enabledEngines };
+                      if (newEngine) updatedEnabled[newEngine] = true;
+                      const updatedModels = { ...engineModels };
+                      if (newEngine && newModel) updatedModels[newEngine] = newModel;
+                      setEnabledEngines(updatedEnabled);
+                      setEngineModels(updatedModels);
+                      if (effectiveUserId) {
+                        await chatService.updateChatSettings(effectiveUserId, {
+                          llmEngine: newEngine || undefined,
+                          llmModel: newModel || undefined,
+                          ttsProvider: ttsProvider || 'fishspeech',
+                          ttsVoiceId: ttsVoiceId || 'glados',
+                          enabledEngines: updatedEnabled,
+                          engineModels: updatedModels,
+                        });
+                      }
+
+                      // Notify dashboard about LLM part of the change
+                      window.dispatchEvent(
+                        new CustomEvent('llmSettingsChanged', {
+                          detail: { engine: newEngine, model: newModel }
+                        })
+                      );
+                      console.log('🔄 Chat: Chat settings (including LLM) updated and Dashboard notified.');
+                      setNotice('LLM selection saved');
+                      setTimeout(() => setNotice(''), 2000);
+                    } catch (err) {
+                      console.error('Failed to update chat settings:', err);
+                    }
+                  }}
+                  className="px-3 py-2 border rounded-lg text-sm disabled:opacity-50 w-full sm:w-auto min-w-[200px] touch-manipulation"
+                  disabled={isLoading || availableLlms.length === 0}
+                >
+                  {availableLlms.length === 0 ? (
+                    <option value="">No activated models - Configure in Settings</option>
+                  ) : (
+                    availableLlms.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1156,125 +1260,240 @@ const ChatPage: React.FC = () => {
             <div ref={bottomRef} />
           </div>
 
-          {/* composer */}
-          <form onSubmit={handleSubmit} className="p-4 border-t bg-white">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Type your message…"
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                className="flex-grow px-4 py-2 border rounded-full focus:ring"
-              />
-              <button type="button" className="p-2 text-gray-500">
-                <Paperclip size={20} />
-              </button>
-              <button type="button" className="p-2 text-gray-500">
-                <Camera size={20} />
+          {/* composer - Mobile-Responsive */}
+          <form onSubmit={handleSubmit} className="p-3 sm:p-4 border-t bg-white">
+            <div className="flex items-end gap-2 sm:gap-3">
+              <div className="flex-grow">
+                <input
+                  type="text"
+                  placeholder="Type your message…"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  className="w-full px-4 py-3 sm:py-2 border rounded-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-base sm:text-sm touch-manipulation"
+                  disabled={isLoading}
+                />
+              </div>
+              
+              {/* Action buttons - Touch-friendly */}
+              <div className="flex items-center gap-1 sm:gap-2">
+                {/* File upload - Hidden on small mobile, visible on larger screens */}
+                <button 
+                  type="button" 
+                  className="hidden sm:flex p-2 sm:p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors touch-manipulation"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Upload file"
+                >
+                  <Paperclip size={18} />
+                </button>
+                
+                {/* Camera - Hidden on small mobile, visible on larger screens */}
+                <button 
+                  type="button" 
+                  className="hidden sm:flex p-2 sm:p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors touch-manipulation"
+                  title="Camera"
+                >
+                  <Camera size={18} />
+                </button>
+                
+                {/* Voice recording - Visible on all sizes */}
+                <button 
+                  type="button" 
+                  onClick={toggleRecording}
+                  disabled={!sttEnabled || isLoading}
+                  className={`p-3 sm:p-2 rounded-full transition-all touch-manipulation ${
+                    isRecording
+                      ? 'bg-red-100 text-red-600 border border-red-300 animate-pulse'
+                      : sttEnabled
+                      ? 'text-green-600 hover:bg-green-50 border border-transparent hover:border-green-200'
+                      : 'text-gray-400 cursor-not-allowed'
+                  }`}
+                  title={
+                    !sttEnabled 
+                      ? 'Enable Speech-to-Text to use voice input' 
+                      : isRecording 
+                      ? 'Stop recording' 
+                      : 'Start voice recording'
+                  }
+                >
+                  <Mic size={18} />
+                </button>
+                
+                {/* Send button - Prominently displayed */}
+                <button
+                  type="submit"
+                  className="p-3 sm:p-2 bg-primary-500 text-white rounded-full disabled:opacity-50 hover:bg-primary-600 transition-colors touch-manipulation min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center"
+                  disabled={!inputText.trim() || isLoading}
+                  title="Send message"
+                >
+                  <Send size={18} />
+                </button>
+              </div>
+            </div>
+            
+            {/* Mobile-only quick actions row */}
+            <div className="flex sm:hidden items-center justify-center gap-4 mt-3 pt-2 border-t border-gray-100">
+              <button 
+                type="button" 
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
+                onClick={() => fileInputRef.current?.click()}
+                title="Upload file"
+              >
+                <Paperclip size={16} />
+                <span>File</span>
               </button>
               <button 
                 type="button" 
-                onClick={toggleRecording}
-                disabled={!sttEnabled || isLoading}
-                className={`p-2 rounded-full transition-all ${
-                  isRecording
-                    ? 'bg-red-100 text-red-600 border border-red-300 animate-pulse'
-                    : sttEnabled
-                    ? 'text-green-600 hover:bg-green-50'
-                    : 'text-gray-400 cursor-not-allowed'
-                }`}
-                title={
-                  !sttEnabled 
-                    ? 'Enable Speech-to-Text to use voice input' 
-                    : isRecording 
-                    ? 'Stop recording' 
-                    : 'Start voice recording'
-                }
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
+                title="Camera"
               >
-                <Mic size={20} />
-              </button>
-              <button
-                type="submit"
-                className="p-2 bg-primary-500 text-white rounded-full disabled:opacity-50"
-                disabled={!inputText.trim() || isLoading}
-              >
-                <Send size={20} />
+                <Camera size={16} />
+                <span>Photo</span>
               </button>
             </div>
           </form>
         </div>
 
-        {/* --------------- RIGHT SIDEBAR (tools) ------------------------- */}
-        <div className="hidden lg:block w-80 border-l bg-white">
+        {/* --------------- RIGHT SIDEBAR (tools) - RESPONSIVE ------------------------- */}
+        {/* Desktop: Fixed sidebar */}
+        <div className="hidden lg:flex w-80 border-l bg-white flex-col">
           <div className="p-4 border-b">
             <h2 className="text-lg font-medium">Tools</h2>
           </div>
 
-          <BrainExplorer />
+          <div className="flex-1 overflow-y-auto">
+            <BrainExplorer />
 
-          <div className="p-4 space-y-4">
-            <div>
-              <h3 className="text-sm font-medium">Files</h3>
-              <p className="text-sm text-gray-500">
-                Drag and drop files here to upload
-              </p>
-              <button className="btn btn-ghost w-full mt-2 border-dashed" onClick={() => fileInputRef.current?.click()}>
-                <Paperclip size={16} className="mr-2" />
-                Upload Files
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost w-full mt-2"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Paperclip size={16} className="mr-2" /> Choose Files…
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={async (e) => {
-                  if (!e.target.files || !currentConversation.id) return;
-                  const form = new FormData();
-                  Array.from(e.target.files).forEach((f) => form.append('files', f));
-                  form.append('conversationId', currentConversation.id);
-                  try {
-                    const resp = await fetch('/api/upload/files', { method: 'POST', body: form, headers: eff.headers });
-                    if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
-                    setNotice('Files uploaded and processing started');
-                    setTimeout(() => setNotice(''), 2500);
-                  } catch (upErr) {
-                    console.error('Upload error:', upErr);
-                    setNotice('Upload failed');
-                    setTimeout(() => setNotice(''), 2500);
-                  } finally {
-                    e.target.value = '';
-                  }
-                }}
-              />
-              <script/>
-            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <h3 className="text-sm font-medium">Files</h3>
+                <p className="text-sm text-gray-500">
+                  Drag and drop files here to upload
+                </p>
+                <button className="btn btn-ghost w-full mt-2 border-dashed" onClick={() => fileInputRef.current?.click()}>
+                  <Paperclip size={16} className="mr-2" />
+                  Upload Files
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost w-full mt-2"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip size={16} className="mr-2" /> Choose Files…
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={async (e) => {
+                    if (!e.target.files || !currentConversation.id) return;
+                    const form = new FormData();
+                    Array.from(e.target.files).forEach((f) => form.append('files', f));
+                    form.append('conversationId', currentConversation.id);
+                    try {
+                      const resp = await fetch('/api/upload/files', { method: 'POST', body: form, headers: eff.headers });
+                      if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+                      setNotice('Files uploaded and processing started');
+                      setTimeout(() => setNotice(''), 2500);
+                    } catch (upErr) {
+                      console.error('Upload error:', upErr);
+                      setNotice('Upload failed');
+                      setTimeout(() => setNotice(''), 2500);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </div>
 
-            <div>
-              <h3 className="text-sm font-medium">Voice</h3>
-              <p className="text-sm text-gray-500">Record a voice message</p>
-              <button className="btn btn-ghost w-full mt-2 border-dashed">
-                <Mic size={16} className="mr-2" />
-                Start Recording
-              </button>
-            </div>
+              <div>
+                <h3 className="text-sm font-medium">Voice</h3>
+                <p className="text-sm text-gray-500">Record a voice message</p>
+                <button className="btn btn-ghost w-full mt-2 border-dashed">
+                  <Mic size={16} className="mr-2" />
+                  Start Recording
+                </button>
+              </div>
 
-            <div>
-              <h3 className="text-sm font-medium">Camera</h3>
-              <p className="text-sm text-gray-500">Take a photo or video</p>
-              <button className="btn btn-ghost w-full mt-2 border-dashed">
-                <Camera size={16} className="mr-2" />
-                Open Camera
-              </button>
+              <div>
+                <h3 className="text-sm font-medium">Camera</h3>
+                <p className="text-sm text-gray-500">Take a photo or video</p>
+                <button className="btn btn-ghost w-full mt-2 border-dashed">
+                  <Camera size={16} className="mr-2" />
+                  Open Camera
+                </button>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Mobile/Tablet: Tools drawer overlay */}
+        {isRightSidebarOpen && (
+          <div className="lg:hidden fixed inset-0 z-50 flex justify-end">
+            {/* Backdrop */}
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+              onClick={closeMobileSidebars}
+            />
+            {/* Drawer */}
+            <div className="relative flex flex-col w-80 max-w-[80vw] bg-white shadow-xl">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="text-lg font-medium">Tools</h2>
+                <button 
+                  onClick={closeMobileSidebars}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto">
+                <BrainExplorer />
+
+                <div className="p-4 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-medium">Files</h3>
+                    <p className="text-sm text-gray-500">
+                      Drag and drop files here to upload
+                    </p>
+                    <button 
+                      className="btn btn-ghost w-full mt-2 border-dashed touch-manipulation" 
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Paperclip size={16} className="mr-2" />
+                      Upload Files
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost w-full mt-2 touch-manipulation"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Paperclip size={16} className="mr-2" /> Choose Files…
+                    </button>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-medium">Voice</h3>
+                    <p className="text-sm text-gray-500">Record a voice message</p>
+                    <button className="btn btn-ghost w-full mt-2 border-dashed touch-manipulation">
+                      <Mic size={16} className="mr-2" />
+                      Start Recording
+                    </button>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-medium">Camera</h3>
+                    <p className="text-sm text-gray-500">Take a photo or video</p>
+                    <button className="btn btn-ghost w-full mt-2 border-dashed touch-manipulation">
+                      <Camera size={16} className="mr-2" />
+                      Open Camera
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {/* toast */}
       {notice && (
