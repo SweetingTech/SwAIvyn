@@ -391,7 +391,7 @@ const ChatPage: React.FC = () => {
           try {
             const qs: string[] = [`userId=${encodeURIComponent(effectiveUserId)}`];
             if (connections.LmStudioApiUrl) qs.push(`baseUrl=${encodeURIComponent(connections.LmStudioApiUrl)}`);
-            const res = await fetch(`/api/llm/lmstudio/model?${qs.join('&')}`);
+            const res = await fetch(`/api/llm/lmstudio/model?${qs.join('&')}`, { headers: eff.headers });
             if (res.ok) {
               const { model } = await res.json();
               trySet('lmstudio', model);
@@ -406,7 +406,7 @@ const ChatPage: React.FC = () => {
             const qs: string[] = [`engine=${eng}`, `userId=${encodeURIComponent(effectiveUserId)}`];
             const base = eng === 'ollama' ? connections.OllamaApiUrl : eng === 'lmstudio' ? connections.LmStudioApiUrl : connections.VllmApiUrl;
             if (base) qs.push(`baseUrl=${encodeURIComponent(base)}`);
-            const r = await fetch(`/api/llm/models?${qs.join('&')}`);
+            const r = await fetch(`/api/llm/models?${qs.join('&')}`, { headers: eff.headers });
             if (r.ok) {
               const payload = await r.json();
               const models: string[] = Array.isArray(payload) ? payload : (payload?.models || []);
