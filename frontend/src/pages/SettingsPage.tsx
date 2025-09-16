@@ -180,9 +180,14 @@ const ExternalAgentsSettings = () => {
 // ============================ Voice Settings ===========================
 
 const VoiceSettings = () => {
-  const { user } = useInitialization();
+  const { user: initUser } = useInitialization();
   const { user: authUser, token } = useAuth();
   const mounted = useMountedRef();
+  const eff = useEffectiveUser();
+  
+  // Use effective user ID with fallback like Chat page
+  const voiceUserId = eff.userId || 'admin';
+  const user = { id: voiceUserId };
 
   const [apiKey, setApiKey] = useState('');
   const [voiceId, setVoiceId] = useState('');
@@ -652,15 +657,19 @@ const VoiceSettings = () => {
 // ============================ Model Settings ============================
 
 const ModelSettings = () => {
-  const { user } = useInitialization();
+  const { user: initUser } = useInitialization();
   const mounted = useMountedRef();
   const eff = useEffectiveUser();
+  
+  // Use effective user ID with fallback like Chat page
+  const modelUserId = eff.userId || 'admin';
+  const user = { id: modelUserId };
 
   // Debug user context loading
   useEffect(() => {
-    console.log('🔧 Settings: User context:', user);
-    console.log('🔧 Settings: User ID available:', !!user?.id);
-  }, [user]);
+    console.log('🔧 Settings: Effective User ID:', modelUserId);
+    console.log('🔧 Settings: User ID available:', !!modelUserId);
+  }, [modelUserId]);
 
   const [selectedEngine, setSelectedEngine] = useState<'ollama' | 'openai' | 'claude' | 'lmstudio' | 'vllm'>('claude');
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -1426,10 +1435,14 @@ const ModelSettings = () => {
 // ======================= other sections unchanged =======================
 
 const CharacterSettings = () => {
-  const { user } = useInitialization();
+  const { user: initUser } = useInitialization();
   const { user: authUser } = useAuth();
   const mounted = useMountedRef();
   const eff = useEffectiveUser();
+  
+  // Use effective user ID with fallback like Chat page
+  const charUserId = eff.userId || 'admin';
+  const user = { id: charUserId };
 
   const [loading, setLoading] = useState(false);
   const [characters, setCharacters] = useState<Array<{ id: string; name: string; systemPrompt?: string; imagePath?: string }>>([]);
@@ -1489,8 +1502,8 @@ const CharacterSettings = () => {
     setError('');
     try {
       const [charsRes, defRes] = await Promise.all([
-        fetch(`/api/character/user/${encodeURIComponent(user.id)}`),
-        fetch(`/api/settings/DefaultCharacterId?userId=${encodeURIComponent(user.id)}`),
+        fetch(`/api/character/user/${encodeURIComponent(user.id)}`, { headers: eff.headers }),
+        fetch(`/api/settings/DefaultCharacterId?userId=${encodeURIComponent(user.id)}`, { headers: eff.headers }),
       ]);
       if (charsRes.ok) {
         const list = await charsRes.json();
