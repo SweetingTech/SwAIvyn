@@ -15,6 +15,7 @@ import SettingsPage from './pages/SettingsPage';
 import MemoryBrowser from './pages/MemoryBrowser';
 import ConversationManagement from './pages/ConversationManagement';
 import KnowledgeUploadPage from './pages/KnowledgeUploadPage';
+import CharacterEditor from './pages/CharacterEditor';
 import { InitializationProvider, useInitialization } from './contexts/InitializationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
@@ -85,6 +86,7 @@ function AppContent() {
           <Route path="profile" element={<UserProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
+          <Route path="character-editor" element={<CharacterEditor userId={user?.id || "demo-user-id"} onSave={() => navigate('/dashboard')} onCancel={() => navigate('/dashboard')} />} />
           <Route path="admin/users" element={<AdminUsersPage />} />
           <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
           <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
