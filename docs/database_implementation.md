@@ -20,6 +20,182 @@
 | Chat messages                          | File system (JSON files)                                        | System.IO + System.Text.Json                                 | `/sessions/{conversationId}/{timestamp}.json` | N/A |
 | Large binary blobs (avatar PNGs, WAVs) | File system                                                    | –                                                            | `/Assets/…`                                | N/A |
 
+## Data Flow Diagrams
+
+### Startup Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    User->>UI: Launch SwAIvyn.exe
+    UI-->>LocalStore: Load LastOpenConversation()
+    alt first run OR user hit "New Chat"
+        UI->>LocalStore: CreateConversation()
+        LocalStore-->>UI: {conversationId}
+    end
+    User->>UI: starts typing
+    UI->>ChatService: AppendMessage(conversationId, role="user", text)
+    ChatService->>FileWriter: append {convId}/{timestamp}.json
+    ChatService->>ChatIndex: INSERT row
+    ChatService->>BrainRouter: maybeEmbedAndSync(scope)
+```
+
+### Folder and Conversation Management Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant FolderController
+    participant FolderService
+    participant ConversationService
+    participant Database
+    participant FileSystem
+
+    User->>UI: Create folder
+    UI->>FolderController: POST /api/folder
+    FolderController->>FolderService: CreateFolderAsync()
+    FolderService->>Database: Insert folder
+    Database-->>FolderService: Confirmation
+    FolderService-->>FolderController: Result
+    FolderController-->>UI: Success/failure
+
+    User->>UI: Create conversation
+    UI->>ConversationController: POST /api/conversation
+    ConversationController->>ConversationService: CreateConversationAsync()
+    ConversationService->>Database: Insert conversation
+    ConversationService->>FileSystem: Create directory
+    Database-->>ConversationService: Confirmation
+    ConversationService-->>ConversationController: Result
+    ConversationController-->>UI: Success/failure
+```
+
+### Chat Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant ConversationController
+    participant ConversationService
+    participant LLMConnector
+    participant Database
+    participant FileSystem
+
+    User->>UI: Send message
+    UI->>ConversationController: POST /api/conversation/message
+    ConversationController->>ConversationService: AppendMessageAsync()
+    ConversationService->>FileSystem: Write message JSON
+    ConversationService->>Database: Insert chat index
+    ConversationService->>LLMConnector: GetResponse()
+    LLMConnector-->>ConversationService: AI response
+    ConversationService->>FileSystem: Write AI response JSON
+    ConversationService->>Database: Insert chat index
+    ConversationService-->>ConversationController: Complete response
+    ConversationController-->>UI: Update chat
+    UI->>User: Display message
+```
+
+### LLM Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant ConversationController
+    participant AiChatService
+    participant LlmConnectorService
+    participant SettingsService
+    participant ConversationService
+    participant OllamaAPI
+    participant LMStudioAPI
+
+    User->>UI: Send message
+    UI->>ConversationController: POST /api/conversation/chat
+    ConversationController->>AiChatService: GenerateAndStoreResponseAsync()
+
+    AiChatService->>ConversationService: AppendMessageAsync(userId, conversationId, "user", message)
+    ConversationService->>AiChatService: Success
+
+    AiChatService->>SettingsService: GetCurrentLlmSettingsAsync(userId)
+    SettingsService-->>AiChatService: {engine, model}
+
+    AiChatService->>LlmConnectorService: GenerateResponseAsync(message, engine, model, userId)
+
+    alt Using Ollama
+        LlmConnectorService->>OllamaAPI: POST {ollamaApiUrl}/v1/completions
+        OllamaAPI-->>LlmConnectorService: AI response
+    else Using LM Studio
+        LlmConnectorService->>LMStudioAPI: POST {lmStudioApiUrl}/generate
+        LMStudioAPI-->>LlmConnectorService: AI response
+    end
+
+    LlmConnectorService-->>AiChatService: AI response
+
+    AiChatService->>ConversationService: AppendMessageAsync(userId, conversationId, "assistant", aiResponse)
+    ConversationService->>AiChatService: Success
+
+    AiChatService-->>ConversationController: AI response
+    ConversationController-->>UI: Update chat
+    UI->>User: Display message
+```
+
+### Brain Search Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant BrainController
+    participant BrainService
+    participant VectorStore
+    participant Neo4jService
+
+    User->>UI: Search query
+    UI->>BrainController: GET /api/brain/search
+    BrainController->>BrainService: SearchAsync()
+    BrainService->>VectorStore: Search vectors
+    VectorStore-->>BrainService: Vector results
+    BrainService->>Neo4jService: Get relationships
+    Neo4jService-->>BrainService: Graph data
+    BrainService-->>BrainController: Combined results
+    BrainController-->>UI: Search results
+    UI->>User: Display results
+```
+
+### Neo4j Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant BrainService
+    participant Neo4jService
+    participant ConfigService
+    participant Neo4jRuntimeService
+    participant Neo4jProcess
+    participant Neo4jHTTP
+    participant Neo4jBolt
+
+    BrainService->>Neo4jService: StoreMemoryNode()
+    Neo4jService->>ConfigService: Get Neo4j configuration from user settings
+    ConfigService-->>Neo4jService: Neo4j URLs and credentials
+    Neo4jService->>Neo4jRuntimeService: IsAvailableAsync()
+    Neo4jRuntimeService->>Neo4jHTTP: GET {neo4jHttpUrl}/
+    Neo4jHTTP-->>Neo4jRuntimeService: Status
+
+    alt Neo4j Available
+        Neo4jService->>Neo4jBolt: {neo4jBoltUrl} with credentials
+        Neo4jBolt-->>Neo4jService: Connection
+        Neo4jService->>Neo4jBolt: CREATE (n:Memory {id: $id, text: $text})
+        Neo4jBolt-->>Neo4jService: Result
+    else Neo4j Not Available
+        Neo4jRuntimeService->>Neo4jProcess: Start Neo4j with user configuration
+        Neo4jProcess-->>Neo4jRuntimeService: Started
+        Neo4jService->>Neo4jBolt: Retry connection
+    end
+
+    Neo4jService-->>BrainService: Operation result
+```
+
 ## Database Initialization & Setup
 
 ### Critical Requirements for SwAIvyn to Function
@@ -124,7 +300,50 @@ Three tools handle database setup with **dynamic path resolution** (no hardcoded
 - Verifies all components
 - Runs complete setup process
 
-## Implementation Steps
+## Detailed Implementation
+
+### Core Data Entities
+
+1. **Users**
+   - Represents application users
+   - Contains authentication information
+   - Links to conversations, folders, memories, and settings
+
+2. **Folders**
+   - Organizes conversations in a hierarchical structure
+   - Can have parent-child relationships
+   - Contains metadata about the folder
+
+3. **Conversations**
+   - Represents chat sessions
+   - Contains metadata about the conversation
+   - Belongs to a folder (optional)
+   - Links to chat index entries
+
+4. **Chat Index**
+   - References to chat message files
+   - Contains metadata about messages (role, creation time)
+   - Enables efficient search and retrieval
+
+5. **Memories**
+   - User-specific information stored for later recall
+   - Contains content, category, and access timestamps
+   - Used for personalization and context
+
+6. **Vector Embeddings**
+   - Semantic representations of text
+   - Enables similarity search
+   - Stored in SQLite-VSS tables
+
+7. **Graph Relationships**
+   - Connections between memories and concepts
+   - Stored in Neo4j graph database
+   - Enables relationship visualization
+
+8. **Settings**
+   - Application and user preferences
+   - Can be global or user-specific
+   - Controls application behavior
 
 ### 1. Entity Models
 
