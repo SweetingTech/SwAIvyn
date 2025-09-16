@@ -986,6 +986,100 @@ async def delete_character_legacy(character_id: str, engine: Optional[AsyncEngin
     """Delete a character (legacy endpoint)"""
     return await delete_character(character_id, engine, current)
 
+# Character YAML endpoints for the CharacterEditor frontend
+@app.post("/api/character/yaml")
+async def create_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Create a new character from YAML format"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    yaml_content = body.get("yamlProfile", "")
+    if not yaml_content:
+        raise HTTPException(status_code=400, detail="YAML profile required")
+    
+    try:
+        import yaml
+        data = yaml.safe_load(yaml_content)
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Invalid YAML format")
+        
+        # Extract character data from YAML - user from current_user_dep only
+        name = data.get("name", "New Character")
+        character_id = str(uuid.uuid4())
+        
+        # Insert character using authenticated user ID only
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_characters.insert(),
+                {
+                    "id": character_id,
+                    "user_id": current["id"],  # Enforce server-side user ownership
+                    "name": name,
+                    "yaml_profile": yaml_content,
+                    "created_at": datetime.utcnow(),
+                    "last_modified": datetime.utcnow()
+                }
+            )
+            await conn.commit()
+        
+        return {"id": character_id, "name": name, "success": True}
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create character: {str(e)}")
+
+@app.put("/api/character/{character_id}/yaml")
+async def update_character_yaml(character_id: str, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+    """Update an existing character from YAML format"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    yaml_content = body.get("yamlProfile", "")
+    if not yaml_content:
+        raise HTTPException(status_code=400, detail="YAML profile required")
+    
+    try:
+        import yaml
+        data = yaml.safe_load(yaml_content)
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Invalid YAML format")
+        
+        # Extract character data from YAML
+        name = data.get("name", "Updated Character")
+        
+        # Verify ownership and update character
+        async with engine.begin() as conn:
+            # Check ownership - critical security check
+            result = await conn.execute(
+                t_characters.select().where(
+                    (t_characters.c.id == character_id) & 
+                    (t_characters.c.user_id == current["id"])  # Enforce ownership
+                )
+            )
+            existing = result.fetchone()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="Character not found or access denied")
+            
+            # Update the character
+            await conn.execute(
+                t_characters.update().where(t_characters.c.id == character_id),
+                {
+                    "name": name,
+                    "yaml_profile": yaml_content,
+                    "last_modified": datetime.utcnow()
+                }
+            )
+            await conn.commit()
+        
+        return {"id": character_id, "name": name, "success": True}
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to update character: {str(e)}")
+
 @app.post("/api/character/import-yaml")
 async def import_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
     """Import a character from YAML format"""
