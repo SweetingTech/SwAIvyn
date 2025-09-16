@@ -42,8 +42,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd Services/bff && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
-waitForPort = 8000
+args = "cd Services/bff && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 [[ports]]
 localPort = 5000
@@ -52,11 +51,6 @@ externalPort = 80
 [[ports]]
 localPort = 8000
 externalPort = 8000
-exposeLocalhost = true
-
-[[ports]]
-localPort = 34083
-externalPort = 5000
 
 [[ports]]
 localPort = 35081

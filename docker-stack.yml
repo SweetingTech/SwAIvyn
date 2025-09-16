@@ -369,7 +369,7 @@ services:
         - traefik.enable=true
         - traefik.http.routers.bff.rule=Host(`bff.localhost`)
         - traefik.http.routers.bff.entrypoints=web
-        - traefik.http.services.bff.loadbalancer.server.url=http://host.docker.internal:5000
+        - traefik.http.services.bff.loadbalancer.server.url=http://host.docker.internal:8000
 
   frontend-proxy:
     image: traefik/whoami:latest
@@ -384,4 +384,4 @@ services:
         - traefik.enable=true
         - traefik.http.routers.frontend.rule=Host(`app.localhost`)
         - traefik.http.routers.frontend.entrypoints=web
-        - traefik.http.services.frontend.loadbalancer.server.url=http://host.docker.internal:5173
+        - traefik.http.services.frontend.loadbalancer.server.url=http://host.docker.internal:5000
