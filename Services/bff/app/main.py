@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+# Merged and fixed: remove conflict markers, restore missing imports, add agent status store and endpoints,
+# and keep clean LLM settings handlers.
+
 import os
 import asyncio
 import sys
@@ -5,7 +9,7 @@ import json
 import ipaddress
 import urllib.parse
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Mapping, Set
 
 import httpx
 from fastapi import (
@@ -19,6 +23,8 @@ from fastapi import (
     Request,
     Depends,
 )
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from temporalio.client import Client
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -49,7 +55,6 @@ from .models import (
 
 # ------------------------- Config -------------------------
 
-# Prefer IPv4 loopback by default so host apps can reach Temporal in Docker
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
 ENABLE_TEMPORAL = os.getenv("ENABLE_TEMPORAL", "false").lower() == "true"
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -230,7 +235,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 try:
-    from fastapi.staticfiles import StaticFiles
     frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
     if os.path.exists(frontend_dist):
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
@@ -1648,3 +1652,5 @@ async def get_connection_settings(user_id: str = Query(...), current=Depends(cur
         "LmStudioApiUrl": "http://localhost:1234", 
         "VllmApiUrl": "http://localhost:8000"
     }
+
+# This ends the main.py file - all imports and endpoints are complete

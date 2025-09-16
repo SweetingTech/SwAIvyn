@@ -7,7 +7,8 @@
 **A federated AI assistant with dual interfaces and Tamagotchi-like features**
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/download/dotnet/8.0)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://reactjs.org/)
 
 </div>
@@ -55,9 +56,10 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Prerequisites
 
-- **.NET 8 SDK** or later
-- **Node.js** (v16+) and npm
-- **Windows 10/11** or **Linux** with systemd support
+- **Python 3.11+** with pip
+- **Node.js** (v18+) and npm
+- **PostgreSQL** database (local or hosted)
+- **Docker** (optional, for infrastructure services)
 
 ### Installation
 
@@ -131,7 +133,6 @@ The dev-run script supports various configurations:
 - **Infrastructure Services**:
   - Qdrant Vector DB: http://qdrant.localhost:80
   - Neo4j Graph DB: http://graph.localhost:80
-  - Weaviate Vector DB: http://weaviate.localhost:80
 
 **Remote Access:**
 Both scripts configure services to be accessible from other devices on your network via your machine's IP address.
@@ -166,10 +167,16 @@ All scripts read `.env` and, if needed, build `DATABASE_URL` from `POSTGRES_PASS
 git clone https://github.com/SweetingTech/SwAIvyn.git
 cd SwAIvyn
 
-# Build the backend
-dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
+# Install backend dependencies
+cd Services/bff
+pip install -r requirements.txt
 
-# The executable will be in bin/Release/net8.0/win-x64/publish/
+# Install frontend dependencies
+cd ../../frontend
+npm install
+
+# Build frontend for production
+npm run build
 ```
 
 ### First-Time Setup
@@ -309,12 +316,14 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 
 ## 💻 Technical Architecture
 
-SwAIvyn hybrid dev stack:
+SwAIvyn architecture:
 
-- BFF (FastAPI, Python) + Orchestrator worker (Temporal) on host
-- React (Vite) on host
-- Infra in Docker: Temporal, Postgres, Qdrant, Neo4j, STT, optional 11Labs adapter/TTS
-- Fish Speech TTS on host (default in dev) or in Docker (profile `tts`)
+- **Backend**: FastAPI (Python) with async PostgreSQL database
+- **Frontend**: React 18 with TypeScript and Vite
+- **Authentication**: JWT tokens with bcrypt password hashing
+- **Status Polling**: Efficient polling-based status updates
+- **External Agents**: Multi-tenant agent registry with user isolation
+- **Infrastructure**: Optional Docker services for AI integrations
 
 ### Per‑User LLM Dataflow
 
@@ -378,58 +387,77 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   <i>SwAIvyn: Your AI companion that lives in your home network</i>
 </div>
 
-## Agents Feature
+## 🤖 External Agent Integration
 
-The Agents feature allows SwAIvyn to delegate tasks to external workers, typically implemented as Python FastAPI services. This enables SwAIvyn to offload specialized or long-running jobs and monitor their progress.
+SwAIvyn features a powerful external agent system that allows you to connect specialized AI workers and services running on separate servers. This enables distributed task processing while maintaining secure user data isolation.
 
-### Backend Configuration
+### 🔑 Key Features
 
-To use the Agents feature, you need to configure the base URL of your external worker API in the `appsettings.json` file of the SwAIvyn backend project. Add the following key:
+- **Multi-tenant Architecture**: Each user's agents and tasks are completely isolated
+- **Secure Authentication**: JWT-based authentication for all agent operations
+- **Task Management**: Full lifecycle management of agent tasks with status tracking
+- **Status Monitoring**: Efficient polling-based status tracking
+- **Flexible Agent Types**: Support for any type of external AI service or worker
 
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Data Source=SwAIvyn.db"
-  },
-  "WorkerApiBaseUrl": "http://YOUR_WORKER_IP_OR_HOSTNAME:8000", // Replace with your worker's actual address
-  "Logging": {
-    // ... existing logging settings
-  }
-}
-```
-Ensure `WorkerApiBaseUrl` points to the correct address and port of your FastAPI worker, without a trailing slash.
+### 🚀 Quick Start
 
-### External FastAPI Worker Setup
+1. **Register Your Agent Service**:
+   ```bash
+   POST /api/agents/register
+   Authorization: Bearer <your-jwt-token>
+   
+   {
+     "name": "My AI Agent",
+     "description": "Specialized task processor",
+     "endpoint_url": "https://my-agent.example.com",
+     "agent_type": "task_processor",
+     "capabilities": ["text_processing", "data_analysis"]
+   }
+   ```
 
-The Agents feature is designed to communicate with an external worker application built with FastAPI.
+2. **Create Agent Tasks**:
+   ```bash
+   POST /api/agents/tasks
+   Authorization: Bearer <your-jwt-token>
+   
+   {
+     "registry_id": "agent-registry-id",
+     "task_type": "process_document",
+     "input_data": {"document": "content to process"},
+     "priority": "normal"
+   }
+   ```
 
-1.  **Environment**: Set up a Python environment with `fastapi` and `uvicorn`.
-2.  **Implementation**: The worker should expose at least the following endpoints:
-    *   `POST /tasks`: To receive a new task from SwAIvyn. Expects a payload like `{"agent_id": "...", "payload": {"goal": "...", "agentName": "..."}}`. Should return a `{"task_id": "..."}`.
-    *   `GET /tasks/{task_id}`: To poll for the status of a task. Should return `{"status": "queued|in-progress|completed", "result": "..."}`.
-    *   `GET /health` (optional but good practice): To check if the worker is alive.
-3.  **Running the Worker**:
-    ```bash
-    # Example: Navigate to your worker's directory
-    # uvicorn main:app --host 0.0.0.0 --port 8000
-    # Replace 'main:app' with your actual FastAPI application instance.
-    ```
+3. **Monitor Results**:
+   ```bash
+   GET /api/agents/tasks/{task_id}/results
+   ```
 
-### SwAIvyn API Endpoints for Agents
+### 📚 Complete Documentation
 
-The SwAIvyn backend now exposes the following API endpoints to manage agents:
+See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for:
+- Detailed API specifications and authentication requirements
+- Complete database schema and data models
+- Step-by-step implementation examples
+- FastAPI service templates and best practices
+- Testing and debugging guidance
 
-*   **`GET /api/agents`**: Retrieves a list of all configured agents.
-*   **`POST /api/agents/{id}/start`**: Starts the agent with the specified `id`. SwAIvyn will then dispatch a task to the configured worker.
-*   **`POST /api/agents/{id}/stop`**: Marks the agent with the specified `id` as "stopped" in SwAIvyn. (Note: This primarily updates SwAIvyn's internal state; a full cancel on the worker side would require additional implementation on the worker and in SwAIvyn's `AgentService`).
+### 🎯 Core API Endpoints
 
-### Frontend UI
+- **Agent Registry**: `/api/agents/register` - Register and manage external agent services
+- **Task Management**: `/api/agents/tasks` - Create and monitor agent tasks
+- **Results**: `/api/agents/tasks/{task_id}/results` - Access completed task results
+- **User Isolation**: All endpoints enforce user-scoped data access
 
-A new **Agents** tab is available in the SwAIvyn frontend. This tab allows you to:
-*   View all configured agents and their current status.
-*   See when an agent was last run and how many tasks it has completed.
-*   Start and Stop agents.
-*   The status of agents is polled periodically to reflect updates from the worker.
+### 🖥️ Management Interface
+
+The SwAIvyn frontend provides comprehensive agent management:
+
+- **Agent Registry**: View and manage all registered external agents
+- **Task Dashboard**: Monitor active tasks and their progress  
+- **Results Viewer**: Access completed task results with filtering and search
+- **Status Monitoring**: Real-time updates on agent availability and performance
+- **User Isolation**: Each user sees only their own agents and tasks
 
 ---
 

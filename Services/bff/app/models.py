@@ -95,17 +95,33 @@ workflows = Table(
     Column("definition", Text, nullable=False),  # JSON or YAML as text
 )
 
-# Runtime agent activity reported by workers/external services
+# Agent runtime state (persisted)
+agent_status = Table(
+    "agent_status",
+    metadata,
+    Column("id", String(100), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("name", String(200), nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'pending'")),
+    Column("meta", Text, nullable=True),
+    Column("started_at", String(40), nullable=True),
+    Column("finished_at", String(40), nullable=True),
+    Column("updated_at", String(40), nullable=True),
+)
+
+# Runtime agent instances table - tracks active agent instances
 agents = Table(
     "agents",
     metadata,
-    Column("id", String(128), primary_key=True),
-    Column("name", String(200), nullable=False),
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("name", String(300), nullable=False),
+    Column("description", Text, nullable=True),
     Column("status", String(32), nullable=False, server_default=text("'pending'")),
-    Column("user_id", String(64), nullable=True),
-    Column("started_at", String(40), nullable=True),
-    Column("finished_at", String(40), nullable=True),
-    Column("meta", Text, nullable=True),
+    Column("agent_type", String(100), nullable=True),
+    Column("config", Text, nullable=True),  # JSON configuration
+    Column("created_at", String(40), nullable=False),
+    Column("updated_at", String(40), nullable=False),
 )
 
 # External agent registry - tracks available agent services
