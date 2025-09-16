@@ -167,7 +167,8 @@ const KnowledgeUploadPage: React.FC = () => {
   const reprocessDocument = async (id: string) => {
     try {
       const response = await fetch(`/api/upload/documents/${id}/reprocess`, {
-        method: 'POST'
+        method: 'POST',
+        headers: eff.headers
       });
       
       if (response.ok) {
