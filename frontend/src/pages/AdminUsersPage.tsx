@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface User {
@@ -17,13 +17,13 @@ export default function AdminUsersPage() {
   // Prefer in-memory token from AuthContext; fall back to localStorage for compatibility
   const authHeader = useMemo(() => {
     const tk = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null);
-    return tk ? { 'Authorization': `Bearer ${tk}` } : {};
+    return tk ? { 'Authorization': `Bearer ${tk}` as string } : undefined;
   }, [token]);
 
   const load = async () => {
     setError('');
     try {
-      const r = await fetch('/api/admin/users', { headers: { ...authHeader } });
+      const r = await fetch('/api/admin/users', { headers: authHeader });
       if (!r.ok) throw new Error(await r.text());
       setUsers(await r.json());
     } catch (e: any) {
@@ -38,7 +38,7 @@ export default function AdminUsersPage() {
     try {
       const r = await fetch('/api/admin/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader },
+        headers: { 'Content-Type': 'application/json', ...(authHeader ?? {}) },
         body: JSON.stringify(form)
       });
       if (!r.ok) throw new Error(await r.text());

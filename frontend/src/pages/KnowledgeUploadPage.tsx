@@ -4,17 +4,11 @@ import { motion } from 'framer-motion';
 import {
   Upload,
   File,
-  CheckCircle,
-  XCircle,
-  Clock,
   Trash2,
   RefreshCw,
   Search,
-  Filter,
-  Download,
   AlertCircle,
   FileText,
-  Image,
   FileImage
 } from 'lucide-react';
 
@@ -92,7 +86,7 @@ const KnowledgeUploadPage: React.FC = () => {
       });
 
       if (response.ok) {
-        const result = await response.json();
+        await response.json();
         
         // Update progress to completed
         setUploadProgress(prev => prev.map(p => ({
