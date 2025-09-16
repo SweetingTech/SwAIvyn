@@ -39,6 +39,7 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
   - 🏠 Decorable virtual living space
 
 - **Advanced Features**
+  - 🔗 **External Agent Integration** - Connect specialized AI workers on separate servers
   - 📧 Email and calendar integration
   - 🔍 Web browsing capabilities via Browsh
   - 💾 Automated backup to NAS or cloud
@@ -113,8 +114,8 @@ The dev-run script supports various configurations:
 - Traefik reverse proxy - localhost:80
 
 **Non-Docker Services Started:**
-- Frontend (React/Vite) - localhost:5173
-- Backend BFF (FastAPI) - localhost:5000
+- Frontend (React/Vite) - localhost:5173 (local dev) / localhost:5000 (Replit)
+- Backend BFF (FastAPI) - localhost:8000
 - Orchestrator (Temporal worker)
 
 **Key Features:**
@@ -127,15 +128,32 @@ The dev-run script supports various configurations:
 ✅ **Process Management** - Tracks all running services for easy cleanup
 
 **Available URLs:**
-- **Frontend**: http://localhost:5173 or http://app.localhost:80
-- **Backend API**: http://localhost:5000 or http://bff.localhost:80
-- **Traefik Dashboard**: http://traefik.localhost:80
+- **Frontend**: http://localhost:5173 (local) / http://localhost:5000 (Replit) or http://app.localhost:80
+- **Backend API**: http://localhost:8000 or http://bff.localhost:80
+- **Traefik Dashboard**: http://traefik.localhost:80 (local development only)
 - **Infrastructure Services**:
   - Qdrant Vector DB: http://qdrant.localhost:80
   - Neo4j Graph DB: http://graph.localhost:80
 
 **Remote Access:**
 Both scripts configure services to be accessible from other devices on your network via your machine's IP address.
+
+#### Cloud Development (Replit)
+
+SwAIvyn runs seamlessly in cloud development environments like Replit:
+
+**✅ Replit Environment Features:**
+- **Simplified Architecture**: FastAPI backend + React frontend + PostgreSQL
+- **Automatic Configuration**: Environment detection and CORS setup
+- **Authentication Consistency**: Robust multi-user authentication across all pages
+- **Port Management**: Automatic port binding (frontend:5000, backend:8000)
+- **Dashboard Adaptation**: Environment-specific dashboard showing current stack status
+
+**Environment Detection:**
+The application automatically detects your environment and adapts:
+- **Replit**: Shows environment info instead of Traefik dashboard
+- **Local Development**: Shows full Traefik routing dashboard
+- **Production**: Optimized for deployment scenarios
 
 ### Dev Seed Helpers (Users, Characters, Workflow)
 
@@ -190,31 +208,56 @@ npm run build
 
 During development, both the frontend (Vite) and backend (FastAPI) can be reached from other devices on your LAN.
 
-- Frontend: `http://<your-pc-ip>:5173` (proxies `/api` and `/uploads` to the backend)
-- Backend (optional direct access): `http://<your-pc-ip>:5000`
+- Frontend: `http://<your-pc-ip>:5173` (local dev) / `http://<your-pc-ip>:5000` (Replit)
+- Backend (optional direct access): `http://<your-pc-ip>:8000`
 
 Already configured in this repo:
 - Vite binds to `0.0.0.0` so LAN clients can connect (see `frontend/vite.config.ts`).
-- Backend runs on `0.0.0.0:5000` (see `scripts/dev-bff.ps1`).
+- Backend runs on `0.0.0.0` for network accessibility.
 
 Windows Firewall (PowerShell as Administrator):
 
 ```
-netsh advfirewall firewall add rule name="SwAIvyn Vite 5173" dir=in action=allow protocol=TCP localport=5173
-netsh advfirewall firewall add rule name="SwAIvyn BFF 5000" dir=in action=allow protocol=TCP localport=5000
+netsh advfirewall firewall add rule name="SwAIvyn Frontend" dir=in action=allow protocol=TCP localport=5000
+netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow protocol=TCP localport=8000
 ```
 
-Optional CORS: If you skip the Vite proxy and call the backend directly from a different origin, add your LAN origin (e.g., `http://<your-pc-ip>:5173`) to `allow_origins` in `Services/bff/app/main.py`.
+## 🔧 Recent Improvements (September 2025)
+
+### 🛡️ Authentication Consistency
+- **Fixed authentication bugs** where characters/agents showed on dashboard but not in settings/chat pages
+- **Unified authentication pattern** across all frontend pages using `useEffectiveUser()` hook
+- **Comprehensive auth audit** ensuring all API calls include proper JWT headers
+- **Multi-user support verified** for all users (admin, mari, djay)
+
+### 🔀 Docker Swarm Routing Fixes
+- **Fixed Traefik routing** to match actual service ports (backend:8000, frontend:5000)
+- **Updated docker-stack.yml** with correct load balancer configurations
+- **Restored service discovery** through Traefik for proper Docker Swarm deployment
+- **Fixed CORS configuration** to support both local development and cloud environments
+
+### 🖥️ Environment Detection & Dashboard
+- **Smart environment detection** (Replit vs localhost vs production)
+- **Adaptive dashboard** showing environment-appropriate information
+- **Traefik integration** for local development, environment info for cloud deployment
+- **TypeScript cleanup** with zero LSP diagnostics across the codebase
+
+### 🌐 Cloud Development Support
+- **Replit optimization** with automatic environment configuration
+- **Port binding** properly configured for cloud development constraints
+- **CORS enhancement** supporting both `*.repl.co` and localhost origins
+- **Development workflow** streamlined for both local and cloud environments
 
 ## 🧩 Features in Detail
 
 ### Text Chat Interface
 
 Traditional chat interface for keyboard-based interaction:
-- Full conversation history
+- Full conversation history with persistent storage
 - File uploads and webcam integration
 - Rich markdown and code support
 - TTS playback of AI responses
+- **Multi-user authentication** with proper data isolation
 
 ### AI Room Interface
 
@@ -230,24 +273,27 @@ Immersive, voice-focused interface:
 - Toggle sharing of specific memories with other instances
 - Categorize and organize important information
 - Review what your AI has learned about you
+- **User-scoped access** ensuring privacy and data isolation
 
 ### Character System
 
 - Import JSON character cards to set personality
 - Upload custom avatars for visual representation
 - Configure voice and speech patterns
+- **Admin-controlled character creation** with user assignment
 - Future: 3D avatar support and animations
 
 ### Module System
 
 - Add plugins to extend functionality
 - Configure TTS/STT engines (ElevenLabs, Fish Speech)
-- Select LLM backends
+- Select LLM backends (Ollama, LM Studio, OpenAI, Claude)
 - Install custom agents and workflows
+- **Environment-aware configuration** for different deployment scenarios
 
 ### Default Chat Workflow (New)
 
-Chat execution is driven by a versioned “Default Chat” workflow stored in the DB. This centralizes LLM selection and connection wiring so future enhancements (e.g., search, moderation) are just workflow edits.
+Chat execution is driven by a versioned "Default Chat" workflow stored in the DB. This centralizes LLM selection and connection wiring so future enhancements (e.g., search, moderation) are just workflow edits.
 
 - List workflows: `GET /api/workflows`
 - Get default workflow: `GET /api/workflows/default`
@@ -295,20 +341,24 @@ Groups:
 
 All settings can be configured through the Settings UI, including:
 
-- Account management
+- Account management with role-based access control
 - Network settings and federation
 - Character personality and appearance
 - Voice and speech preferences
+- LLM engine selection and configuration
 - Backup locations and schedule
 
 ## 🛣️ Roadmap
 
 - [x] Core chat functionality
+- [x] Multi-user authentication system
+- [x] External agent integration framework
 - [x] Basic AI personality system
+- [x] Environment-aware deployment
 - [ ] Voice-first room interface
 - [ ] Federation between instances
-- [ ] Memory management UI
-- [ ] Plugin system
+- [ ] Memory management UI enhancement
+- [ ] Plugin system expansion
 - [ ] 3D avatar support
 - [ ] Mobile companion app
 
@@ -316,14 +366,14 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 
 ## 💻 Technical Architecture
 
-SwAIvyn architecture:
+SwAIvyn architecture has been significantly improved with recent updates:
 
-- **Backend**: FastAPI (Python) with async PostgreSQL database
-- **Frontend**: React 18 with TypeScript and Vite
-- **Authentication**: JWT tokens with bcrypt password hashing
-- **Status Polling**: Efficient polling-based status updates
-- **External Agents**: Multi-tenant agent registry with user isolation
-- **Infrastructure**: Optional Docker services for AI integrations
+- **Backend**: FastAPI (Python) with async PostgreSQL database and robust authentication
+- **Frontend**: React 18 with TypeScript, Vite, and consistent authentication patterns
+- **Authentication**: JWT tokens with bcrypt password hashing and proper user data isolation
+- **Status Polling**: Efficient polling-based status updates with environment detection
+- **External Agents**: Multi-tenant agent registry with user isolation and secure API keys
+- **Infrastructure**: Docker Swarm with Traefik routing and environment-adaptive deployment
 
 ### Per‑User LLM Dataflow
 
@@ -351,6 +401,7 @@ Authorization: users can modify/read only their settings/conversations; admin ca
   2) `useInitialization().user?.id`
   3) Fallback to `/api/auth/me` when a token is present
 - The hook also exposes `headers` with `Authorization` automatically, used in fetch()/axios calls throughout the app.
+- **Authentication consistency** ensures all API calls include proper JWT headers
 
 ### Agents Integration (Workers)
 
@@ -358,7 +409,7 @@ Authorization: users can modify/read only their settings/conversations; admin ca
 - BFF proxies this for the UI at: `GET /api/agents/catalog`.
 - Runtime agent activity (running/completed) remains under BFF `/api/agents` endpoints.
 
-See `docs/AGENTS_AND_WORKFLOWS.md` for how the UI will expose catalog, per‑user enable/disable toggles, and user‑owned YAML uploads.
+See `docs/EXTERNAL_AGENT_GUIDE.md` for basic integration and `docs/AGENT_STACK_INTEGRATION.md` for comprehensive technical specifications.
 
 ### SQLite VSS Integration
 
@@ -398,6 +449,7 @@ SwAIvyn features a powerful external agent system that allows you to connect spe
 - **Task Management**: Full lifecycle management of agent tasks with status tracking
 - **Status Monitoring**: Efficient polling-based status tracking
 - **Flexible Agent Types**: Support for any type of external AI service or worker
+- **Data Format Support**: Comprehensive support for text, images, vectors, and structured data
 
 ### 🚀 Quick Start
 
@@ -435,18 +487,24 @@ SwAIvyn features a powerful external agent system that allows you to connect spe
 
 ### 📚 Complete Documentation
 
-See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for:
-- Detailed API specifications and authentication requirements
-- Complete database schema and data models
-- Step-by-step implementation examples
-- FastAPI service templates and best practices
-- Testing and debugging guidance
+See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for basic integration and the **[Agent Stack Integration Guide](docs/AGENT_STACK_INTEGRATION.md)** for comprehensive technical specifications including:
+
+- **Port Configuration**: Required ports and network setup
+- **API Specifications**: Complete endpoint documentation with authentication
+- **Data Format Standards**: File types, encoding, and structure requirements
+- **Agent Registration**: Step-by-step service registration process
+- **Data Ingestion**: How SwAIvyn receives and processes agent data
+- **Vector Data Handling**: Embeddings, similarity search, and storage
+- **Image Processing**: Format support, metadata, and storage patterns
+- **Service Discovery**: Automatic agent detection and capability reporting
 
 ### 🎯 Core API Endpoints
 
 - **Agent Registry**: `/api/agents/register` - Register and manage external agent services
 - **Task Management**: `/api/agents/tasks` - Create and monitor agent tasks
 - **Results**: `/api/agents/tasks/{task_id}/results` - Access completed task results
+- **Data Ingestion**: `/api/agents/ingest` - Receive data from external agents
+- **Status Polling**: `/api/agents/status` - Monitor agent health and availability
 - **User Isolation**: All endpoints enforce user-scoped data access
 
 ### 🖥️ Management Interface
@@ -457,6 +515,7 @@ The SwAIvyn frontend provides comprehensive agent management:
 - **Task Dashboard**: Monitor active tasks and their progress  
 - **Results Viewer**: Access completed task results with filtering and search
 - **Status Monitoring**: Real-time updates on agent availability and performance
+- **Data Visualization**: View ingested data with proper formatting and metadata
 - **User Isolation**: Each user sees only their own agents and tasks
 
 ---
@@ -480,8 +539,8 @@ SwAIvyn uses a hybrid development approach: application services (BFF, Orchestra
 ```
 
 ### Development Endpoints:
-- **UI**: http://localhost:5173
-- **BFF API**: http://localhost:5000 (health: `/healthz`, `/api/readyz`)
+- **UI**: http://localhost:5173 (local) / http://localhost:5000 (Replit)
+- **BFF API**: http://localhost:8000 (health: `/healthz`, `/api/readyz`)
 - **Temporal**: localhost:7233
 - **Qdrant**: http://localhost:6333
 - **Neo4j**: http://localhost:7474 (bolt: `localhost:7687`)
