@@ -1,5 +1,6 @@
 import React, { useState, useEffect, ChangeEvent } from 'react';
 import yaml from 'js-yaml';
+import apiService from '../services/apiService';
 
 /**
  * Hook: Converts YAML to a system prompt string usable by LLMs.
@@ -83,8 +84,7 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
   // Fetch character data if editing an existing character
   useEffect(() => {
     if (characterId) {
-      fetch(`/api/character/${characterId}`)
-        .then(res => res.json())
+      apiService.get(`/api/character/${characterId}`)
         .then(data => {
           if (data) setCharacter(data);
         })
@@ -104,25 +104,18 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
       // Attempt to parse YAML to validate it
       yaml.load(character.yamlProfile);
 
-      const method = characterId ? 'PUT' : 'POST';
       const url = characterId ? `/api/character/${characterId}/yaml` : '/api/character/yaml';
       const requestBody = {
-        userId: character.userId,
         yamlProfile: character.yamlProfile
       };
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (response.ok) {
-        onSave();
+      if (characterId) {
+        await apiService.put(url, requestBody);
       } else {
-        const errorText = await response.text();
-        alert('Failed to save character: ' + errorText);
+        await apiService.post(url, requestBody);
       }
+      
+      onSave();
     } catch (error) {
       alert('Invalid YAML: ' + error);
     }
