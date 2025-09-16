@@ -1466,8 +1466,10 @@ async def get_task_results(task_id: str, engine: Optional[AsyncEngine] = Depends
 # ------------------------- TTS Endpoints -------------------------
 
 @app.get("/api/tts/settings")
-async def get_tts_settings(user_id: Optional[str] = Query(None)):
+async def get_tts_settings(user_id: Optional[str] = Query(None), current=Depends(current_user_dep)):
     """Get TTS settings"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     # Return default settings for now
     return {
         "provider": "fishspeech",
@@ -1480,15 +1482,20 @@ async def save_tts_settings(
     user_id: str,
     tts_provider: str, 
     voice_id: str,
-    api_key: str
+    api_key: str,
+    current=Depends(current_user_dep)
 ):
     """Save TTS settings"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     # For now, just return success
     return {"success": True}
 
 @app.get("/api/tts/voices")
-async def get_tts_voices(provider: str = Query(...)):
+async def get_tts_voices(provider: str = Query(...), current=Depends(current_user_dep)):
     """Get available voices for TTS provider"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     if provider == "fishspeech":
         return [
             "glados",
@@ -1506,32 +1513,42 @@ async def get_tts_voices(provider: str = Query(...)):
 # ------------------------- Memory Endpoints -------------------------
 
 @app.get("/api/memory/{user_id}")
-async def get_memory(user_id: str):
+async def get_memory(user_id: str, current=Depends(current_user_dep)):
     """Get memory for user"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return {"memories": [], "count": 0}
 
 @app.get("/api/memorysyncstatus/status/{user_id}")
-async def get_memory_sync_status(user_id: str):
+async def get_memory_sync_status(user_id: str, current=Depends(current_user_dep)):
     """Get memory sync status"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return {"status": "synced", "lastSync": "2024-01-01T00:00:00Z"}
 
 # ------------------------- Upload Endpoints -------------------------
 
 @app.get("/api/upload/documents")
-async def get_uploaded_documents():
+async def get_uploaded_documents(current=Depends(current_user_dep)):
     """Get uploaded documents"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return {"documents": []}
 
 @app.post("/api/upload/documents")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), current=Depends(current_user_dep)):
     """Upload a document"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return {"filename": file.filename, "success": True}
 
 # ------------------------- Settings Endpoints -------------------------
 
 @app.get("/api/settings/connections")
-async def get_connection_settings(user_id: str = Query(...)):
+async def get_connection_settings(user_id: str = Query(...), current=Depends(current_user_dep)):
     """Get connection settings"""
+    if not current:
+        raise HTTPException(status_code=401, detail="Authentication required")
     return {
         "OllamaApiUrl": "http://localhost:11434",
         "LmStudioApiUrl": "http://localhost:1234", 
