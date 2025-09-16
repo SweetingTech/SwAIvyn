@@ -56,27 +56,19 @@ const DashboardPage = () => {
   const [agents, setAgents] = useState<{ running: any[]; completed: number; failed: number; pending: number }>({ running: [], completed: 0, failed: 0, pending: 0 });
   const [characters, setCharacters] = useState<any[]>([]);
   const [agentTasks, setAgentTasks] = useState<any[]>([]);
-  const traefikUrl = useMemo(() => {
-    // Check environment variable first
-    const envUrl = (import.meta as any).env?.VITE_TRAEFIK_URL;
-    if (envUrl) return envUrl;
-    
-    // Dynamic detection based on current host
+  const environmentInfo = useMemo(() => {
     const currentHost = window.location.hostname;
     const currentPort = window.location.port;
+    const isReplit = currentHost.includes('.repl.co') || currentHost.includes('replit');
+    const isLocalhost = currentHost === 'localhost';
     
-    // If we're on localhost:5000 (development), Traefik is likely on port 80
-    if (currentHost === 'localhost' && currentPort === '5000') {
-      return 'http://traefik.localhost:80';
-    }
-    
-    // If we're on a different host (like Replit), try the same port
-    if (currentPort && currentPort !== '80' && currentPort !== '443') {
-      return `http://traefik.${currentHost}:${currentPort}`;
-    }
-    
-    // Default fallback for localhost development
-    return 'http://traefik.localhost:80';
+    return {
+      type: isReplit ? 'replit' : isLocalhost ? 'localhost' : 'production',
+      host: currentHost,
+      port: currentPort,
+      showTraefik: isLocalhost && currentPort === '5000', // Only show Traefik on local development
+      traefikUrl: isLocalhost && currentPort === '5000' ? 'http://traefik.localhost:80' : null
+    };
   }, []);
 
   useEffect(() => {
@@ -407,12 +399,65 @@ const DashboardPage = () => {
           )}
         </div>
 
-        {/* Traefik Dashboard */}
+        {/* Environment-Specific Section */}
         <div className="mt-8">
-          <h2 className="text-lg font-medium text-gray-800 mb-4">Traefik</h2>
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <iframe src={traefikUrl} title="Traefik" className="w-full" style={{ height: '600px', border: '0' }} />
-          </div>
+          {environmentInfo.showTraefik ? (
+            // Show Traefik only on local development
+            <>
+              <h2 className="text-lg font-medium text-gray-800 mb-4">Traefik</h2>
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <iframe src={environmentInfo.traefikUrl!} title="Traefik" className="w-full" style={{ height: '600px', border: '0' }} />
+              </div>
+            </>
+          ) : (
+            // Show environment info for Replit and other environments
+            <>
+              <h2 className="text-lg font-medium text-gray-800 mb-4">Environment</h2>
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-700 w-24">Platform:</span>
+                      <span className="text-sm text-gray-600 capitalize">{environmentInfo.type}</span>
+                      {environmentInfo.type === 'replit' && (
+                        <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">Cloud</span>
+                      )}
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-700 w-24">Host:</span>
+                      <span className="text-sm text-gray-600 font-mono">{environmentInfo.host}</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-700 w-24">Port:</span>
+                      <span className="text-sm text-gray-600">{environmentInfo.port || '80/443'}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-700 w-24">Frontend:</span>
+                      <span className="text-sm text-green-600">✓ React + Vite</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-700 w-24">Backend:</span>
+                      <span className="text-sm text-green-600">✓ FastAPI + Python</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-700 w-24">Database:</span>
+                      <span className="text-sm text-green-600">✓ PostgreSQL</span>
+                    </div>
+                  </div>
+                </div>
+                {environmentInfo.type === 'replit' && (
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Replit Environment:</strong> Running simplified architecture with FastAPI backend and React frontend. 
+                      Full Docker stack (Traefik, Temporal, Neo4j, TTS services) available for local development.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </motion.div>
