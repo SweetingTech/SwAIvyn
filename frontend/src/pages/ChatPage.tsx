@@ -6,7 +6,7 @@ import React, {
   FormEvent
 } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff, Menu, X, MessageSquare, Settings } from 'lucide-react';
+import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff, X, MessageSquare, Settings } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import ChatMessage from '../components/chat/ChatMessage';
