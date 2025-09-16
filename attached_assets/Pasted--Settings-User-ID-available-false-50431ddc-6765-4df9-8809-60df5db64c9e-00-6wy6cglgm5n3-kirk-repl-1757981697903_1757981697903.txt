@@ -1,0 +1,44 @@
+🔧 Settings: User ID available: false
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/voices?provider=fishspeech:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/voices?provider=fishspeech: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+Console.js:61 Failed to load voices: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/settings?userId=admin:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/settings?userId=admin: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/settings:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/settings: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/voices?provider=fishspeech:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/voices?provider=fishspeech: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+Console.js:61 Failed to load voices: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/settings:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/settings: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/voices?provider=fishspeech:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/settings:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/voices?provider=fishspeech: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+Console.js:61 Failed to load voices: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+Console.js:61 GET request failed for /api/tts/settings: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/settings?userId=admin:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/settings?userId=admin: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/settings:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/settings: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/tts/voices?provider=fishspeech:1  Failed to load resource: the server responded with a status of 404 (Not Found)Understand this error
+Console.js:61 GET request failed for /api/tts/voices?provider=fishspeech: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+Console.js:61 Failed to load voices: AxiosError
+Mt.forEach.n.<computed> @ Console.js:61Understand this error
+Console.js:61 🔧 Settings: User context: null
+Console.js:61 🔧 Settings: User ID available: false
+Console.js:61 🔧 Settings: User context: null
+Console.js:61 🔧 Settings: User ID available: false
+50431ddc-6765-4df9-8809-60df5db64c9e-00-6wy6cglgm5n3.kirk.replit.dev/api/llm/lmstudio/model?baseUrl=http%3A%2F%2Flocalhost%3A1234:1  Failed to load resource: the server responded with a status of 401 (Unauthorized)

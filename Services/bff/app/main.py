@@ -1462,3 +1462,78 @@ async def get_task_results(task_id: str, engine: Optional[AsyncEngine] = Depends
             results.append(result_dict)
         
         return results
+
+# ------------------------- TTS Endpoints -------------------------
+
+@app.get("/api/tts/settings")
+async def get_tts_settings(user_id: Optional[str] = Query(None)):
+    """Get TTS settings"""
+    # Return default settings for now
+    return {
+        "provider": "fishspeech",
+        "voice": "glados",
+        "apiKey": ""
+    }
+
+@app.put("/api/tts/settings")
+async def save_tts_settings(
+    user_id: str,
+    tts_provider: str, 
+    voice_id: str,
+    api_key: str
+):
+    """Save TTS settings"""
+    # For now, just return success
+    return {"success": True}
+
+@app.get("/api/tts/voices")
+async def get_tts_voices(provider: str = Query(...)):
+    """Get available voices for TTS provider"""
+    if provider == "fishspeech":
+        return [
+            "glados",
+            "jazzy", 
+            "scarlet",
+            "david",
+            "sarah"
+        ]
+    elif provider == "elevenlabs":
+        return ["default"]
+    elif provider == "openai":
+        return ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+    return ["default"]
+
+# ------------------------- Memory Endpoints -------------------------
+
+@app.get("/api/memory/{user_id}")
+async def get_memory(user_id: str):
+    """Get memory for user"""
+    return {"memories": [], "count": 0}
+
+@app.get("/api/memorysyncstatus/status/{user_id}")
+async def get_memory_sync_status(user_id: str):
+    """Get memory sync status"""
+    return {"status": "synced", "lastSync": "2024-01-01T00:00:00Z"}
+
+# ------------------------- Upload Endpoints -------------------------
+
+@app.get("/api/upload/documents")
+async def get_uploaded_documents():
+    """Get uploaded documents"""
+    return {"documents": []}
+
+@app.post("/api/upload/documents")
+async def upload_document(file: UploadFile = File(...)):
+    """Upload a document"""
+    return {"filename": file.filename, "success": True}
+
+# ------------------------- Settings Endpoints -------------------------
+
+@app.get("/api/settings/connections")
+async def get_connection_settings(user_id: str = Query(...)):
+    """Get connection settings"""
+    return {
+        "OllamaApiUrl": "http://localhost:11434",
+        "LmStudioApiUrl": "http://localhost:1234", 
+        "VllmApiUrl": "http://localhost:8000"
+    }
