@@ -409,7 +409,7 @@ Authorization: users can modify/read only their settings/conversations; admin ca
 - BFF proxies this for the UI at: `GET /api/agents/catalog`.
 - Runtime agent activity (running/completed) remains under BFF `/api/agents` endpoints.
 
-See `docs/EXTERNAL_AGENT_GUIDE.md` for basic integration and `docs/AGENT_STACK_INTEGRATION.md` for comprehensive technical specifications.
+See `docs/Agent_Integration_Guide.md` for comprehensive technical specifications covering agent onboarding, APIs, and runtime expectations.
 
 ### SQLite VSS Integration
 
@@ -487,7 +487,7 @@ SwAIvyn features a powerful external agent system that allows you to connect spe
 
 ### 📚 Complete Documentation
 
-See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for basic integration and the **[Agent Stack Integration Guide](docs/AGENT_STACK_INTEGRATION.md)** for comprehensive technical specifications including:
+See the **[Agent Integration Guide](docs/Agent_Integration_Guide.md)** for complete technical specifications including:
 
 - **Port Configuration**: Required ports and network setup
 - **API Specifications**: Complete endpoint documentation with authentication

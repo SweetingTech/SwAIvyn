@@ -1,4 +1,4 @@
-# Agent Stack Integration Guide
+# Agent Integration Guide
 
 This comprehensive guide provides all technical specifications needed for LLMs and developers to build external agent systems that integrate with SwAIvyn. It covers networking, data formats, API structures, and implementation patterns for seamless agent integration.
 
@@ -13,6 +13,19 @@ SwAIvyn's external agent system enables distributed AI task processing while mai
 - **Data Format Standardization**: Consistent formats for all data types (text, images, vectors, structured data)
 - **Service Discovery**: Automatic capability detection and health monitoring
 - **Scalable Architecture**: Support for multiple concurrent agents and tasks
+
+### High-Level Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   SwAIvyn UI    │    │  SwAIvyn BFF    │    │ External Agent  │
+│                 │    │                 │    │    Service      │
+├─────────────────┤    ├─────────────────┤    ├─────────────────┤
+│ • Agent Mgmt    │◄──►│ • Authentication│◄──►│ • Task Processor│
+│ • Task Monitor  │    │ • Agent Registry│    │ • Result Handler│
+│ • Results View  │    │ • Task Routing  │    │ • Health Check  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
 
 ## 🌐 Network Configuration
 
@@ -298,6 +311,50 @@ Authorization: Bearer <jwt-token>
 }
 ```
 
+#### List Available Agents
+```http
+GET /api/agents/available
+Authorization: Bearer <jwt-token>
+```
+
+#### Get Agent Catalog
+```http
+GET /api/agents/catalog
+Authorization: Bearer <jwt-token>
+```
+
+#### List User Tasks
+```http
+GET /api/agents/tasks/my
+Authorization: Bearer <jwt-token>
+```
+
+#### Get Task Details
+```http
+GET /api/agents/tasks/{task_id}
+Authorization: Bearer <jwt-token>
+```
+
+#### Submit Task Result (Callback)
+```http
+POST /api/agents/tasks/{task_id}/results
+Authorization: Bearer <callback-auth-token>
+Content-Type: application/json
+
+{
+    "status": "completed",
+    "result_data": {
+        "summary": "Document analysis complete",
+        "key_points": ["Point 1", "Point 2", "Point 3"],
+        "confidence_score": 0.95
+    },
+    "processing_time_ms": 5430
+}
+```
+
+> **Important:** Use the short-lived `callback_auth_token` supplied with each task as the `Authorization` bearer token when posting results back to SwAIvyn. Never echo the token in logs or payload bodies.
+
+
 ### Data Ingestion API
 
 SwAIvyn provides endpoints for agents to send processed data back:
@@ -375,6 +432,56 @@ metadata: {
     "processing_model": "vision-ai-v1"
 }
 ```
+
+## 🗄️ Agent Registry Data Model
+
+SwAIvyn persists external agent metadata and activity in three tables that enforce user-level isolation and auditable history.
+
+### Agent Registry (`agent_registry`)
+```sql
+CREATE TABLE agent_registry (
+    id VARCHAR(128) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    name VARCHAR(300) NOT NULL,
+    description TEXT,
+    endpoint_url VARCHAR(500) NOT NULL,
+    agent_type VARCHAR(100),
+    capabilities TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at VARCHAR(40) NOT NULL,
+    updated_at VARCHAR(40) NOT NULL
+);
+```
+
+### Agent Tasks (`agent_tasks`)
+```sql
+CREATE TABLE agent_tasks (
+    id VARCHAR(128) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    registry_id VARCHAR(128) NOT NULL,
+    task_type VARCHAR(100),
+    status VARCHAR(32) DEFAULT 'pending',
+    input_data TEXT,
+    priority VARCHAR(20) DEFAULT 'normal',
+    created_at VARCHAR(40) NOT NULL,
+    updated_at VARCHAR(40) NOT NULL
+);
+```
+
+### Agent Results (`agent_results`)
+```sql
+CREATE TABLE agent_results (
+    id VARCHAR(128) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    task_id VARCHAR(128) NOT NULL,
+    status VARCHAR(32),
+    result_data TEXT,
+    error_message TEXT,
+    processing_time_ms INTEGER,
+    created_at VARCHAR(40) NOT NULL
+);
+```
+
 
 ## 📁 Data Format Standards
 
@@ -704,6 +811,15 @@ async def process_task_async(task):
     except Exception as e:
         await update_task_status(task_id, "failed", error=str(e))
 ```
+
+### Task Lifecycle Overview
+
+1. **Registration** – Agents register their capabilities via `POST /api/agents/register`.
+2. **Task Creation** – Users or workflows create work with `POST /api/agents/tasks`.
+3. **Dispatch** – SwAIvyn forwards task payloads (including `callback_url` and `callback_auth_token`) to the agent's `/tasks` endpoint.
+4. **Processing** – The agent processes work asynchronously and exposes progress through `/tasks/{task_id}`.
+5. **Result Delivery** – Results are posted back to SwAIvyn using the provided callback URL and token.
+6. **Completion** – Users can retrieve status and outputs via `/api/agents/tasks/{task_id}` and `/api/agents/tasks/{task_id}/results`.
 
 ## 🔧 Service Registration
 
