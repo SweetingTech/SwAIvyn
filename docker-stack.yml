@@ -191,6 +191,7 @@ services:
     environment:
       - DB=postgresql
       - DB_PORT=5432
+      - DB_HOST=swai-db
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
