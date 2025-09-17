@@ -71,7 +71,6 @@ coverage/
 Coverage/
 
 # Logs
-logs/
 *.log
 
 # Temp files/folders
