@@ -1,4 +1,4 @@
-# Development script for SwAIvyn - runs frontend and backend with hot reloading
+﻿# Development script for SwAIvyn - runs frontend and backend with hot reloading
 param (
     [switch] $FrontendOnly = $false,
     [switch] $BackendOnly = $false,
@@ -35,7 +35,7 @@ function Resolve-PythonExe {
             try {
                 $cmd = Get-Command $prefCmd -ErrorAction Stop
                 return @{ Exe = $cmd.Path; PreArgs = $prefArgs }
-            } catch { $null }
+            } catch {}
         }
     }
     foreach ($name in @('py','python','python3')) {
@@ -44,7 +44,7 @@ function Resolve-PythonExe {
             $args = @()
             if ($name -eq 'py') { $args = @('-3') }
             return @{ Exe = $cmd.Path; PreArgs = $args }
-        } catch { $null }
+        } catch {}
     }
     throw 'Python not found in PATH. Install Python 3 and restart your shell.'
 }
@@ -178,7 +178,7 @@ function Get-StackInfo {
     if ($LASTEXITCODE -eq 0 -and $services) {
       return @{ Exists = $true; Services = $services }
     }
-  } catch { $null }
+  } catch {}
   return @{ Exists = $false; Services = @() }
 }
 
@@ -588,7 +588,7 @@ if (-not $temporalReady) {
         Write-Host "📋 Temporal diagnostics:" -ForegroundColor Yellow
         & docker service ps "${StackName}_temporal" --no-trunc 2>$null
         & docker service logs "${StackName}_temporal" --tail 20 2>$null
-    } catch { $null }
+    } catch {}
 }
 
 if (-not $temporalReady) {
@@ -619,7 +619,6 @@ $serviceEnv = @{
     'FISHSPEECH_URL' = 'http://localhost:8081'
     'OLLAMA_HOST' = 'http://localhost:11434'
     'LMSTUDIO_HOST' = 'http://localhost:1234'
-    'LLM_MODEL' = 'llama3'
 }
 
 # Override URLs if using Traefik routing
@@ -700,7 +699,7 @@ try {
             }
         }
     }
-} catch { $null }
+} catch {}
 
 Write-Host "`n💡 TIPS:" -ForegroundColor Yellow
 Write-Host "• Frontend supports hot reloading - changes will refresh automatically" -ForegroundColor White
