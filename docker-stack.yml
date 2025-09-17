@@ -189,8 +189,6 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
-      - SERVICES_FRONTEND_RPC_BIND_ON_IP=0.0.0.0
-      - SERVICES_FRONTEND_RPC_GRPC_PORT=7233
     networks:
       - swai-public
     ports:
