@@ -296,7 +296,24 @@ function Wait-StackConverged {
   $taskSnapshot = @{}
 
   while ((Get-Date) -lt $deadline) {
-    $services = & docker stack services $Name --format "{{.Name}}|{{.Replicas}}" 2>$null
+    $servicesRaw = & docker stack services $Name --format "{{.Name}}|{{.Replicas}}" 2>&1
+    $servicesExitCode = $LASTEXITCODE
+    $services = @($servicesRaw | Where-Object { $_ })
+
+    if ($servicesExitCode -ne 0) {
+      $detailMessage = "Failed to list services for stack '$Name' (exit code $servicesExitCode)."
+      Write-Log $detailMessage 'WARN'
+      foreach ($line in $services) {
+        Write-Log ("  {0}" -f $line) 'WARN'
+      }
+      return [pscustomobject]@{
+        Success = $false
+        Reason = $detailMessage
+        FailedServices = @()
+        TaskDetails = @{}
+      }
+    }
+
     if (-not $services) {
       return [pscustomobject]@{
         Success = $false
@@ -325,7 +342,19 @@ function Wait-StackConverged {
         $allReady = $false
       }
 
-      $tasks = & docker service ps $serviceName --no-trunc --format "{{.Name}}|{{.CurrentState}}|{{.Error}}" 2>$null
+      $psResult = & docker service ps $serviceName --no-trunc --format "{{.Name}}|{{.CurrentState}}|{{.Error}}" 2>&1
+      $psExitCode = $LASTEXITCODE
+      if ($psExitCode -ne 0) {
+        $allReady = $false
+        $errorLine = "Failed to inspect tasks for service '$serviceName' (exit code $psExitCode)."
+        Write-Log $errorLine 'WARN'
+        $detail = @($errorLine)
+        if ($psResult) { $detail += @($psResult | Where-Object { $_ }) }
+        $taskSnapshot[$serviceName] = $detail
+        continue
+      }
+
+      $tasks = @($psResult | Where-Object { $_ })
       $taskSnapshot[$serviceName] = $tasks
 
       foreach ($task in $tasks) {
