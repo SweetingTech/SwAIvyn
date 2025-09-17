@@ -170,6 +170,12 @@ services:
         published: 7687
         protocol: tcp
         mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
     deploy:
       labels:
         - swai.service.name=neo4j-graph-db
@@ -185,10 +191,10 @@ services:
     environment:
       - DB=postgresql
       - DB_PORT=5432
-      - DB_HOST=swai-db
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
+      - POSTGRES_SEEDS=swai-db
     networks:
       - swai-public
     ports:
@@ -285,6 +291,12 @@ services:
         published: 8080
         protocol: tcp
         mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/v1/.well-known/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
     deploy:
       labels:
         - swai.service.name=weaviate-vector-db
@@ -367,7 +379,7 @@ services:
         - traefik.enable=true
         - traefik.http.routers.bff.rule=Host(`bff.localhost`)
         - traefik.http.routers.bff.entrypoints=web
-        - traefik.http.services.bff.loadbalancer.server.url=http://host.docker.internal:8000
+        - traefik.http.services.bff.loadbalancer.server.url=http://host.docker.internal:5000
 
   frontend-proxy:
     image: traefik/whoami:latest
@@ -382,4 +394,4 @@ services:
         - traefik.enable=true
         - traefik.http.routers.frontend.rule=Host(`app.localhost`)
         - traefik.http.routers.frontend.entrypoints=web
-        - traefik.http.services.frontend.loadbalancer.server.url=http://host.docker.internal:5000
+        - traefik.http.services.frontend.loadbalancer.server.url=http://host.docker.internal:5173

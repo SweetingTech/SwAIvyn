@@ -20,6 +20,46 @@ $rootDir = $PSScriptRoot
 $stateFile = Join-Path $PSScriptRoot '.dev-state.json'
 $pids = @{}
 
+$script:LogDirectory = Join-Path $rootDir 'logs'
+if (-not (Test-Path $script:LogDirectory)) { New-Item -ItemType Directory -Path $script:LogDirectory -Force | Out-Null }
+$script:LogFile = Join-Path $script:LogDirectory ("dev-run-{0}.log" -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+if (-not (Test-Path $script:LogFile)) { New-Item -ItemType File -Path $script:LogFile -Force | Out-Null }
+$script:TranscriptActive = $false
+$script:ShutdownInvoked = $false
+
+Write-Host ("📄 Detailed startup logs will be written to {0}" -f $script:LogFile) -ForegroundColor DarkGray
+
+function Write-Log {
+    param(
+        [Parameter(Mandatory = $true)][string]$Message,
+        [ValidateSet('INFO','WARN','ERROR','SUCCESS','DEBUG')][string]$Level = 'INFO'
+    )
+
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = "[{0}] [{1}] {2}" -f $timestamp, $Level, $Message
+    $color = 'White'
+    switch ($Level) {
+        'WARN' { $color = 'Yellow' }
+        'ERROR' { $color = 'Red' }
+        'SUCCESS' { $color = 'Green' }
+        'DEBUG' { $color = 'DarkGray' }
+        Default { $color = 'White' }
+    }
+    Write-Host $line -ForegroundColor $color
+    if (-not $script:TranscriptActive) {
+        Add-Content -Path $script:LogFile -Value $line
+    }
+}
+
+try {
+    Start-Transcript -Path $script:LogFile -Append -ErrorAction Stop | Out-Null
+    $script:TranscriptActive = $true
+    Write-Log ("Logging to {0}" -f $script:LogFile) 'DEBUG'
+} catch {
+    Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
+    Write-Log ("Falling back to direct log writes at {0}" -f $script:LogFile) 'WARN'
+}
+
 # --- Utility Functions ---
 function Test-Command { param([string]$Name) { try { Get-Command $Name -ErrorAction Stop | Out-Null; return $true } catch { return $false } } }
 
@@ -193,7 +233,7 @@ function Get-FileHash-Quick {
 
 function Should-UpdateStack {
   param([string]$Name, [string]$File)
-  
+
   # Check if stack exists
   $stackInfo = Get-StackInfo -Name $Name
   if (-not $stackInfo.Exists) {
@@ -227,28 +267,240 @@ function Should-UpdateStack {
   return $true
 }
 
+function Get-ServiceLogs {
+  param(
+    [Parameter(Mandatory = $true)][string]$ServiceName,
+    [int]$Tail = 100
+  )
+
+  try {
+    $logs = & docker service logs $ServiceName --tail $Tail 2>&1
+    if (-not $logs) {
+      return @("No logs available for service '$ServiceName'.")
+    }
+    return $logs
+  } catch {
+    return @("Failed to read logs for service '$ServiceName': $($_.Exception.Message)")
+  }
+}
+
+function Wait-StackConverged {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [int]$TimeoutSec = 420,
+    [int]$PollIntervalSec = 5
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $lastStatus = @{}
+  $taskSnapshot = @{}
+
+  while ((Get-Date) -lt $deadline) {
+    $services = & docker stack services $Name --format "{{.Name}}|{{.Replicas}}" 2>$null
+    if (-not $services) {
+      return [pscustomobject]@{
+        Success = $false
+        Reason = "Stack '$Name' has no services or failed to deploy."
+        FailedServices = @()
+        TaskDetails = @{}
+      }
+    }
+
+    $currentStatus = @{}
+    $taskSnapshot = @{}
+    $allReady = $true
+
+    foreach ($entry in $services) {
+      $parts = $entry -split '\|'
+      if ($parts.Count -lt 2) { continue }
+      $serviceName = $parts[0]
+      $replicaField = ($parts[1] -split '\s+')[0]
+      $currentStatus[$serviceName] = $replicaField
+
+      if ($replicaField -match '^(\d+)/(\d+)') {
+        $running = [int]$matches[1]
+        $desired = [int]$matches[2]
+        if ($running -lt $desired) { $allReady = $false }
+      } else {
+        $allReady = $false
+      }
+
+      $tasks = & docker service ps $serviceName --no-trunc --format "{{.Name}}|{{.CurrentState}}|{{.Error}}" 2>$null
+      $taskSnapshot[$serviceName] = $tasks
+
+      foreach ($task in $tasks) {
+        $taskParts = $task -split '\|'
+        if ($taskParts.Count -lt 2) { continue }
+        $state = $taskParts[1]
+        $errorMessage = if ($taskParts.Count -ge 3) { $taskParts[2] } else { '' }
+
+        if ($state -match 'Failed|Rejected') {
+          Write-Log ("Service '{0}' reported failure state '{1}' {2}" -f $serviceName, $state, $errorMessage) 'ERROR'
+          return [pscustomobject]@{
+            Success = $false
+            Reason = "Service '$serviceName' failed to start: $state $errorMessage".Trim()
+            FailedServices = @($serviceName)
+            TaskDetails = $taskSnapshot
+          }
+        }
+
+        if ($state -notmatch '^Running') {
+          $allReady = $false
+        }
+      }
+    }
+
+    $statusChanged = $false
+    foreach ($key in $currentStatus.Keys) {
+      if (-not $lastStatus.ContainsKey($key) -or $lastStatus[$key] -ne $currentStatus[$key]) {
+        $statusChanged = $true
+        break
+      }
+    }
+
+    if ($statusChanged) {
+      $statusText = $currentStatus.GetEnumerator() | Sort-Object Name | ForEach-Object { "{0}={1}" -f $_.Key, $_.Value }
+      Write-Log ("Stack '{0}' progress: {1}" -f $Name, ($statusText -join ', ')) 'DEBUG'
+    }
+
+    $lastStatus = $currentStatus.Clone()
+
+    if ($allReady) {
+      Write-Log ("All services in stack '{0}' reached desired state." -f $Name) 'SUCCESS'
+      return [pscustomobject]@{
+        Success = $true
+        Reason = ''
+        FailedServices = @()
+        TaskDetails = $taskSnapshot
+      }
+    }
+
+    Start-Sleep -Seconds $PollIntervalSec
+  }
+
+  $notReady = @()
+  foreach ($svc in $lastStatus.Keys) {
+    $replicaField = $lastStatus[$svc]
+    if ($replicaField -match '^(\d+)/(\d+)') {
+      if ([int]$matches[1] -lt [int]$matches[2]) { $notReady += $svc }
+    } else {
+      $notReady += $svc
+    }
+  }
+
+  if (-not $notReady -and $taskSnapshot.Keys) {
+    $notReady = $taskSnapshot.Keys
+  }
+
+  return [pscustomobject]@{
+    Success = $false
+    Reason = "Timed out waiting for Docker stack '$Name' to reach the running state after $TimeoutSec seconds."
+    FailedServices = $notReady
+    TaskDetails = $taskSnapshot
+  }
+}
+
+function Handle-StartupFailure {
+  param(
+    [Parameter(Mandatory = $true)][string]$Reason,
+    [string[]]$FailingServices = @(),
+    [hashtable]$TaskDetails = @{}
+  )
+
+  Write-Log $Reason 'ERROR'
+
+  if ($TaskDetails -and $TaskDetails.Count -gt 0) {
+    foreach ($svcName in $TaskDetails.Keys) {
+      Write-Log ("Task status for {0}:" -f $svcName) 'ERROR'
+      foreach ($taskLine in $TaskDetails[$svcName]) {
+        if ($taskLine) {
+          Write-Log ("  {0}" -f $taskLine) 'ERROR'
+        }
+      }
+    }
+  }
+
+  $servicesToInspect = @()
+  if ($FailingServices) { $servicesToInspect += $FailingServices }
+  if ($TaskDetails.Keys) { $servicesToInspect += $TaskDetails.Keys }
+  $servicesToInspect = $servicesToInspect | Where-Object { $_ } | Select-Object -Unique
+
+  foreach ($svc in $servicesToInspect) {
+    Write-Log ("Collecting logs for service '{0}'..." -f $svc) 'ERROR'
+    try {
+      $servicePs = & docker service ps $svc --no-trunc 2>&1
+      if ($servicePs) {
+        Write-Log ("  docker service ps {0}:" -f $svc) 'ERROR'
+        foreach ($psLine in $servicePs) {
+          if ($psLine) { Write-Log ("    {0}" -f $psLine) 'ERROR' }
+        }
+      }
+    } catch {
+      Write-Log ("  Unable to inspect service '{0}': {1}" -f $svc, $_.Exception.Message) 'WARN'
+    }
+    foreach ($line in (Get-ServiceLogs -ServiceName $svc -Tail 120)) {
+      if ($line) { Write-Log $line 'ERROR' }
+    }
+  }
+
+  throw [System.InvalidOperationException]::new($Reason)
+}
+
+function Invoke-GracefulShutdown {
+  param(
+    [Parameter(Mandatory = $true)][string]$Reason,
+    [string]$Stack = $StackName
+  )
+
+  if ($script:ShutdownInvoked) { return }
+  $script:ShutdownInvoked = $true
+
+  Write-Log ("Initiating graceful shutdown due to: {0}" -f $Reason) 'WARN'
+  $shutdownScript = Join-Path $rootDir 'dev-shutdown.ps1'
+  if (-not (Test-Path $shutdownScript)) {
+    Write-Log "dev-shutdown.ps1 not found; manual cleanup may be required." 'WARN'
+    return
+  }
+
+  try {
+    & $shutdownScript -StackName $Stack -DownCompose -Prune
+  } catch {
+    Write-Log ("Failed to execute dev-shutdown.ps1: {0}" -f $_.Exception.Message) 'ERROR'
+  }
+}
+
 function Deploy-Stack {
   param([string]$Name, [string]$File)
-  
+
+  if (-not $Name) {
+    throw 'StackName not set'
+  }
+
   # Check if we need to deploy/update
   if (-not (Should-UpdateStack -Name $Name -File $File)) {
     return
   }
-  
+
   # Export env for variable substitution in stack yaml
   $env:STACK_NAME = $Name
   if ($TTSUpstream) { $env:UPSTREAM_TTS = $TTSUpstream }
   # Voices mount path (POSIX form for Docker Desktop Linux engine)
   $voicesWin = Join-Path $rootDir 'speech/TTS/openaudio-s1-mini/voices'
+  if (-not (Test-Path $voicesWin)) {
+    throw "Voices directory not found at $voicesWin"
+  }
   $env:SWAI_ROOT_POSIX = Convert-ToDockerHostPath -WinPath $voicesWin
   # Export .env-derived secrets for substitution
   Import-DotEnv (Join-Path $rootDir '.env')
+  if (-not $env:POSTGRES_PASSWORD) {
+    throw 'POSTGRES_PASSWORD is required for stack deploy'
+  }
   if ($TraefikPort -and $TraefikPort -gt 0) { $env:TRAEFIK_PORT = "$TraefikPort" }
-  
+
   Write-Host ("Deploying stack '{0}' from {1}" -f $Name, $File) -ForegroundColor Cyan
   Push-Location $rootDir
   try {
-    & docker stack deploy -c $File $Name --detach=false
+    & docker stack deploy -c $File $Name --detach=false --prune
     if ($LASTEXITCODE -eq 0) {
       # Save hash of successfully deployed configuration
       $hashFile = Join-Path $rootDir ".stack-$Name.hash"
@@ -418,7 +670,11 @@ function Start-ServiceScript {
   }
 }
 
-Write-Host "Starting SwAIvyn in development mode..." -ForegroundColor Cyan
+$startupSucceeded = $false
+$startupError = $null
+
+try {
+Write-Log "Starting SwAIvyn in development mode..." 'INFO'
 
 # --- Import .env file ---
 Import-DotEnv
@@ -450,6 +706,11 @@ Ensure-StackNetwork -StackName $StackName
 # Smart deployment - only deploy if needed
 Deploy-Stack -Name $StackName -File $stackFile
 
+$stackConvergence = Wait-StackConverged -Name $StackName -TimeoutSec 420
+if (-not $stackConvergence.Success) {
+    Handle-StartupFailure -Reason $stackConvergence.Reason -FailingServices $stackConvergence.FailedServices -TaskDetails $stackConvergence.TaskDetails
+}
+
 # --- Enforce Temporal Startup Ordering ---
 Write-Host "Ensuring Temporal starts after PostgreSQL..." -ForegroundColor DarkGray
 try {
@@ -479,9 +740,9 @@ Write-Host "`nWaiting for critical infrastructure services...`n" -ForegroundColo
 $pgReady = Wait-TcpPort -HostName 'localhost' -Port 5432 -Retries 30 -DelaySec 2
 
 if (-not $pgReady) {
-    Write-Warning "PostgreSQL is not ready. Both BFF and Temporal may fail to start."
+    Handle-StartupFailure -Reason "PostgreSQL did not become ready within the expected time window." -FailingServices @("${StackName}_swai-db")
 } else {
-    Write-Host "✅ PostgreSQL is ready" -ForegroundColor Green
+    Write-Log "PostgreSQL is ready." 'SUCCESS'
 }
 
 # Verify POSTGRES_PASSWORD is set (required for Temporal to connect to DB)
@@ -515,7 +776,7 @@ for ($i = 1; $i -le 20; $i++) {
     Start-Sleep -Seconds 3
 }
 if (-not $traefikReady) {
-    Write-Warning "Traefik not ready after 60 seconds, continuing anyway"
+    Handle-StartupFailure -Reason "Traefik reverse proxy failed to report ready status within the allotted time." -FailingServices @("${StackName}_traefik")
 }
 
 # Check Qdrant with retry logic  
@@ -538,7 +799,7 @@ for ($i = 1; $i -le 15; $i++) {
     Start-Sleep -Seconds 4
 }
 if (-not $qdrantReady) {
-    Write-Warning "Qdrant not ready after 60 seconds, continuing anyway"
+    Handle-StartupFailure -Reason "Qdrant vector database did not become ready in time." -FailingServices @("${StackName}_qdrant")
 }
 
 # Enhanced Temporal check with retry and unified approach
@@ -583,17 +844,7 @@ for ($i = 1; $i -le 40; $i++) {
     Start-Sleep -Seconds 3
 }
 if (-not $temporalReady) {
-    Write-Warning "Temporal cluster health check failed after 2 minutes"
-    try {
-        Write-Host "📋 Temporal diagnostics:" -ForegroundColor Yellow
-        & docker service ps "${StackName}_temporal" --no-trunc 2>$null
-        & docker service logs "${StackName}_temporal" --tail 20 2>$null
-    } catch {}
-}
-
-if (-not $temporalReady) {
-    Write-Warning "Temporal gRPC services are not ready. Orchestrator startup will be attempted but may fail and retry."
-    Write-Host "💡 Tip: Temporal may still be initializing its database. This is normal on first startup." -ForegroundColor Yellow
+    Handle-StartupFailure -Reason "Temporal cluster failed health checks after startup." -FailingServices @("${StackName}_temporal")
 }
 
 # --- START OF FRONTEND/BFF/ORCHESTRATOR ---
@@ -768,3 +1019,25 @@ if ($pids.Count -gt 0) {
     $stateObj = @{ pids = $pids }
     $stateObj | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 }
+$startupSucceeded = $true
+}
+catch {
+    $startupError = $_
+    $errorMessage = if ($_.Exception) { $_.Exception.Message } else { "$_" }
+    Write-Log ("Startup failed: {0}" -f $errorMessage) 'ERROR'
+    Invoke-GracefulShutdown -Reason $errorMessage -Stack $StackName
+}
+finally {
+    if ($startupSucceeded) {
+        Write-Log ("SwAIvyn startup completed successfully. Log file: {0}" -f $script:LogFile) 'SUCCESS'
+    } else {
+        Write-Log ("SwAIvyn startup failed. Review log file: {0}" -f $script:LogFile) 'ERROR'
+    }
+
+    if ($script:TranscriptActive) {
+        try { Stop-Transcript | Out-Null } catch {}
+        $script:TranscriptActive = $false
+    }
+}
+
+if ($startupError) { exit 1 }
