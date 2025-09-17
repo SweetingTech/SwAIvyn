@@ -189,6 +189,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
+      - POSTGRES_SEEDS=swai-db
     networks:
       - swai-public
     ports:
@@ -239,7 +240,9 @@ services:
     volumes:
       - swai_data:/var/lib/postgresql/data
     networks:
-      - swai-public
+      swai-public:
+        aliases:
+          - swai-db
     ports:
       - target: 5432
         published: 5432
