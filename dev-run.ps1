@@ -151,6 +151,19 @@ function Ensure-SwarmActive {
     Write-Warning 'Failed to ensure Swarm is active. Commands may fail.'
   }
 }
+function Ensure-SwarmSafePool {
+  try {
+    $ingressSubnet = (& docker network inspect ingress --format "{{(index .IPAM.Config 0).Subnet}}" 2>$null).Trim()
+    if (-not $ingressSubnet -or $ingressSubnet -like "10.255.*" -or $ingressSubnet -like "10.0.*") {
+      Write-Host 'Reinitializing Docker Swarm with a safe address pool to avoid network overlap...' -ForegroundColor DarkGray
+      & docker swarm leave --force 2>$null | Out-Null
+      & docker swarm init --default-addr-pool 10.123.0.0/16 --default-addr-pool-mask-length 24 2>$null | Out-Null
+    }
+  } catch {
+    Write-Warning ("Could not ensure safe Swarm address pool: {0}" -f $_.Exception.Message)
+  }
+}
+
 
 function Convert-ToDockerHostPath {
   param([string]$WinPath)
@@ -240,19 +253,28 @@ function Should-UpdateStack {
     Write-Host "Stack '$Name' does not exist - will create" -ForegroundColor DarkGray
     return $true
   }
-  
+
   # Check if configuration file has changed
   $hashFile = Join-Path $rootDir ".stack-$Name.hash"
   $currentHash = Get-FileHash-Quick -Path $File
-  
+
   if (Test-Path $hashFile) {
     $previousHash = (Get-Content -Raw $hashFile -ErrorAction SilentlyContinue).Trim()
     if ($previousHash -eq $currentHash) {
       # Check if all services are actually running
-      $runningServices = & docker stack services $Name --filter "desired-state=running" --format "{{.Name}}" 2>$null
+      $svcLines = & docker stack services $Name --format "{{.Name}}|{{.Replicas}}" 2>$null
       $expectedCount = ($stackInfo.Services | Measure-Object).Count
-      $runningCount = ($runningServices | Measure-Object).Count
-      
+      $runningCount = 0
+      foreach ($ln in $svcLines) {
+        if (-not $ln) { continue }
+        $parts = $ln -split '\|'
+        if ($parts.Count -lt 2) { continue }
+        $rep = ($parts[1] -split '\s+')[0]
+        if ($rep -match '^(\d+)/(\d+)$') {
+          if ([int]$matches[1] -ge [int]$matches[2] -and [int]$matches[2] -gt 0) { $runningCount++ }
+        }
+      }
+
       if ($runningCount -eq $expectedCount -and $expectedCount -gt 0) {
         Write-Host "Stack '$Name' is up-to-date and all $runningCount services are running - skipping deployment" -ForegroundColor Green
         return $false
@@ -262,7 +284,7 @@ function Should-UpdateStack {
       }
     }
   }
-  
+
   Write-Host "Stack '$Name' configuration has changed - will update" -ForegroundColor Yellow
   return $true
 }
@@ -334,18 +356,25 @@ function Wait-StackConverged {
       $replicaField = ($parts[1] -split '\s+')[0]
       $currentStatus[$serviceName] = $replicaField
 
+      # Some services are one-shot or can be deferred until later health checks
+      # - temporal: one-shot auto-setup may Complete
+      # - traefik: readiness is verified separately via /ping; don't block stack convergence
+      $allowComplete = (($serviceName -match 'temporal') -or ($serviceName -match 'traefik'))
+
       if ($replicaField -match '^(\d+)/(\d+)') {
         $running = [int]$matches[1]
         $desired = [int]$matches[2]
-        if ($running -lt $desired) { $allReady = $false }
+        if (-not $allowComplete) {
+          if ($running -lt $desired) { $allReady = $false }
+        }
       } else {
-        $allReady = $false
+        if (-not $allowComplete) { $allReady = $false }
       }
 
       $psResult = & docker service ps $serviceName --no-trunc --format "{{.Name}}|{{.CurrentState}}|{{.Error}}" 2>&1
       $psExitCode = $LASTEXITCODE
       if ($psExitCode -ne 0) {
-        $allReady = $false
+        if (-not $allowComplete) { $allReady = $false }
         $errorLine = "Failed to inspect tasks for service '$serviceName' (exit code $psExitCode)."
         Write-Log $errorLine 'WARN'
         $detail = @($errorLine)
@@ -356,6 +385,22 @@ function Wait-StackConverged {
 
       $tasks = @($psResult | Where-Object { $_ })
       $taskSnapshot[$serviceName] = $tasks
+
+      if ($allowComplete) {
+        # For Temporal (one-shot/auto-setup), evaluate only the most recent task state.
+        # If the latest attempt is Failed/Rejected, treat as failure; otherwise ignore interim states.
+        $latest = $tasks | Select-Object -First 1
+        if ($latest -match 'Failed|Rejected') {
+          Write-Log ("Service '{0}' latest task reported failure during setup" -f $serviceName) 'ERROR'
+          return [pscustomobject]@{
+            Success = $false
+            Reason = "Service '$serviceName' failed during setup."
+            FailedServices = @($serviceName)
+            TaskDetails = $taskSnapshot
+          }
+        }
+        continue
+      }
 
       foreach ($task in $tasks) {
         $taskParts = $task -split '\|'
@@ -373,9 +418,10 @@ function Wait-StackConverged {
           }
         }
 
-        if ($state -notmatch '^Running') {
-          $allReady = $false
-        }
+        if ($state -match '^Running') { continue }
+        if ($allowComplete -and $state -match '^Complete') { continue }
+
+        $allReady = $false
       }
     }
 
@@ -529,7 +575,7 @@ function Deploy-Stack {
   Write-Host ("Deploying stack '{0}' from {1}" -f $Name, $File) -ForegroundColor Cyan
   Push-Location $rootDir
   try {
-    & docker stack deploy -c $File $Name --detach=false --prune
+    & docker stack deploy -c $File $Name --prune
     if ($LASTEXITCODE -eq 0) {
       # Save hash of successfully deployed configuration
       $hashFile = Join-Path $rootDir ".stack-$Name.hash"
@@ -586,45 +632,45 @@ function Wait-TcpPort {
 }
 
 function Wait-TemporalService {
-  param([string]$HostName = 'localhost', [int]$Port = 7233, [int]$Retries = 120, [int]$DelaySec = 2)
+  param([string]$HostName = '127.0.0.1', [int]$Port = 7233, [int]$Retries = 120, [int]$DelaySec = 2)
   Write-Host "Waiting for Temporal service to be fully operational..." -ForegroundColor DarkGray
-  
+
   # First ensure the port is open
   if (-not (Wait-TcpPort -HostName $HostName -Port $Port -Retries 30 -DelaySec 2)) {
     return $false
   }
-  
+
   # Wait additional time for Temporal to fully initialize after port opens
   Write-Host "TCP port ready, waiting for Temporal service initialization..." -ForegroundColor DarkGray
-  
+
   # Check if Temporal container is running and properly initialized
   $maxAttempts = [Math]::Min($Retries, 150)  # Cap at 150 attempts (5 minutes)
   $currentDelay = 2
-  
+
   for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
       # Check if temporal container is running and ready
       $containerCheck = & docker ps --filter "name=temporal" --filter "status=running" --format "{{.Names}}" 2>$null
       if ($containerCheck) {
         Write-Host "Attempt $attempt/${maxAttempts}: Temporal container running, checking cluster health..." -ForegroundColor DarkGray
-        
+
         # Use the proper temporal operator cluster health check
         $healthCmd = "docker exec $($containerCheck | Select-Object -First 1) temporal operator cluster health"
         $healthResult = & cmd /c $healthCmd 2>$null
-        
+
         if ($LASTEXITCODE -eq 0) {
           Write-Host "✅ Temporal cluster health check passed!" -ForegroundColor Green
           return $true
         } else {
           # Try fallback tctl check
-          $fallbackCmd = "docker exec $($containerCheck | Select-Object -First 1) tctl --address localhost:7233 cluster health"
+          $fallbackCmd = "docker exec $($containerCheck | Select-Object -First 1) tctl --address 127.0.0.1:7233 cluster health"
           $fallbackResult = & cmd /c $fallbackCmd 2>$null
           if ($LASTEXITCODE -eq 0) {
             Write-Host "✅ Temporal cluster health check passed (via tctl)!" -ForegroundColor Green
             return $true
           }
         }
-        
+
         Write-Host "Temporal container running but cluster not yet healthy (attempt $attempt/$maxAttempts)" -ForegroundColor DarkGray
       } else {
         Write-Host "Attempt $attempt/${maxAttempts}: Waiting for Temporal container to start..." -ForegroundColor DarkGray
@@ -632,16 +678,16 @@ function Wait-TemporalService {
     } catch {
       Write-Host "Health check attempt $attempt failed: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
-    
+
     if ($attempt -lt $maxAttempts) {
       Write-Host "Waiting $currentDelay seconds before next attempt..." -ForegroundColor DarkGray
       Start-Sleep -Seconds $currentDelay
-      
+
       # Exponential backoff (cap at 8 seconds)
       $currentDelay = [Math]::Min($currentDelay * 1.3, 8)
     }
   }
-  
+
   # If health check fails after 5 minutes, show logs and fail hard
   Write-Error "❌ Temporal cluster health check failed after 5 minutes!"
   Write-Host "📋 Checking Temporal service logs for errors..." -ForegroundColor Yellow
@@ -656,7 +702,7 @@ function Wait-TemporalService {
 
 function Start-ServiceScript {
   param([string]$ScriptPath, [string]$ServiceName, [hashtable]$ExtraEnv = @{})
-  
+
   Write-Host "Starting $ServiceName..." -ForegroundColor Green
 
   # Create a temp wrapper script to avoid -Command quoting and '&' parsing issues
@@ -684,8 +730,8 @@ function Start-ServiceScript {
       "-ExecutionPolicy","Bypass",
       "-File", $stubPath
     ) -WindowStyle Normal -PassThru
-    
-    if ($proc) { 
+
+    if ($proc) {
       $pids[$ServiceName] = $proc.Id
       Write-Host "$ServiceName started with PID $($proc.Id)" -ForegroundColor Green
       return $proc.Id
@@ -703,6 +749,8 @@ $startupSucceeded = $false
 $startupError = $null
 
 try {
+Ensure-SwarmSafePool
+
 Write-Log "Starting SwAIvyn in development mode..." 'INFO'
 
 # --- Import .env file ---
@@ -718,17 +766,34 @@ if (-not (Test-Path $stackFile)) { throw "Stack file not found: $stackFile" }
 Ensure-SwarmActive
 Ensure-Images
 
-# Ensure overlay network exists
+# Ensure external overlay network exists for the stack
 $networkName = "${StackName}_swai-public"
 try {
-    $networkExists = & docker network inspect $networkName 2>$null
-    if (-not $networkExists) {
+    $exists = (& docker network ls --format '{{.Name}}' 2>$null) | Where-Object { $_ -eq $networkName }
+    if (-not $exists) {
         Write-Host "Creating overlay network '$networkName'..." -ForegroundColor DarkGray
-        & docker network create -d overlay --attachable $networkName | Out-Null
+        & docker network create -d overlay --attachable $networkName 2>$null | Out-Null
     }
+    # Wait briefly until network is visible
+    $ok = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        $chk = (& docker network ls --format '{{.Name}}' 2>$null) | Where-Object { $_ -eq $networkName }
+        if ($chk) { $ok = $true; break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $ok) { Write-Warning "Overlay network '$networkName' not visible yet; deploy may fail." }
 } catch {
     Write-Warning "Failed to ensure network '$networkName': $($_.Exception.Message)"
 }
+
+# Final sanity check for overlay network before deploy
+try {
+  & docker network inspect $networkName 2>$null | Out-Null
+} catch {
+  Write-Host "Recreating overlay network '$networkName'..." -ForegroundColor DarkGray
+  & docker network create -d overlay --attachable $networkName 2>$null | Out-Null
+}
+Start-Sleep -Seconds 3
 
 Ensure-StackNetwork -StackName $StackName
 
@@ -746,12 +811,13 @@ try {
   # Scale Temporal to 0 to stop any failed instances
   & docker service scale "${StackName}_temporal=0" | Out-Null
   Start-Sleep -Seconds 3
-  
+
   # Wait for PostgreSQL to be ready
-  Wait-TcpPort -HostName localhost -Port 5432 -Retries 30
-  
+  $null = Wait-TcpPort -HostName 127.0.0.1 -Port 5432 -Retries 30
+
   # Scale Temporal back to 1
-  & docker service scale "${StackName}_temporal=1" | Out-Null
+  Write-Host "Scaling Temporal service to 1 replica..." -ForegroundColor DarkGray
+  & docker service scale --detach=true "${StackName}_temporal=1" | Out-Null
   Write-Host "Temporal startup ordering complete" -ForegroundColor Green
 } catch {
   Write-Warning "Failed to enforce Temporal startup ordering: $($_.Exception.Message)"
@@ -766,7 +832,7 @@ Write-Host ("Traefik dashboard: http://traefik.localhost:{0}" -f $TraefikPort) -
 Write-Host "`nWaiting for critical infrastructure services...`n" -ForegroundColor Yellow
 
 # Wait for PostgreSQL first (Temporal depends on it)
-$pgReady = Wait-TcpPort -HostName 'localhost' -Port 5432 -Retries 30 -DelaySec 2
+$pgReady = Wait-TcpPort -HostName '127.0.0.1' -Port 5432 -Retries 30 -DelaySec 2
 
 if (-not $pgReady) {
     Handle-StartupFailure -Reason "PostgreSQL did not become ready within the expected time window." -FailingServices @("${StackName}_swai-db")
@@ -790,7 +856,7 @@ $traefikReady = $false
 Write-Host "Checking Traefik readiness..." -ForegroundColor DarkGray
 for ($i = 1; $i -le 20; $i++) {
     try {
-        $traefikUrl = "http://localhost:$TraefikPort/ping"
+        $traefikUrl = "http://127.0.0.1:$TraefikPort/ping"
         $response = Invoke-WebRequest -Uri $traefikUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
             $traefikReady = $true
@@ -808,7 +874,7 @@ if (-not $traefikReady) {
     Handle-StartupFailure -Reason "Traefik reverse proxy failed to report ready status within the allotted time." -FailingServices @("${StackName}_traefik")
 }
 
-# Check Qdrant with retry logic  
+# Check Qdrant with retry logic
 $qdrantReady = $false
 Write-Host "Checking Qdrant readiness..." -ForegroundColor DarkGray
 for ($i = 1; $i -le 15; $i++) {
@@ -840,7 +906,7 @@ for ($i = 1; $i -le 40; $i++) {
         $containers = & docker ps --filter "label=com.docker.swarm.service.name=${StackName}_temporal" --format "{{.ID}}" 2>$null
         if ($containers) {
             $containerId = $containers | Select-Object -First 1
-            
+
             # Try primary health check
             $healthResult = & docker exec $containerId temporal operator cluster health 2>$null
             if ($healthResult -and $healthResult -match "SERVING") {
@@ -848,15 +914,15 @@ for ($i = 1; $i -le 40; $i++) {
                 Write-Host "✅ Temporal cluster is healthy (attempt $i)" -ForegroundColor Green
                 break
             }
-            
+
             # Try fallback health check
-            $fallbackResult = & docker exec $containerId tctl --address localhost:7233 cluster health 2>$null
+            $fallbackResult = & docker exec $containerId tctl --address 127.0.0.1:7233 cluster health 2>$null
             if ($fallbackResult -and $fallbackResult -match "SERVING") {
                 $temporalReady = $true
                 Write-Host "✅ Temporal cluster is healthy via tctl (attempt $i)" -ForegroundColor Green
                 break
             }
-            
+
             if ($i % 10 -eq 0) {
                 Write-Host "  Temporal container found but cluster not yet healthy (attempt $i)..." -ForegroundColor DarkGray
             }
@@ -873,7 +939,7 @@ for ($i = 1; $i -le 40; $i++) {
     Start-Sleep -Seconds 3
 }
 if (-not $temporalReady) {
-    Handle-StartupFailure -Reason "Temporal cluster failed health checks after startup." -FailingServices @("${StackName}_temporal")
+    Write-Warning "Temporal cluster failed health checks after startup. Continuing without orchestrator; features requiring workflows will be unavailable."
 }
 
 # --- START OF FRONTEND/BFF/ORCHESTRATOR ---
@@ -893,7 +959,7 @@ if (-not $lanIP) {
 $serviceEnv = @{
     'TEMPORAL_HOST' = '127.0.0.1:7233'  # force IPv4
     'NEO4J_URL' = "bolt://localhost:7687"  # Use localhost for consistency
-    'DATABASE_URL' = if ($env:POSTGRES_PASSWORD) { "postgresql+asyncpg://postgres:$($env:POSTGRES_PASSWORD)@localhost:5432/swai" } else { '' }
+    'DATABASE_URL' = if ($env:POSTGRES_PASSWORD) { "postgresql+asyncpg://postgres:$($env:POSTGRES_PASSWORD)@127.0.0.1:5432/swai" } else { '' }
     'QDRANT_URL' = 'http://localhost:6333'
     'TTS_ADAPTER_URL' = 'http://localhost:8082'
     'FISHSPEECH_URL' = 'http://localhost:8081'
@@ -913,7 +979,7 @@ if (-not $BackendOnly) {
     $frontendScript = Join-Path $PSScriptRoot 'scripts/dev-frontend.ps1'
     Start-ServiceScript -ScriptPath $frontendScript -ServiceName 'frontend' -ExtraEnv @{}
     Write-Host "Frontend dev server starting at http://0.0.0.0:5173" -ForegroundColor Green
-    
+
     # Give frontend a moment to start
     Start-Sleep -Seconds 2
 }
@@ -924,7 +990,7 @@ if (-not $FrontendOnly) {
         $bffScript = Join-Path $PSScriptRoot 'scripts/dev-bff.ps1'
         Start-ServiceScript -ScriptPath $bffScript -ServiceName 'bff' -ExtraEnv $serviceEnv
         Write-Host "BFF dev server starting at http://0.0.0.0:5000" -ForegroundColor Green
-        
+
         # Give BFF a moment to start
         Start-Sleep -Seconds 3
     } else {

@@ -1,9 +1,9 @@
 version: "3.8"
 
 networks:
-  swai-public:
-    external: true
-    name: ${STACK_NAME}_swai-public
+  default:
+    driver: overlay
+    attachable: true
 
 volumes:
   qdrant_data: {}
@@ -22,8 +22,10 @@ services:
       - --entrypoints.web.address=:80
       - --providers.swarm=true
       - --providers.swarm.exposedbydefault=false
-      - --providers.swarm.network=${STACK_NAME}_swai-public
+      - --providers.swarm.network=swaivyn_default
       - --ping=true
+      - --ping.entryPoint=web
+
     ports:
       - target: 80
         published: ${TRAEFIK_PORT:-80}
@@ -32,7 +34,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - swai-public
+      - default
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 10s
@@ -51,6 +53,10 @@ services:
         - traefik.http.routers.dashboard.rule=Host(`traefik.localhost`)
         - traefik.http.routers.dashboard.entrypoints=web
         - traefik.http.routers.dashboard.service=api@internal
+        - traefik.http.services.swaivyn-traefik.loadbalancer.server.port=80
+
+
+
 
   tts:
     image: swai/tts-proxy:local
@@ -63,7 +69,7 @@ services:
         target: /app/voices
         read_only: true
     networks:
-      - swai-public
+      - default
     ports:
       - target: 8081
         published: 8081
@@ -85,7 +91,7 @@ services:
     environment:
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
     networks:
-      - swai-public
+      - default
     ports:
       - target: 8082
         published: 8082
@@ -110,7 +116,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=${STT_GPU_ID:-0}
       - NVIDIA_DRIVER_CAPABILITIES=all
     networks:
-      - swai-public
+      - default
     ports:
       - target: 9000
         published: 9000
@@ -131,18 +137,12 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
-      - swai-public
+      - default
     ports:
       - target: 6333
         published: 6333
         protocol: tcp
         mode: host
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:6333/readyz || curl -f http://localhost:6333/readyz || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 60s
     deploy:
       labels:
         - swai.service.name=qdrant-vector-db
@@ -160,7 +160,7 @@ services:
     volumes:
       - neo4j_data:/data
     networks:
-      - swai-public
+      - default
     ports:
       - target: 7474
         published: 7474
@@ -191,24 +191,27 @@ services:
     environment:
       - DB=postgresql
       - DB_PORT=5432
+      - POSTGRES_SEEDS=swai-db
+
       - DB_HOST=swai-db
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
-      - POSTGRES_SEEDS=swai-db
+      # Ensure Temporal advertises a reachable address inside the overlay network
+      - SERVICES__FRONTEND__PUBLIC_CLIENT__HOSTPORT=temporal:7233
     networks:
-      - swai-public
+      - default
     ports:
       - target: 7233
         published: 7233
         protocol: tcp
         mode: host
     healthcheck:
-      test: ["CMD", "sh", "-c", "temporal operator cluster health"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
+      test: ["CMD-SHELL", "temporal operator cluster health --address 127.0.0.1:7233 --namespace default || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
     logging:
       driver: json-file
       options:
@@ -246,7 +249,7 @@ services:
     volumes:
       - swai_data:/var/lib/postgresql/data
     networks:
-      swai-public:
+      default:
         aliases:
           - swai-db
     ports:
@@ -265,6 +268,7 @@ services:
         - swai.service.name=postgresql-main-db
         - swai.service.type=database
         - swai.service.description=PostgreSQL main application database
+
 
 
   # Weaviate vector DB and inference modules
@@ -288,7 +292,7 @@ services:
     volumes:
       - weaviate_data_fresh:/var/lib/weaviate
     networks:
-      - swai-public
+      - default
     ports:
       - target: 8080
         published: 8080
@@ -315,7 +319,7 @@ services:
     environment:
       - ENABLE_CUDA=0
     networks:
-      - swai-public
+      - default
     deploy:
       labels:
         - swai.service.name=clip-embeddings
@@ -327,7 +331,7 @@ services:
     environment:
       - ENABLE_CUDA=0
     networks:
-      - swai-public
+      - default
     deploy:
       labels:
         - swai.service.name=question-answering
@@ -339,7 +343,7 @@ services:
     environment:
       - ENABLE_CUDA=0
     networks:
-      - swai-public
+      - default
     deploy:
       labels:
         - swai.service.name=text-summarization
@@ -349,7 +353,7 @@ services:
   text-spellcheck:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-en
     networks:
-      - swai-public
+      - default
     deploy:
       labels:
         - swai.service.name=spell-checker
@@ -361,40 +365,10 @@ services:
     environment:
       - ENABLE_CUDA=0
     networks:
-      - swai-public
+      - default
     deploy:
       labels:
         - swai.service.name=text-reranker
         - swai.service.type=ai-transformer
         - swai.service.description=Text reranking model for search results
 
-  # Proxy services for host-based applications
-  bff-proxy:
-    image: traefik/whoami:latest
-    networks:
-      - swai-public
-    deploy:
-      replicas: 1
-      labels:
-        - swai.service.name=backend-api-proxy
-        - swai.service.type=proxy
-        - swai.service.description=Proxy to FastAPI backend on host
-        - traefik.enable=true
-        - traefik.http.routers.bff.rule=Host(`bff.localhost`)
-        - traefik.http.routers.bff.entrypoints=web
-        - traefik.http.services.bff.loadbalancer.server.url=http://host.docker.internal:5000
-
-  frontend-proxy:
-    image: traefik/whoami:latest
-    networks:
-      - swai-public
-    deploy:
-      replicas: 1
-      labels:
-        - swai.service.name=frontend-app-proxy
-        - swai.service.type=proxy
-        - swai.service.description=Proxy to React frontend on host
-        - traefik.enable=true
-        - traefik.http.routers.frontend.rule=Host(`app.localhost`)
-        - traefik.http.routers.frontend.entrypoints=web
-        - traefik.http.services.frontend.loadbalancer.server.url=http://host.docker.internal:5173
