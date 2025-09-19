@@ -91,7 +91,7 @@ Ensure-Venv
 Install-RequirementsIfNeeded
 
 # Env wiring
-if (-not $env:TEMPORAL_HOST) { $env:TEMPORAL_HOST = 'localhost:7233' }
+if (-not $env:TEMPORAL_HOST) { $env:TEMPORAL_HOST = '127.0.0.1:7233' }
 $env:ACTIVITY_THREADS = "$ActivityThreads"
 if (-not $env:TTS_ADAPTER_URL) { $env:TTS_ADAPTER_URL = 'http://localhost:8082' }
 # Optional local tts fallback

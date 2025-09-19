@@ -15,8 +15,11 @@ def create_engine() -> Optional[AsyncEngine]:
     # Convert postgresql:// to postgresql+asyncpg:// for async support
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://")
-    # Remove sslmode parameter for asyncpg compatibility
+    # Remove sslmode parameter for asyncpg compatibility (we don't use SSL in dev)
     if "sslmode=" in url:
         url = url.replace("?sslmode=require", "").replace("&sslmode=require", "")
-    return create_async_engine(url, echo=False, future=True, connect_args={"ssl": "require"})
+    # Disable SSL by default for local/dev Postgres; enable only if explicitly asked via DB_SSL=true
+    use_ssl = os.getenv("DB_SSL", "false").lower() in ("1","true","yes")
+    connect_args = {"ssl": True} if use_ssl else {}
+    return create_async_engine(url, echo=False, future=True, connect_args=connect_args)
 

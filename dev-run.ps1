@@ -805,23 +805,8 @@ if (-not $stackConvergence.Success) {
     Handle-StartupFailure -Reason $stackConvergence.Reason -FailingServices $stackConvergence.FailedServices -TaskDetails $stackConvergence.TaskDetails
 }
 
-# --- Enforce Temporal Startup Ordering ---
-Write-Host "Ensuring Temporal starts after PostgreSQL..." -ForegroundColor DarkGray
-try {
-  # Scale Temporal to 0 to stop any failed instances
-  & docker service scale "${StackName}_temporal=0" | Out-Null
-  Start-Sleep -Seconds 3
-
-  # Wait for PostgreSQL to be ready
-  $null = Wait-TcpPort -HostName 127.0.0.1 -Port 5432 -Retries 30
-
-  # Scale Temporal back to 1
-  Write-Host "Scaling Temporal service to 1 replica..." -ForegroundColor DarkGray
-  & docker service scale --detach=true "${StackName}_temporal=1" | Out-Null
-  Write-Host "Temporal startup ordering complete" -ForegroundColor Green
-} catch {
-  Write-Warning "Failed to enforce Temporal startup ordering: $($_.Exception.Message)"
-}
+# --- Temporal Startup ---
+# Startup ordering is handled by health checks now; do not scale Temporal here to avoid interruption.
 
 Write-Host ("Waiting on TTS via Traefik (http://tts.localhost:{0}/health)..." -f $TraefikPort) -ForegroundColor DarkGray
 if (Wait-Health -HostName 'tts.localhost') { Write-Host 'TTS ready.' -ForegroundColor Green } else { Write-Warning 'TTS did not report healthy in time.' }
@@ -846,6 +831,19 @@ if (-not $env:POSTGRES_PASSWORD) {
     Write-Host "Please ensure your .env file contains POSTGRES_PASSWORD=<your-password>" -ForegroundColor Yellow
 } else {
     Write-Host "✅ POSTGRES_PASSWORD is set" -ForegroundColor Green
+}
+
+# Bootstrap Temporal DB schema (idempotent; handled via scripts/setup.ps1)
+$setupScript = Join-Path $PSScriptRoot 'scripts\setup.ps1'
+if (Test-Path $setupScript) {
+  . $setupScript
+  try {
+    Setup-TemporalSchema -StackName $StackName
+  } catch {
+    Write-Warning ("Temporal schema bootstrap failed: {0}" -f $_.Exception.Message)
+  }
+} else {
+  Write-Host "scripts/setup.ps1 not found; skipping Temporal schema bootstrap." -ForegroundColor DarkGray
 }
 
 # Wait for critical infrastructure services with endpoint polling
@@ -897,39 +895,21 @@ if (-not $qdrantReady) {
     Handle-StartupFailure -Reason "Qdrant vector database did not become ready in time." -FailingServices @("${StackName}_qdrant")
 }
 
-# Enhanced Temporal check with retry and unified approach
+# Enhanced Temporal check using admin-tools (works with temporalio/server)
 $temporalReady = $false
 Write-Host "Checking Temporal cluster health..." -ForegroundColor DarkGray
-for ($i = 1; $i -le 40; $i++) {
+for ($i = 1; $i -le 100; $i++) {
     try {
-        # Find Temporal container using proper Swarm service label
-        $containers = & docker ps --filter "label=com.docker.swarm.service.name=${StackName}_temporal" --format "{{.ID}}" 2>$null
-        if ($containers) {
-            $containerId = $containers | Select-Object -First 1
-
-            # Try primary health check
-            $healthResult = & docker exec $containerId temporal operator cluster health 2>$null
-            if ($healthResult -and $healthResult -match "SERVING") {
-                $temporalReady = $true
-                Write-Host "✅ Temporal cluster is healthy (attempt $i)" -ForegroundColor Green
-                break
-            }
-
-            # Try fallback health check
-            $fallbackResult = & docker exec $containerId tctl --address 127.0.0.1:7233 cluster health 2>$null
-            if ($fallbackResult -and $fallbackResult -match "SERVING") {
-                $temporalReady = $true
-                Write-Host "✅ Temporal cluster is healthy via tctl (attempt $i)" -ForegroundColor Green
-                break
-            }
-
-            if ($i % 10 -eq 0) {
-                Write-Host "  Temporal container found but cluster not yet healthy (attempt $i)..." -ForegroundColor DarkGray
-            }
-        } else {
-            if ($i % 8 -eq 0) {
-                Write-Host "  Waiting for Temporal container to start (attempt $i)..." -ForegroundColor DarkGray
-            }
+        # Use admin-tools container to check health over the stack network
+        $dockerArgs = @('run','--rm','--network',"${StackName}_default",'temporalio/admin-tools:1.23','temporal','operator','cluster','health','--address','temporal:7233')
+        $healthResult = & docker @dockerArgs 2>$null
+        if ($LASTEXITCODE -eq 0 -and $healthResult -match 'SERVING') {
+            $temporalReady = $true
+            Write-Host "✅ Temporal cluster is healthy (attempt $i)" -ForegroundColor Green
+            break
+        }
+        if ($i % 10 -eq 0) {
+            Write-Host "  Temporal not yet healthy (attempt $i)..." -ForegroundColor DarkGray
         }
     } catch {
         if ($i % 15 -eq 0) {
@@ -986,6 +966,7 @@ if (-not $BackendOnly) {
 
 if (-not $FrontendOnly) {
     # --- Start BFF ---
+
     if ($pgReady) {
         $bffScript = Join-Path $PSScriptRoot 'scripts/dev-bff.ps1'
         Start-ServiceScript -ScriptPath $bffScript -ServiceName 'bff' -ExtraEnv $serviceEnv
@@ -1004,6 +985,17 @@ if (-not $FrontendOnly) {
         Write-Host "Orchestrator worker started" -ForegroundColor Green
     } else {
         Write-Warning "Skipping Orchestrator startup due to Temporal not being ready."
+    }
+}
+
+if ($temporalReady) {
+    # Ensure Temporal default namespace exists (idempotent)
+    try {
+        $nsArgs = @('run','--rm','--network',"${StackName}_default",'temporalio/admin-tools:1.23','bash','-lc',
+            "temporal operator namespace describe --namespace default --address temporal:7233 || temporal operator namespace create --namespace default --address temporal:7233 --retention 3d --yes")
+        & docker @nsArgs | Out-Null
+    } catch {
+        Write-Warning ("Failed to ensure Temporal default namespace: {0}" -f $_.Exception.Message)
     }
 }
 

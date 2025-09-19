@@ -187,16 +187,17 @@ services:
         - traefik.http.services.neo4j.loadbalancer.server.port=7474
 
   temporal:
-    image: temporalio/auto-setup:1.23
+    image: temporalio/server:1.23
     environment:
       - DB=postgresql
       - DB_PORT=5432
       - POSTGRES_SEEDS=swai-db
-
       - DB_HOST=swai-db
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
+      - DBNAME=temporal
+      - VISIBILITY_DBNAME=temporal_visibility
       # Ensure Temporal advertises a reachable address inside the overlay network
       - SERVICES__FRONTEND__PUBLIC_CLIENT__HOSTPORT=temporal:7233
     networks:
@@ -206,12 +207,6 @@ services:
         published: 7233
         protocol: tcp
         mode: host
-    healthcheck:
-      test: ["CMD-SHELL", "temporal operator cluster health --address 127.0.0.1:7233 --namespace default || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 120s
     logging:
       driver: json-file
       options:
@@ -224,9 +219,8 @@ services:
         parallelism: 1
         failure_action: rollback
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
-        max_attempts: 3
         window: 1m
       placement:
         constraints:
