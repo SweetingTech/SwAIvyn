@@ -6,7 +6,7 @@ import React, {
   FormEvent
 } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff, X, MessageSquare, Settings } from 'lucide-react';
+import { Send, Paperclip, Camera, Mic, Plus, Volume2, VolumeX, MicOff, X, MessageSquare, Settings, PlayCircle, StopCircle } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import ChatMessage from '../components/chat/ChatMessage';
@@ -14,10 +14,12 @@ import ChatSidebar from '../components/chat/ChatSidebar';
 import CharacterSelector from '../components/chat/CharacterSelector';
 import VoiceSelector from '../components/chat/VoiceSelector';
 import BrainExplorer from '../components/BrainExplorer';
+import FileManager from '../components/chat/FileManager';
 
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import apiService from '../services/apiService';
+import ttsService from '../services/ttsService';
 import { Message } from '../types/chat';
 import {
   parseChatUrl,
@@ -26,7 +28,6 @@ import {
 } from '../utils/chatUrls';
 import { useInitialization } from '../contexts/InitializationContext';
 import useEffectiveUser from '../hooks/useEffectiveUser';
-import { transcribeAudio } from '../services/sttService';
 
 /* -------------------------------------------------------------------------- */
 /*  Helper types                                                              */
@@ -92,6 +93,8 @@ const ChatPage: React.FC = () => {
   const [engineModels, setEngineModels] = useState<Record<string, string>>({});
   const [connections, setConnections] = useState<{ OllamaApiUrl?: string; LmStudioApiUrl?: string; VllmApiUrl?: string }>({});
   const [notice, setNotice] = useState<string>('');
+  const [isUniversalTtsPlaying, setIsUniversalTtsPlaying] = useState(false);
+  const universalAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement|null>(null);
 
   // Voice interaction toggles
@@ -103,9 +106,6 @@ const ChatPage: React.FC = () => {
     const stored = localStorage.getItem('stt_enabled');
     return stored === 'true';
   });
-  const [isRecording, setIsRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const recordingChunks = useRef<Blob[]>([]);
 
   // Mobile responsive state
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
@@ -687,7 +687,107 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  /* Voice recording functions removed - moved to settings */
+  /* ---------------------------------------------------------------------- */
+  /*  Universal TTS functionality                                           */
+  /* ---------------------------------------------------------------------- */
+
+  const handleUniversalTts = async () => {
+    if (!effectiveUserId) {
+      setNotice('Please log in to use TTS');
+      setTimeout(() => setNotice(''), 2500);
+      return;
+    }
+
+    // Stop current playback if playing
+    if (isUniversalTtsPlaying && universalAudioRef.current) {
+      universalAudioRef.current.pause();
+      URL.revokeObjectURL(universalAudioRef.current.src);
+      universalAudioRef.current = null;
+      setIsUniversalTtsPlaying(false);
+      console.log('🔊 Universal TTS: Stopped by user');
+      return;
+    }
+
+    // Check if TTS is enabled
+    if (!ttsEnabled) {
+      setNotice('Enable TTS to use this feature');
+      setTimeout(() => setNotice(''), 2500);
+      return;
+    }
+
+    setIsUniversalTtsPlaying(true);
+    
+    try {
+      // Collect all AI messages text with length limit
+      const aiMessages = messages.filter(m => m.sender === 'ai');
+      
+      if (aiMessages.length === 0) {
+        setNotice('No AI messages to read');
+        setTimeout(() => setNotice(''), 2500);
+        setIsUniversalTtsPlaying(false);
+        return;
+      }
+
+      // Limit total text length to prevent TTS provider limits (e.g., 4000 chars)
+      const MAX_TTS_LENGTH = 3000;
+      let allText = '';
+      
+      for (const msg of aiMessages) {
+        const nextText = allText + (allText ? ' ... ' : '') + msg.text;
+        if (nextText.length > MAX_TTS_LENGTH) break;
+        allText = nextText;
+      }
+      
+      if (!allText.trim()) {
+        setNotice('No text to synthesize');
+        setTimeout(() => setNotice(''), 2500);
+        setIsUniversalTtsPlaying(false);
+        return;
+      }
+
+      console.log('🔊 Universal TTS: Synthesizing text (length:', allText.length, ')');
+      
+      // Use TTS service to synthesize text
+      const audioBlob = await ttsService.synthesize(allText, effectiveUserId, ttsVoiceId || undefined);
+      
+      if (audioBlob && audioBlob.size > 0) {
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        universalAudioRef.current = audio;
+        
+        const cleanup = () => {
+          setIsUniversalTtsPlaying(false);
+          URL.revokeObjectURL(audioUrl);
+          universalAudioRef.current = null;
+        };
+        
+        audio.onended = () => {
+          cleanup();
+          console.log('🔊 Universal TTS: Playback ended');
+        };
+        
+        audio.onerror = (e) => {
+          console.error('🔊 Universal TTS: Playback error:', e);
+          cleanup();
+          setNotice('Audio playback failed');
+          setTimeout(() => setNotice(''), 2500);
+        };
+        
+        await audio.play();
+        console.log('🔊 Universal TTS: Started playing');
+      } else {
+        console.error('🔊 Universal TTS: Empty audio blob');
+        setIsUniversalTtsPlaying(false);
+        setNotice('TTS synthesis failed');
+        setTimeout(() => setNotice(''), 2500);
+      }
+    } catch (error) {
+      console.error('🔊 Universal TTS: Error:', error);
+      setIsUniversalTtsPlaying(false);
+      setNotice('TTS failed');
+      setTimeout(() => setNotice(''), 2500);
+    }
+  };
 
   /* ---------------------------------------------------------------------- */
   /*  Handle "remember this" command                                        */
@@ -1015,6 +1115,24 @@ const ChatPage: React.FC = () => {
                 >
                   <Plus size={20} />
                 </button>
+                
+                {/* Universal TTS Button */}
+                <button
+                  onClick={handleUniversalTts}
+                  disabled={isLoading || messages.filter(m => m.sender === 'ai').length === 0}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isUniversalTtsPlaying
+                      ? 'text-red-600 hover:text-red-700 bg-red-50'
+                      : 'text-purple-600 hover:text-purple-700 hover:bg-purple-50'
+                  }`}
+                  title={isUniversalTtsPlaying ? 'Stop reading all messages' : 'Read all AI messages aloud'}
+                >
+                  {isUniversalTtsPlaying ? (
+                    <StopCircle size={20} />
+                  ) : (
+                    <PlayCircle size={20} />
+                  )}
+                </button>
               </div>
             </div>
 
@@ -1274,41 +1392,41 @@ const ChatPage: React.FC = () => {
             <BrainExplorer />
 
             <div className="p-4 space-y-4">
-              {/* File Management UI will go here */}
-              <div>
-                <h3 className="text-sm font-medium">Files</h3>
-                <p className="text-sm text-gray-500">
-                  Uploaded files and embeddings
-                </p>
-                {/* File management component will be added here */}
-                <div className="mt-2 text-sm text-gray-400">
-                  Use the paperclip button in chat to upload files
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={async (e) => {
-                    if (!e.target.files || !currentConversation.id) return;
-                    const form = new FormData();
-                    Array.from(e.target.files).forEach((f) => form.append('files', f));
-                    form.append('conversationId', currentConversation.id);
-                    try {
-                      const resp = await fetch('/api/upload/files', { method: 'POST', body: form, headers: eff.headers });
-                      if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
-                      setNotice('Files uploaded and processing started');
-                      setTimeout(() => setNotice(''), 2500);
-                    } catch (upErr) {
-                      console.error('Upload error:', upErr);
-                      setNotice('Upload failed');
-                      setTimeout(() => setNotice(''), 2500);
-                    } finally {
-                      e.target.value = '';
-                    }
-                  }}
-                />
-              </div>
+              <FileManager 
+                conversationId={currentConversation.id || ''}
+                onFileDeleted={() => {
+                  // Refresh file list or handle file deletion
+                  setNotice('File deleted');
+                  setTimeout(() => setNotice(''), 2500);
+                }}
+              />
+              
+              {/* Hidden file input for upload */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={async (e) => {
+                  if (!e.target.files || !currentConversation.id) return;
+                  const form = new FormData();
+                  Array.from(e.target.files).forEach((f) => form.append('files', f));
+                  form.append('conversationId', currentConversation.id);
+                  try {
+                    const resp = await fetch('/api/upload/files', { method: 'POST', body: form, headers: eff.headers });
+                    if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+                    setNotice('Files uploaded and processing started');
+                    setTimeout(() => setNotice(''), 2500);
+                    // Trigger FileManager refresh by updating a state or calling a refresh method
+                  } catch (upErr) {
+                    console.error('Upload error:', upErr);
+                    setNotice('Upload failed');
+                    setTimeout(() => setNotice(''), 2500);
+                  } finally {
+                    e.target.value = '';
+                  }
+                }}
+              />
             </div>
           </div>
         </div>
@@ -1337,17 +1455,14 @@ const ChatPage: React.FC = () => {
                 <BrainExplorer />
 
                 <div className="p-4 space-y-4">
-                  {/* File Management UI will go here */}
-                  <div>
-                    <h3 className="text-sm font-medium">Files</h3>
-                    <p className="text-sm text-gray-500">
-                      Uploaded files and embeddings
-                    </p>
-                    {/* File management component will be added here */}
-                    <div className="mt-2 text-sm text-gray-400">
-                      Use the paperclip button in chat to upload files
-                    </div>
-                  </div>
+                  <FileManager 
+                    conversationId={currentConversation.id || ''}
+                    onFileDeleted={() => {
+                      // Refresh file list or handle file deletion
+                      setNotice('File deleted');
+                      setTimeout(() => setNotice(''), 2500);
+                    }}
+                  />
                 </div>
               </div>
             </div>
