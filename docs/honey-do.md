@@ -17,16 +17,15 @@
   - `frontend/src/components/chat/ChatInput.tsx:11` - comment mentions "integration with SignalR chat hub"
 - **Verified**: `ChatPage.tsx` does NOT import or use `useChatHub` - uses REST API calls instead
 
-### 2. **React Router Future Flag Warnings**
+### 2. **React Router Future Flag Warnings** ✅ **COMPLETED**
 - **Issue**: Browser console shows warnings about React Router v7 migration flags
 - **Impact**: Deprecation warnings indicate code will break in future React Router versions
-- **Fix**: Add future flags to router configuration or update React Router to v7
-- **Locations**: 
-  - Browser console logs show warnings at runtime
-  - Router configuration likely in `frontend/src/App.tsx` or routing setup files
-- **Warning Messages**:
-  - `v7_startTransition` - State updates will be wrapped in React.startTransition 
-  - `v7_relativeSplatPath` - Relative route resolution changes in Splat routes
+- **Fix**: ✅ **DONE** - Added future flags to BrowserRouter in `frontend/src/main.tsx`
+- **Resolution**: Added `v7_startTransition: true` and `v7_relativeSplatPath: true` to BrowserRouter future config
+- **Status**: Warnings eliminated, React Router v7 compatibility enabled
+- **Warning Messages**: **RESOLVED**
+  - ✅ `v7_startTransition` - State updates will be wrapped in React.startTransition 
+  - ✅ `v7_relativeSplatPath` - Relative route resolution changes in Splat routes
 
 ### 3. **Inconsistent Authentication Pattern Usage** 
 - **Issue**: Mix of `useEffectiveUser()` hook and direct API calls across components
@@ -165,15 +164,23 @@
 - **Fix**: Audit React components for performance issues
 - **Tools**: Use React DevTools Profiler, implement memoization where appropriate
 
-### 18. **File Upload Features Need Documentation**
-- **Issue**: Chat page has extensive file upload functionality that's not well documented
-- **Status**: **ACTUALLY IMPLEMENTED** - Upload features exist but may need documentation
-- **Locations**: 
-  - `frontend/src/pages/ChatPage.tsx:95` - `fileInputRef` for file input handling
-  - `frontend/src/pages/ChatPage.tsx:1299,1354,1388,1395,1477,1485` - Multiple upload buttons with Paperclip icons
-  - `frontend/src/pages/ChatPage.tsx:1404-1414` - File upload handling with FormData to `/api/upload/files`
-  - `frontend/src/pages/ChatPage.tsx:1386,1473` - Drag and drop zones in UI
-- **Fix**: Document the upload workflow and ensure backend `/api/upload/files` endpoint is properly implemented
+### 18. **File Upload Features and Management** ✅ **COMPLETED**
+- **Issue**: Chat page had redundant upload buttons and lacked file management UI
+- **Status**: ✅ **FULLY IMPLEMENTED** - Complete file management system with Weaviate integration
+- **Completed Work**:
+  - ✅ **Upload Button Consolidation**: Reduced from 6 redundant upload buttons to 1 main button in chat composer
+  - ✅ **FileManager Component**: Created comprehensive file management UI with:
+    - File listing with metadata (size, upload date, embedding status)
+    - File deletion with confirmation
+    - Weaviate embedding search functionality
+    - Visual indicators for embedded files
+    - Search interface for file contents
+  - ✅ **Weaviate Integration**: Embedding search calls `/api/embeddings/search` endpoint
+  - ✅ **Resource Management**: Proper file upload handling and cleanup
+- **New Locations**:
+  - `frontend/src/components/chat/FileManager.tsx` - Complete file management component
+  - `frontend/src/pages/ChatPage.tsx` - Integrated FileManager in right sidebar
+  - Single upload button with proper FormData handling to `/api/upload/files`
 
 ### 19. **Missing Loading States**
 - **Issue**: Some API calls don't show loading indicators
@@ -235,13 +242,37 @@
 - **Fix**: Create CONTRIBUTING.md with development workflow and coding standards
 - **Include**: Setup instructions, coding standards, testing guidelines
 
+### 27. **ChatPage Code Redundancy and UI Cleanup** ✅ **COMPLETED**
+- **Issue**: ChatPage had significant redundant code patterns and broken/misleading UI elements
+- **Impact**: Confusing UX with 6 upload buttons, 3 broken camera buttons, inconsistent voice recording
+- **Status**: ✅ **MAJOR CLEANUP COMPLETED** - Comprehensive ChatPage refactoring
+- **Completed Work**:
+  - ✅ **Upload Button Consolidation**: Removed 5 redundant upload buttons → 1 main button
+  - ✅ **Camera Button Cleanup**: Removed 3 duplicate camera buttons → 1 disabled button marked "coming soon"
+  - ✅ **Voice Recording Cleanup**: Removed MediaRecorder functionality from chat interface (preserved STT/TTS controls)
+  - ✅ **Universal TTS Implementation**: Added play button to read all AI messages with proper audio control and resource management
+  - ✅ **TTS System Enhancement**: Preserved individual play buttons, added chat bar toggle integration
+  - ✅ **Code Quality**: Fixed all LSP errors, removed unused imports, proper resource cleanup
+  - ✅ **Text Length Limits**: Added 3000-char limit to prevent TTS provider failures
+  - ✅ **Memory Leak Prevention**: Proper Audio instance management and URL cleanup
+- **Technical Improvements**:
+  - Proper audio control with start/stop functionality
+  - Resource management prevents memory leaks
+  - TTS respects chat bar toggle settings
+  - Clean separation of concerns
+- **Files Modified**:
+  - `frontend/src/pages/ChatPage.tsx` - Major refactoring and cleanup
+  - `frontend/src/components/chat/FileManager.tsx` - New file management component
+  - `frontend/src/main.tsx` - Added React Router future flags
+- **Result**: ChatPage is now much cleaner, more functional, and properly organized
+
 ---
 
 ## 📝 **Action Priority Matrix**
 
 ### **Fix This Week**
 1. ~~Remove SignalR dead code (#1)~~ - **LOW PRIORITY** - Not used in main chat, safe dead code
-2. Fix React Router warnings (#2) - Add future flags to router config
+2. ✅ **COMPLETED**: Fix React Router warnings (#2) - Added future flags to BrowserRouter config
 3. Implement Error Boundaries (#7) - Create `ErrorBoundary.tsx` component
 
 ### **Fix This Month**
@@ -258,3 +289,18 @@
 
 *Last updated: September 23, 2025*
 *Generated during comprehensive program review*
+*Updated after ChatPage cleanup and enhancement session*
+
+---
+
+## 🎯 **Recently Completed Items** 
+
+**September 23, 2025 - ChatPage Enhancement Session:**
+- ✅ **React Router Warnings** (#2) - Added v7 future flags
+- ✅ **File Management System** (#18) - Complete FileManager component with Weaviate integration
+- ✅ **ChatPage Code Cleanup** (#27) - Major redundancy elimination and TTS system enhancement
+- ✅ **Upload Button Consolidation** - Reduced from 6 buttons to 1
+- ✅ **Camera Button Cleanup** - Consolidated to 1 disabled button
+- ✅ **Universal TTS Implementation** - Read all messages functionality
+- ✅ **Resource Management** - Proper audio cleanup and memory leak prevention
+- ✅ **Code Quality** - Fixed LSP errors and removed unused code
