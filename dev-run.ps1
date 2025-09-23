@@ -309,7 +309,7 @@ function Get-ServiceLogs {
 function Wait-StackConverged {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
-    [int]$TimeoutSec = 420,
+    [int]$TimeoutSec = 900,
     [int]$PollIntervalSec = 5
   )
 
@@ -409,6 +409,13 @@ function Wait-StackConverged {
         $errorMessage = if ($taskParts.Count -ge 3) { $taskParts[2] } else { '' }
 
         if ($state -match 'Failed|Rejected') {
+          $isWeaviate = ($serviceName -match 'weaviate')
+          if ($isWeaviate) {
+            # Weaviate can fail early while remote modules are still booting; keep waiting within the overall timeout
+            Write-Log ("Service '{0}' reported transient failure '{1}' {2}; will continue waiting for restart" -f $serviceName, $state, $errorMessage) 'WARN'
+            $allReady = $false
+            continue
+          }
           Write-Log ("Service '{0}' reported failure state '{1}' {2}" -f $serviceName, $state, $errorMessage) 'ERROR'
           return [pscustomobject]@{
             Success = $false
@@ -483,6 +490,34 @@ function Handle-StartupFailure {
   )
 
   Write-Log $Reason 'ERROR'
+
+
+  # One-time recovery for Docker Desktop overlay network flake (vxlan interface exists)
+  if ($Reason -match 'vxlan|network sandbox join failed') {
+    if (-not $script:SwarmRecoveryAttempted) {
+      $script:SwarmRecoveryAttempted = $true
+      Write-Log "Detected Swarm overlay network error. Attempting one-time Swarm reset and stack redeploy..." 'WARN'
+      try {
+        & docker swarm leave --force 2>$null | Out-Null
+      } catch { Write-Warning ("Swarm leave failed: {0}" -f $_.Exception.Message) }
+      try {
+        & docker swarm init --default-addr-pool 10.123.0.0/16 --default-addr-pool-mask-length 24 2>$null | Out-Null
+      } catch { Write-Warning ("Swarm init failed: {0}" -f $_.Exception.Message) }
+      try {
+        # Redeploy and wait again
+        Deploy-Stack -Name $StackName -File $stackFile
+        $reconverge = Wait-StackConverged -Name $StackName -TimeoutSec 900
+        if ($reconverge.Success) {
+          Write-Log "Recovered from overlay network issue. Continuing startup." 'WARN'
+          return
+        } else {
+          Write-Log ("Recovery attempt did not converge: {0}" -f $reconverge.Reason) 'ERROR'
+        }
+      } catch {
+        Write-Log ("Recovery attempt failed: {0}" -f $_.Exception.Message) 'ERROR'
+      }
+    }
+  }
 
   if ($TaskDetails -and $TaskDetails.Count -gt 0) {
     foreach ($svcName in $TaskDetails.Keys) {
@@ -763,6 +798,11 @@ if (-not (Test-Command 'docker')) { throw 'Docker CLI not found. Please install/
 $stackFile = Join-Path $rootDir 'docker-stack.yml'
 if (-not (Test-Path $stackFile)) { throw "Stack file not found: $stackFile" }
 
+# Validate required secrets from .env for stack substitutions
+if (-not $env:NEO4J_PASSWORD -or ($env:NEO4J_PASSWORD.Trim() -eq '')) {
+  throw "NEO4J_PASSWORD is not set. Please add NEO4J_PASSWORD=... to .env and rerun."
+}
+
 Ensure-SwarmActive
 Ensure-Images
 
@@ -800,13 +840,51 @@ Ensure-StackNetwork -StackName $StackName
 # Smart deployment - only deploy if needed
 Deploy-Stack -Name $StackName -File $stackFile
 
-$stackConvergence = Wait-StackConverged -Name $StackName -TimeoutSec 420
+$stackConvergence = Wait-StackConverged -Name $StackName -TimeoutSec 900
 if (-not $stackConvergence.Success) {
     Handle-StartupFailure -Reason $stackConvergence.Reason -FailingServices $stackConvergence.FailedServices -TaskDetails $stackConvergence.TaskDetails
 }
 
 # --- Temporal Startup ---
 # Startup ordering is handled by health checks now; do not scale Temporal here to avoid interruption.
+
+# Ensure GPU FishSpeech standalone container is running and on the stack network (non-destructive)
+try {
+  $gpuName = 'fishspeech-runtime-gpu'
+  $stackNet = "${StackName}_default"
+  $modelPath = Join-Path $rootDir 'speech/TTS/openaudio-s1-mini/fish_speech_model'
+
+  # Create if missing
+  $existingId = (& docker ps -aq -f name=$gpuName 2>$null)
+  if (-not $existingId) {
+    if (-not (Test-Path $modelPath)) {
+      Write-Warning ("FishSpeech model path not found: {0}" -f $modelPath)
+    }
+    Write-Host "Starting GPU TTS container '$gpuName' (no host port published)..." -ForegroundColor DarkGray
+    $dockerArgs = @(
+      'run','-d','--name',$gpuName,
+      '--gpus','all','--restart','unless-stopped',
+      '--network',$stackNet,
+      '-e','NVIDIA_VISIBLE_DEVICES=all','-e','NVIDIA_DRIVER_CAPABILITIES=compute,utility',
+      '-v',"${modelPath}:/opt/fish-speech/checkpoints/openaudio-s1-mini:ro",
+      'swai/fish-speech:cuda',
+      'python','tools/api_server.py','--listen','0.0.0.0:8000','--device','cuda','--half'
+    )
+    & docker @dockerArgs | Out-Null
+  } else {
+    # Ensure running
+    $isRunning = (& docker ps -q -f name=$gpuName 2>$null)
+    if (-not $isRunning) { & docker start $gpuName | Out-Null }
+    # Ensure connected to stack network
+    $inspect = (& docker inspect $gpuName | Out-String)
+    if ($inspect -notmatch [regex]::Escape($stackNet)) {
+      Write-Host ("Connecting {0} to network {1}..." -f $gpuName,$stackNet) -ForegroundColor DarkGray
+      & docker network connect $stackNet $gpuName 2>$null | Out-Null
+    }
+  }
+} catch {
+  Write-Warning ("GPU TTS container ensure step failed: {0}" -f $_.Exception.Message)
+}
 
 Write-Host ("Waiting on TTS via Traefik (http://tts.localhost:{0}/health)..." -f $TraefikPort) -ForegroundColor DarkGray
 if (Wait-Health -HostName 'tts.localhost') { Write-Host 'TTS ready.' -ForegroundColor Green } else { Write-Warning 'TTS did not report healthy in time.' }

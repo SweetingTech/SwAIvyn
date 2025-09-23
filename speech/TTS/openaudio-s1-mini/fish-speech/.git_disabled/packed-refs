@@ -1,0 +1,19 @@
+# pack-refs with: peeled fully-peeled sorted 
+9f9f0a1fb3c233d36c9840f499b691d8ebd488aa refs/remotes/origin/agent-inference
+72fd244d286472f43af9050136f8a9433ce71729 refs/remotes/origin/gh-pages
+ee342f416bece8fd28bd95a0623fc589b2723786 refs/remotes/origin/main
+f1cfd3e697cfff7824369c1fb2c46a0f4025789b refs/remotes/origin/main-v0.4
+343a62b60af0b12e658503f6697c59187541ad42 refs/remotes/origin/revert-1009-main
+1ac193818261fbba917de69a2e3063c6233322dc refs/tags/v0.2.0
+44d5fc77449f379fce7926f50094de4cd3d8b1a7 refs/tags/v1.0.0
+46594de3bf436ee2b8f45d60222675edc60a4fb6 refs/tags/v1.1.0
+46dae9bd1c2621c991292d033803d64dd0ffd7e7 refs/tags/v1.1.1
+97e8e3c49104a1cf1749941ef6fcd05b5a6ef6d9 refs/tags/v1.1.2
+dc250abf67f59595815cda0660b27cd069dfc9e3 refs/tags/v1.2
+237f4fdcb960c1e9086ad9250340f027809c1a41 refs/tags/v1.2.1
+a817507f3ad61dad60c784292801c01281a2a861 refs/tags/v1.4.0
+d4d698c9228e06e76e47e3f0a240caf6e755c1db refs/tags/v1.4.1
+f8a57fb61fec684612d5477705280b644c48a291 refs/tags/v1.4.2
+1359896b0648c688dee901794969d976a06c86be refs/tags/v1.4.3
+7902e408c85b37193ce3f3c2361ca3c76be0d533 refs/tags/v1.5.0
+58046eaa1a4cefb0c8cc3a3a667b34186ea02dde refs/tags/v1.5.1

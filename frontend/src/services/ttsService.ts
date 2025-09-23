@@ -67,6 +67,11 @@ const ttsService = {
     const response = await apiService.get(url);
     return response.voices || [];
   },
+
+  /** Fetch TTS health (GPU/CPU upstreams) via backend */
+  async getHealth(): Promise<{ status: string; upstream?: string; upstreams?: { url: string; status: string }[] }>{
+    return apiService.get('/api/tts/health');
+  },
   /**
    * Synthesize speech for the given text.
    * Returns an audio Blob.
@@ -76,15 +81,9 @@ const ttsService = {
     if (userId) payload.userId = userId;
     if (voiceId) payload.voiceId = voiceId;
 
-    const resp = await fetch('/api/tts/synthesize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-      throw new Error('Failed to synthesize');
-    }
-    return await resp.blob();
+    // Use apiService to include Authorization header automatically
+    const blob = await apiService.post('/api/tts/synthesize', payload, { responseType: 'blob' as any });
+    return blob as unknown as Blob;
   },
 
   /**

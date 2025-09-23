@@ -27,24 +27,43 @@ def make_silence_wav(seconds: float = 0.5, sample_rate: int = 16000) -> bytes:
 
 
 UPSTREAM_TTS = os.getenv("UPSTREAM_TTS", "http://host.docker.internal:8081").rstrip("/")
+UPSTREAM_TTS_LIST_RAW = os.getenv("UPSTREAM_TTS_LIST", "").strip()
 VOICES_DIR = Path(os.getenv("VOICES_DIR", "/app/voices")).resolve()
 
 app = FastAPI(title="Fish Speech Proxy", version="0.1.0")
 
 
+def _get_upstreams() -> List[str]:
+    raw = [s.strip() for s in UPSTREAM_TTS_LIST_RAW.split(",") if s.strip()]
+    bases = [s.rstrip("/") for s in raw]
+    if not bases:
+        bases = [UPSTREAM_TTS]
+    seen = set()
+    uniq: List[str] = []
+    for b in bases:
+        if b not in seen:
+            uniq.append(b)
+            seen.add(b)
+    return uniq
+
+
 @app.get("/health")
 async def health():
-    # Report our own readiness; optionally include upstream status
-    ok = True
-    up = "unknown"
-    try:
-        async with httpx.AsyncClient(timeout=2) as client:
-            r = await client.get(f"{UPSTREAM_TTS}/health")
-            up = str(r.status_code)
-    except Exception:
-        ok = False
-        up = "down"
-    return {"status": "ok" if ok else "degraded", "upstream": up}
+    statuses: List[Dict[str, str]] = []
+    ok = False
+    for base in _get_upstreams():
+        status = "down"
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(f"{base}/v1/health")
+                status = str(r.status_code)
+                if r.status_code == 200:
+                    ok = True
+        except Exception:
+            status = "down"
+        statuses.append({"url": base, "status": status})
+    top = statuses[0]["status"] if statuses else "down"
+    return {"status": "ok" if ok else "degraded", "upstream": top, "upstreams": statuses}
 
 
 def _extract_names_from_upstream_payload(payload: Any) -> List[str]:
@@ -147,42 +166,33 @@ def _local_voice_names() -> List[str]:
 
 @app.get("/voices")
 async def list_voices():
-    """Return merged voice IDs from upstream + local voices.
-    - Tries upstream `/voices` first; extracts known fields (id/name/displayName).
-    - Merges local voice names discovered under `VOICES_DIR`.
-    - Returns a simple shape: {"voices": ["name1", "name2", ...]} with de-dup.
-    """
-    upstream_names: List[str] = []
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(f"{UPSTREAM_TTS}/voices")
-            if r.status_code == 200:
-                upstream_names = _extract_names_from_upstream_payload(r.json())
-    except Exception:
-        pass
-
+    """Return only local voice IDs (no upstream probing)."""
     local_names = _local_voice_names()
-    merged: List[str] = []
+    # de-dup in case of any accidental repeats
     seen = set()
-    for seq in (upstream_names, local_names):
-        for v in seq:
-            if v not in seen:
-                merged.append(v)
-                seen.add(v)
-    return {"voices": merged}
+    uniq: List[str] = []
+    for v in local_names:
+        if v not in seen:
+            uniq.append(v)
+            seen.add(v)
+    return {"voices": uniq}
 
 
 @app.post("/tts")
 async def tts(text: str = Form(...)):
-    # Pass-through to upstream; fallback to silence
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(f"{UPSTREAM_TTS}/tts", data={"text": text})
-            if r.status_code == 200:
-                ctype = r.headers.get("content-type", "audio/wav")
-                return Response(content=r.content, media_type=ctype)
-    except Exception:
-        pass
+    # Try each upstream /v1/tts in order; return first success, else silence
+    for base in _get_upstreams():
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                r = await client.post(
+                    f"{base}/v1/tts",
+                    json={"text": text, "format": "wav"},
+                )
+                if r.status_code == 200 and r.content:
+                    ctype = r.headers.get("content-type", "audio/wav")
+                    return Response(content=r.content, media_type=ctype)
+        except Exception:
+            continue
     return Response(content=make_silence_wav(), media_type="audio/wav")
 
 
@@ -214,30 +224,22 @@ async def tts_clone(text: str = Form(...), voice_name: str = Form(...)):
                 "temperature": 0.7,
             }
             async with httpx.AsyncClient(timeout=90) as client:
-                r = await client.post(
-                    f"{UPSTREAM_TTS}/v1/tts",
-                    data=ormsgpack.packb(payload),
-                    headers={"Content-Type": "application/msgpack"},
-                )
-                if r.status_code == 200 and r.content:
-                    ctype = r.headers.get("content-type", "audio/wav")
-                    return Response(content=r.content, media_type=ctype)
+                for base in _get_upstreams():
+                    try:
+                        r = await client.post(
+                            f"{base}/v1/tts",
+                            data=ormsgpack.packb(payload),
+                            headers={"Content-Type": "application/msgpack"},
+                        )
+                        if r.status_code == 200 and r.content:
+                            ctype = r.headers.get("content-type", "audio/wav")
+                            return Response(content=r.content, media_type=ctype)
+                    except Exception:
+                        continue
         except Exception:
             # If anything goes wrong with local reference path, fall back
             pass
 
-    # 2) Try upstream clone endpoint for non-local voices (model defaults)
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(
-                f"{UPSTREAM_TTS}/tts/clone",
-                data={"text": text, "voice_name": voice_name},
-            )
-            if r.status_code == 200 and r.content:
-                ctype = r.headers.get("content-type", "audio/wav")
-                return Response(content=r.content, media_type=ctype)
-    except Exception:
-        pass
 
     # 3) fallback to default /tts
     return await tts(text=text)

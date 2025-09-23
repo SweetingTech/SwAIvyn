@@ -60,3 +60,88 @@ done
     Write-Host "[setup] Temporal databases and schemas are ready." -ForegroundColor Green
 }
 
+
+
+# ---------------------------
+# GPU + WSL + Docker helpers
+# ---------------------------
+function Test-NvidiaSmi {
+    try { nvidia-smi | Out-String } catch { return $null }
+}
+
+function Enable-WSLFeatures {
+    Write-Host "[gpu-setup] Enabling Windows features: WSL + VirtualMachinePlatform (requires admin)" -ForegroundColor Cyan
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Warning "Please re-run PowerShell as Administrator and execute:"
+        Write-Host "  dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart" -ForegroundColor Yellow
+        Write-Host "  dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart" -ForegroundColor Yellow
+        return
+    }
+    & dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Null
+    & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
+}
+
+function Ensure-WSLDefaultV2 {
+    Write-Host "[gpu-setup] Setting WSL default version to 2" -ForegroundColor Cyan
+    & wsl.exe --set-default-version 2 | Out-Null
+}
+
+function Ensure-UbuntuInstalled {
+    Write-Host "[gpu-setup] Checking WSL distributions" -ForegroundColor Cyan
+    $wslList = & wsl.exe -l -v | Out-String
+    if ($wslList -notmatch 'Ubuntu') {
+        Write-Warning "Ubuntu WSL distro not found. Install with (admin): wsl --install -d Ubuntu"
+        return $false
+    }
+    return $true
+}
+
+function Setup-NvidiaContainerToolkitInWSL {
+    Write-Host "[gpu-setup] Installing NVIDIA Container Toolkit inside WSL (requires sudo)" -ForegroundColor Cyan
+    $cmds = @(
+        'set -e',
+        'if ! command -v sudo >/dev/null 2>&1; then echo "sudo missing"; exit 1; fi',
+        'if ! sudo -n true 2>/dev/null; then echo "sudo password is required. Please run these commands in WSL:"; echo "sudo apt-get update"; echo "sudo apt-get install -y nvidia-container-toolkit"; echo "sudo nvidia-ctk runtime configure --runtime=docker"; echo "exit then run: wsl.exe --shutdown"; exit 2; fi',
+        'sudo apt-get update',
+        'sudo apt-get install -y nvidia-container-toolkit',
+        'sudo nvidia-ctk runtime configure --runtime=docker || true'
+    ) -join ' && '
+    & wsl.exe -d Ubuntu -e bash -lc $cmds
+}
+
+function Restart-DockerWSL {
+    Write-Host "[gpu-setup] Restarting Docker/WSL to apply runtime changes" -ForegroundColor Cyan
+    # Best-effort restart path
+    try { & wsl.exe --shutdown | Out-Null } catch {}
+}
+
+function Test-DockerGPU {
+    Write-Host "[gpu-setup] Verifying Docker GPU access with nvidia-smi" -ForegroundColor Cyan
+    & docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
+}
+
+function Setup-GPUForDocker {
+    Write-Host "[gpu-setup] Starting GPU + WSL + Docker configuration" -ForegroundColor Green
+
+    $smi = Test-NvidiaSmi
+    if (-not $smi) {
+        Write-Warning "NVIDIA driver not detected on host. Please install the latest GeForce/Studio driver and re-run."
+        return
+    } else {
+        Write-Host $smi
+    }
+
+    Enable-WSLFeatures
+    Ensure-WSLDefaultV2
+    $ubuntuOk = Ensure-UbuntuInstalled
+    if (-not $ubuntuOk) { return }
+
+    Setup-NvidiaContainerToolkitInWSL
+    Restart-DockerWSL
+
+    Write-Host "[gpu-setup] Attempting Docker GPU smoke test (may fail until Docker Desktop GUI enables GPU for WSL)" -ForegroundColor Cyan
+    try { Test-DockerGPU } catch { Write-Warning $_ }
+
+    Write-Host "[gpu-setup] Done. If GPU still not visible in containers: open Docker Desktop → Settings → Resources → WSL Integration and enable your Ubuntu distro; enable GPU support if available; then re-run this setup." -ForegroundColor Yellow
+}

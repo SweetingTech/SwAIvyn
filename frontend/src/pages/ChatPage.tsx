@@ -1113,7 +1113,10 @@ const ChatPage: React.FC = () => {
                     title={`Text-to-Speech: ${ttsEnabled ? 'ON' : 'OFF'}`}
                     disabled={isLoading}
                   >
-                    {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                    <span className="flex items-center gap-1">
+                      {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                      <span className="hidden sm:inline text-xs">Auto voice</span>
+                    </span>
                   </button>
 
                   {/* STT Toggle */}

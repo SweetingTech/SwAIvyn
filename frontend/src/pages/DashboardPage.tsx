@@ -557,23 +557,23 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
       const settings = await ttsService.getSettings(userId);
       
       setVoiceSettings({
-        provider: settings.ttsProvider || 'elevenlabs',
-        voice: settings.voiceId || 'Rachel',
+        provider: settings.ttsProvider || 'fishspeech',
+        voice: settings.voiceId || 'glados',
         apiKey: settings.apiKey || '',
       });
 
       // Load available voices for the current provider
-      const voices = await ttsService.getVoices(settings.ttsProvider || 'elevenlabs', userId);
+      const voices = await ttsService.getVoices(settings.ttsProvider || 'fishspeech', userId);
       setAvailableVoices(voices);
     } catch (error) {
       console.error('Failed to load voice settings:', error);
       // Set fallback values
       setVoiceSettings({
-        provider: 'elevenlabs',
-        voice: 'Rachel',
+        provider: 'fishspeech',
+        voice: 'glados',
         apiKey: '',
       });
-      setAvailableVoices(['Rachel', 'Domi', 'Bella', 'Antoni']);
+      setAvailableVoices(['glados', 'jazzy', 'scarlet']);
     } finally {
       setLoading(false);
     }
@@ -592,8 +592,8 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
       }
     } catch (error) {
       console.error('Failed to load voices for provider:', error);
-      setAvailableVoices(['default']);
-      setVoiceSettings(prev => ({ ...prev, voice: 'default' }));
+      setAvailableVoices(['glados', 'jazzy', 'scarlet']);
+      setVoiceSettings(prev => ({ ...prev, voice: 'glados' }));
     }
   };
 

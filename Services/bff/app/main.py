@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # Merged and fixed: remove conflict markers, restore missing imports, add agent status store and endpoints,
 # and keep clean LLM settings handlers.
 
@@ -17,9 +17,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
     File,
-    Form,
     Query,
-    Response,
     Request,
     Depends,
 )
@@ -27,12 +25,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from temporalio.client import Client
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import select, text
 from datetime import timedelta, datetime
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -157,16 +152,10 @@ def _validate_url_for_ssrf(url: str) -> bool:
         return False
 
 # Auth dependency wired with engine
-security = HTTPBearer(auto_error=False)
 
 async def get_engine_dep() -> Optional[AsyncEngine]:
     return _engine
 
-async def current_user_dep(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    engine: Optional[AsyncEngine] = Depends(lambda: _engine),
-):
-    return await get_current_user(engine, creds)
 
 async def _connect_with_retry(addr: str) -> Client:
     delay, attempt = 1, 0
@@ -193,20 +182,20 @@ os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """Global authentication middleware to secure all API endpoints"""
-    
+
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        
+
         # Allow unauthenticated access to specific endpoints
         unauthenticated_paths = [
             "/healthz", "/readyz", "/api/healthz", "/api/readyz", "/api",
             "/api/auth/login"
         ]
-        
+
         # Allow static files, frontend routes, and OPTIONS requests (CORS preflight)
         if not path.startswith("/api") or path in unauthenticated_paths or request.method == "OPTIONS":
             return await call_next(request)
-        
+
         # Require authentication for all other /api/* endpoints
         auth_header = request.headers.get("authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
@@ -214,7 +203,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"detail": "Authentication required"}
             )
-        
+
         # Validate JWT token
         try:
             from fastapi.security import HTTPAuthorizationCredentials
@@ -222,16 +211,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
             user = await get_current_user(_engine, creds)
             if not user:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Invalid or expired token"}
-                )
+                return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
+            # Attach the user to request.state for downstream handlers
+            request.state.user = user
         except Exception:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid authentication token"}
-            )
-        
+            return JSONResponse(status_code=401, content={"detail": "Invalid authentication token"})
+
         return await call_next(request)
 
 try:
@@ -334,11 +319,12 @@ async def api_root():
 # ------------------------- LLM Service Health -------------------------
 
 @app.get("/api/llm/health")
-async def llm_health(current=Depends(current_user_dep)):
-    if not current:
+async def llm_health(request: Request):
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     status = {"ollama": None, "lmstudio": None}
-    uid = current.get("id") or "default"
+    uid = u.get("id") or "default"
     user_conn = _connections_store.get(uid, {})
 
     ollama_base = user_conn.get("OllamaApiUrl") or OLLAMA_HOST
@@ -369,92 +355,545 @@ async def llm_health(current=Depends(current_user_dep)):
 # ------------------------- Users & Auth -------------------------
 
 @app.get("/api/user/default")
-async def get_default_user(current=Depends(current_user_dep)):
-    if not current:
+async def get_default_user(request: Request):
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return {"id": current.get("id"), "username": current.get("username"), "role": current.get("role")}
+    return {"id": u.get("id"), "username": u.get("username"), "role": u.get("role")}
 
 # ------------------------- Missing API endpoints that frontend expects -------------------------
 
 @app.get("/api/dashboard/status")
-async def dashboard_status(userId: str = Query(), current=Depends(current_user_dep)):
-    """Dashboard status endpoint that frontend calls"""
-    if not current:
+async def dashboard_status(request: Request, userId: str = Query(), db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Dashboard status with active LLM selection for the user"""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Return basic dashboard status
-    return {
+    if userId != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    status = {
         "user_id": userId,
         "status": "active",
-        "character_count": 3,  # We have 3 default characters
-        "agent_count": 0,      # No external agents yet
-        "conversation_count": 0
+        "character_count": 3,
+        "agent_count": 0,
+        "conversation_count": 0,
+        "llmEngine": None,
+        "llmModel": None,
     }
 
+    # Pull current selection from DB; fall back to defaults/cache
+    try:
+        if db is not None:
+            async with db.connect() as conn:
+                # LLM selection
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == userId).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    status["llmEngine"] = (m.get("llm_engine") or os.getenv("DEFAULT_LLM_ENGINE", "ollama")).lower()
+                    status["llmModel"] = m.get("llm_model") or os.getenv("LLM_MODEL", "llama3")
+                else:
+                    s = _chat_settings_store.get(userId) or _default_chat_settings(userId)
+                    status["llmEngine"] = (s.get("llmEngine") or os.getenv("DEFAULT_LLM_ENGINE", "ollama")).lower()
+                    status["llmModel"] = s.get("llmModel") or os.getenv("LLM_MODEL", "llama3")
+                # Counts (best-effort)
+                try:
+                    cr = await conn.execute(select(t_characters.c.id))
+                    status["character_count"] = len(cr.fetchall())
+                except Exception:
+                    pass
+                try:
+                    cv = await conn.execute(select(t_conversations.c.id).where(t_conversations.c.user_id == userId))
+                    status["conversation_count"] = len(cv.fetchall())
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"dashboard_status failed: {e}", file=sys.stderr, flush=True)
+
+    return status
+
 @app.get("/api/agents/catalog")
-async def agents_catalog(current=Depends(current_user_dep)):
+async def agents_catalog(request: Request):
     """Available agents catalog that frontend expects"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     # Return available agents - for now empty, will be populated when agents are registered
     return []
 
 @app.get("/api/folder/user/{user_id}")
-async def get_user_folders(user_id: str, current=Depends(current_user_dep)):
+async def get_user_folders(user_id: str, request: Request):
     """User folders endpoint that frontend calls"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     # Return empty folders for now - this will store user file organization
     return {"folders": []}
 
 @app.get("/api/conversation/user/{user_id}")
-async def get_user_conversations(user_id: str, current=Depends(current_user_dep)):
-    """User conversations endpoint that frontend calls"""
-    if not current:
+async def get_user_conversations(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """List conversations for a user (array result expected by frontend)"""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Return empty conversations for now - this will store chat history
-    return {"conversations": []}
+    if u.get("id") != user_id and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_conversations).where(t_conversations.c.user_id == user_id))
+        rows = res.fetchall()
+        out = []
+        for row in rows:
+            m = row._mapping
+            out.append({
+                "id": m["id"],
+                "userId": m["user_id"],
+                "title": m["title"],
+                "folderId": m["folder_id"],
+                "createdAt": m["created_at"],
+                "lastUpdated": m["last_updated"],
+            })
+        return out
+
+@app.post("/api/conversation")
+async def create_conversation(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Create a new conversation for the authenticated user"""
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    title = (body or {}).get("title") or "New Chat"
+    folder_id = (body or {}).get("folderId")
+    conv_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    async with engine.begin() as conn:
+        await conn.execute(t_conversations.insert().values(
+            id=conv_id,
+            user_id=uid,
+            title=title,
+            folder_id=folder_id,
+            created_at=now,
+            last_updated=now,
+        ))
+    return {
+        "id": conv_id,
+        "userId": uid,
+        "title": title,
+        "folderId": folder_id,
+        "createdAt": now,
+        "lastUpdated": now,
+    }
+
+@app.get("/api/conversation/{conv_id}")
+async def get_conversation(conv_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_conversations).where(t_conversations.c.id == conv_id).limit(1))
+        row = res.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Not Found")
+        m = row._mapping
+        if u.get("role") != "admin" and m["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return {
+            "id": m["id"],
+            "userId": m["user_id"],
+            "title": m["title"],
+            "folderId": m["folder_id"],
+            "createdAt": m["created_at"],
+            "lastUpdated": m["last_updated"],
+        }
+
+@app.get("/api/conversation/{conv_id}/messages")
+async def get_messages(conv_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        # verify ownership
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            return []
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        res = await conn.execute(select(t_messages).where(t_messages.c.conversation_id == conv_id))
+        rows = res.fetchall()
+        return [{
+            "id": r._mapping["id"],
+            "conversationId": r._mapping["conversation_id"],
+            "role": r._mapping["role"],
+            "content": r._mapping["content"],
+            "timestamp": r._mapping["timestamp"],
+        } for r in rows]
+
+@app.post("/api/conversation/message")
+async def append_message(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    conv_id = (body or {}).get("conversationId")
+    role = (body or {}).get("role") or "user"
+    content = (body or {}).get("content") or ""
+    if not conv_id:
+        raise HTTPException(status_code=400, detail="conversationId required")
+    now = datetime.utcnow().isoformat()
+    async with engine.begin() as conn:
+        # verify ownership before appending
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        msg_id = str(uuid.uuid4())
+        await conn.execute(t_messages.insert().values(
+            id=msg_id,
+            conversation_id=conv_id,
+            role=role,
+            content=content,
+            timestamp=now,
+        ))
+        # bump conversation last_updated
+        await conn.execute(t_conversations.update().where(t_conversations.c.id == conv_id).values(last_updated=now))
+    return {
+        "id": msg_id,
+        "conversationId": conv_id,
+        "role": role,
+        "content": content,
+        "timestamp": now,
+    }
+
+@app.put("/api/conversation/{conv_id}/title")
+async def update_conversation_title(conv_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    title = (body or {}).get("title") or ""
+    now = datetime.utcnow().isoformat()
+    async with engine.begin() as conn:
+        # verify ownership
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await conn.execute(t_conversations.update().where(t_conversations.c.id == conv_id).values(title=title, last_updated=now))
+    return {"success": True}
+
+@app.put("/api/conversation/{conv_id}/folder")
+async def update_conversation_folder(conv_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    folder_id = (body or {}).get("folderId")
+    now = datetime.utcnow().isoformat()
+    async with engine.begin() as conn:
+        # verify ownership
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await conn.execute(t_conversations.update().where(t_conversations.c.id == conv_id).values(folder_id=folder_id, last_updated=now))
+    return {"success": True}
+
+@app.put("/api/conversation/{conv_id}/open")
+async def update_last_open(conv_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    now = datetime.utcnow().isoformat()
+    async with engine.begin() as conn:
+        # verify ownership
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await conn.execute(t_conversations.update().where(t_conversations.c.id == conv_id).values(last_updated=now))
+    return {"success": True}
+
+@app.delete("/api/conversation/{conv_id}")
+async def delete_conversation(conv_id: str, request: Request, userId: Optional[str] = Query(None), engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    # if query userId provided and doesn't match, require admin
+    if userId and userId != uid and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    async with engine.begin() as conn:
+        # verify ownership
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            # idempotent delete
+            return {"success": True}
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        await conn.execute(t_messages.delete().where(t_messages.c.conversation_id == conv_id))
+        await conn.execute(t_conversations.delete().where(t_conversations.c.id == conv_id))
+    return {"success": True}
+
+@app.post("/api/conversation/chat")
+async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    conv_id = (body or {}).get("conversationId")
+    message = (body or {}).get("message") or (body or {}).get("content") or (body or {}).get("prompt") or ""
+    if not conv_id or not message:
+        raise HTTPException(status_code=400, detail="conversationId and message required")
+    now = datetime.utcnow().isoformat()
+    async with db.begin() as conn:
+        # verify ownership
+        conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
+        conv_row = conv.first()
+        if not conv_row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        # append user message
+        await conn.execute(t_messages.insert().values(
+            id=str(uuid.uuid4()), conversation_id=conv_id, role="user", content=message, timestamp=now
+        ))
+        await conn.execute(t_conversations.update().where(t_conversations.c.id == conv_id).values(last_updated=now))
+
+    # Fetch user settings and connection URLs
+    uid = u.get("id")
+    engine_name = os.getenv("DEFAULT_LLM_ENGINE", "ollama").lower()
+    model = os.getenv("LLM_MODEL", "llama3")
+    ollama_url = "http://localhost:11434"
+    lmstudio_url = "http://localhost:1234"
+    try:
+        async with db.connect() as conn:
+            res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+            row = res.first()
+            if row:
+                m = row._mapping
+                engine_name = (m.get("llm_engine") or engine_name).lower()
+                model = m.get("llm_model") or model
+            res2 = await conn.execute(select(t_conn_settings).where(t_conn_settings.c.user_id == uid).limit(1))
+            row2 = res2.first()
+            if row2:
+                m2 = row2._mapping
+                ollama_url = m2.get("OllamaApiUrl") or ollama_url
+                lmstudio_url = m2.get("LmStudioApiUrl") or lmstudio_url
+    except Exception:
+        pass
+
+    # Call the selected engine
+    reply: Optional[str] = None
+    try:
+        if engine_name == "lmstudio":
+            payload = {
+                "model": model or "auto",
+                "messages": [{"role": "user", "content": message}],
+                "temperature": 0.7,
+                "stream": False,
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(f"{lmstudio_url.rstrip('/')}/v1/chat/completions", json=payload)
+                if r.status_code == 200:
+                    j = r.json()
+                    reply = (((j.get("choices") or [{}])[0]).get("message") or {}).get("content")
+        elif engine_name == "ollama":
+            payload = {"model": model or "llama3", "prompt": message, "stream": False}
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(f"{ollama_url.rstrip('/')}/api/generate", json=payload)
+                if r.status_code == 200:
+                    j = r.json()
+                    reply = j.get("response")
+    except Exception as e:
+        print(f"LLM call failed ({engine_name}): {e}", file=sys.stderr, flush=True)
+
+    if not reply:
+        reply = f"Echo: {message}"
+
+    # Store assistant reply
+    async with db.begin() as conn:
+        await conn.execute(t_messages.insert().values(
+            id=str(uuid.uuid4()), conversation_id=conv_id, role="assistant", content=reply, timestamp=now
+        ))
+        await conn.execute(t_conversations.update().where(t_conversations.c.id == conv_id).values(last_updated=now))
+    return {"response": reply}
 
 @app.get("/api/chat/settings/{user_id}")
-async def get_chat_settings(user_id: str, current=Depends(current_user_dep)):
-    """Chat settings endpoint that frontend calls"""
-    if not current:
+async def get_chat_settings(user_id: str, request: Request, db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Chat settings endpoint used by chat and dashboard"""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Return default chat settings
-    settings = _chat_settings_store.get(user_id, _default_chat_settings(user_id))
-    return settings
+    if u.get("id") != user_id and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Base defaults
+    s = dict(_chat_settings_store.get(user_id, _default_chat_settings(user_id)))
+
+    # Merge persisted chat + connection settings
+    if db is not None:
+        try:
+            async with db.connect() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == user_id).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    s["llmEngine"] = m.get("llm_engine") or s.get("llmEngine")
+                    s["llmModel"] = m.get("llm_model") or s.get("llmModel")
+                    s["ttsProvider"] = m.get("tts_provider") or s.get("ttsProvider")
+                    s["ttsVoiceId"] = m.get("tts_voice_id") or s.get("ttsVoiceId")
+                    # Merge JSON fields if present
+                    import json as _json
+                    try:
+                        ee = m.get("enabled_engines")
+                        if ee:
+                            s["enabledEngines"] = _json.loads(ee)
+                    except Exception:
+                        pass
+                    try:
+                        em = m.get("engine_models")
+                        if em:
+                            s["engineModels"] = _json.loads(em)
+                    except Exception:
+                        pass
+                # Enable engines based on connection URLs presence
+                res2 = await conn.execute(select(t_conn_settings).where(t_conn_settings.c.user_id == user_id).limit(1))
+                row2 = res2.first()
+                if row2:
+                    m2 = row2._mapping
+                    enabled = dict(s.get("enabledEngines") or {})
+                    if (m2.get("OllamaApiUrl") or "").strip():
+                        enabled["ollama"] = True
+                    if (m2.get("LmStudioApiUrl") or "").strip():
+                        enabled["lmstudio"] = True
+                    s["enabledEngines"] = enabled
+        except Exception as e:
+            print(f"get_chat_settings merge failed: {e}", file=sys.stderr, flush=True)
+
+    return s
 
 @app.put("/api/chat/settings/{user_id}")
-async def update_chat_settings(user_id: str, settings: dict, current=Depends(current_user_dep)):
+async def update_chat_settings(user_id: str, settings: dict, request: Request):
     """Update chat settings endpoint that frontend calls"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+    if u.get("id") != user_id and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     # Store chat settings in memory for now
     _chat_settings_store[user_id] = settings
     return {"success": True}
 
 @app.get("/api/llm/models")
-async def get_llm_models(engine: str = Query(), userId: str = Query(), current=Depends(current_user_dep)):
-    """LLM models endpoint that frontend calls"""
-    if not current:
+async def get_llm_models(request: Request, engine: str = Query(), userId: str = Query(), db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return available models for a given engine (ollama|lmstudio)."""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Return empty models for now - these would come from Ollama/LMStudio
-    return {"models": []}
+    if userId != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    eng = (engine or "").strip().lower()
+    ollama_url = "http://localhost:11434"
+    lmstudio_url = "http://localhost:1234"
+
+    # Load connection settings
+    if db is not None:
+        try:
+            async with db.connect() as conn:
+                res = await conn.execute(select(t_conn_settings).where(t_conn_settings.c.user_id == userId).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    ollama_url = m.get("OllamaApiUrl") or ollama_url
+                    lmstudio_url = m.get("LmStudioApiUrl") or lmstudio_url
+        except Exception:
+            pass
+
+    models: List[str] = []
+    try:
+        if eng == "ollama":
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(f"{ollama_url.rstrip('/')}/api/tags")
+                if r.status_code == 200:
+                    j = r.json() or {}
+                    models = [m.get("name") for m in (j.get("models") or []) if m.get("name")]
+        elif eng == "lmstudio":
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(f"{lmstudio_url.rstrip('/')}/v1/models")
+                if r.status_code == 200:
+                    j = r.json() or {}
+                    data = j.get("data") or []
+                    # LM Studio is OpenAI-compatible: each item has an id
+                    models = [m.get("id") for m in data if m.get("id")]
+    except Exception as e:
+        print(f"get_llm_models error for {eng}: {e}", file=sys.stderr, flush=True)
+
+    return {"models": models}
 
 @app.get("/api/llm/lmstudio/model")
-async def get_lmstudio_model(userId: str = Query(), current=Depends(current_user_dep)):
-    """LMStudio model endpoint that frontend calls"""
-    if not current:
+async def get_lmstudio_model(request: Request, userId: str = Query(), db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the currently available/loaded LM Studio model (best-effort)."""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Return no model selected for now
-    return {"model": None}
+    if userId != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    lmstudio_url = "http://localhost:1234"
+    if db is not None:
+        try:
+            async with db.connect() as conn:
+                res = await conn.execute(select(t_conn_settings).where(t_conn_settings.c.user_id == userId).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    lmstudio_url = m.get("LmStudioApiUrl") or lmstudio_url
+        except Exception:
+            pass
+
+    model = None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{lmstudio_url.rstrip('/')}/v1/models")
+            if r.status_code == 200:
+                j = r.json() or {}
+                data = j.get("data") or []
+                if data:
+                    model = (data[0] or {}).get("id")
+    except Exception as e:
+        print(f"get_lmstudio_model error: {e}", file=sys.stderr, flush=True)
+
+    return {"model": model}
 
 class LoginRequest(BaseModel):
     username: Optional[str] = None
@@ -481,20 +920,21 @@ async def login(body: LoginRequest, engine: Optional[AsyncEngine] = Depends(get_
         return {"access_token": token, "token_type": "bearer", "user": {"id": r["id"], "username": r["username"], "email": r["email"], "role": r["role"]}}
 
 @app.get("/api/auth/me")
-async def auth_me(current=Depends(current_user_dep)):
-    return current
+async def auth_me(request: Request):
+    return getattr(request.state, "user", None)
 
 class PasswordChange(BaseModel):
     old_password: str
     new_password: str
 
 @app.post("/api/auth/change-password")
-async def change_password(body: PasswordChange, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def change_password(body: PasswordChange, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    if not current or not current.get("id"):
+    u = getattr(request.state, "user", None)
+    if not u or not u.get("id"):
         raise HTTPException(status_code=401, detail="Unauthorized")
-    uid = current.get("id")
+    uid = u.get("id")
     async with engine.begin() as conn:
         res = await conn.execute(select(users).where(users.c.id == uid).limit(1))
         row = res.first()
@@ -511,13 +951,14 @@ async def change_password(body: PasswordChange, engine: Optional[AsyncEngine] = 
 # Admin purge: delete conversations/messages
 @app.delete("/api/admin/conversations")
 async def admin_purge_conversations(
+    request: Request,
     confirm: bool = Query(False, description="Must be true to perform delete"),
     userId: Optional[str] = Query(None, description="Delete only this user's conversations"),
     legacyOnly: bool = Query(False, description="Delete conversations with missing/invalid owners"),
     engine: Optional[AsyncEngine] = Depends(get_engine_dep),
-    current=Depends(current_user_dep),
 ):
-    require_admin(current)
+    u = getattr(request.state, "user", None)
+    require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     if not confirm:
@@ -561,8 +1002,9 @@ class UserCreate(BaseModel):
     is_default: bool = False
 
 @app.get("/api/admin/users")
-async def admin_list_users(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    require_admin(current)
+async def admin_list_users(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     async with engine.connect() as conn:
@@ -573,8 +1015,9 @@ async def admin_list_users(engine: Optional[AsyncEngine] = Depends(get_engine_de
         return rows
 
 @app.post("/api/admin/users")
-async def admin_create_user(body: UserCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    require_admin(current)
+async def admin_create_user(body: UserCreate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     import bcrypt as _bcrypt
@@ -621,10 +1064,11 @@ class CharacterUpdate(BaseModel):
     imagePath: Optional[str] = None  # Support camelCase from frontend
 
 @app.get("/api/user/{user_id}")
-async def get_user(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    if not current:
+async def get_user(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if current.get("id") != user_id and current.get("role") != "admin":
+    if u.get("id") != user_id and u.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -647,8 +1091,9 @@ async def get_user(user_id: str, engine: Optional[AsyncEngine] = Depends(get_eng
         }
 
 @app.put("/api/user/{user_id}")
-async def update_user(user_id: str, body: UserUpdate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    if not current or (current.get("id") != user_id and current.get("role") != "admin"):
+async def update_user(user_id: str, body: UserUpdate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u or (u.get("id") != user_id and u.get("role") != "admin"):
         raise HTTPException(status_code=403, detail="Forbidden")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -660,8 +1105,9 @@ async def update_user(user_id: str, body: UserUpdate, engine: Optional[AsyncEngi
     return {"success": True}
 
 @app.post("/api/user/{user_id}/pin")
-async def update_user_pin(user_id: str, body: PinUpdate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    if not current or (current.get("id") != user_id and current.get("role") != "admin"):
+async def update_user_pin(user_id: str, body: PinUpdate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u or (u.get("id") != user_id and u.get("role") != "admin"):
         raise HTTPException(status_code=403, detail="Forbidden")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -672,8 +1118,9 @@ async def update_user_pin(user_id: str, body: PinUpdate, engine: Optional[AsyncE
     return {"success": True}
 
 @app.post("/api/user/{user_id}/recovery-codes")
-async def generate_recovery_codes(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    if not current or (current.get("id") != user_id and current.get("role") != "admin"):
+async def generate_recovery_codes(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u or (u.get("id") != user_id and u.get("role") != "admin"):
         raise HTTPException(status_code=403, detail="Forbidden")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -711,10 +1158,11 @@ def _merge_chat_settings_from_db_row(row_map: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @app.get("/api/settings/llm")
-async def get_llm_settings(current=Depends(current_user_dep), engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
-    if not current:
+async def get_llm_settings(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    uid = current.get("id") or "default"
+    uid = u.get("id") or "default"
 
     if engine is not None:
         try:
@@ -736,33 +1184,53 @@ async def get_llm_settings(current=Depends(current_user_dep), engine: Optional[A
     return {"engine": s.get("llmEngine", "ollama"), "model": s.get("llmModel", os.getenv("LLM_MODEL", "llama3"))}
 
 @app.put("/api/settings/llm")
-async def put_llm_settings(payload: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
-    if not current:
+async def put_llm_settings(payload: dict, request: Request, db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    uid = current.get("id")
+    uid = u.get("id")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid user authentication")
 
-    engine_name = payload.get("engine") or "ollama"
+    engine_name = (payload.get("engine") or "ollama").lower()
     model = payload.get("model") or ""
 
+    # Update in-memory cache used by chat page fallback
     s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
     s["llmEngine"] = engine_name
     s["llmModel"] = model
+    _chat_settings_store[uid] = s
+
+    # Persist to DB
+    if db is not None:
+        try:
+            async with db.begin() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+                exists = res.first() is not None
+                values = {"llm_engine": engine_name, "llm_model": model}
+                if exists:
+                    await conn.execute(t_chat_settings.update().where(t_chat_settings.c.user_id == uid).values(**values))
+                else:
+                    await conn.execute(t_chat_settings.insert().values(user_id=uid, **values))
+        except Exception as e:
+            print(f"Failed to persist LLM settings: {e}", file=sys.stderr, flush=True)
+
+    return {"success": True}
 
 # ------------------------- Character Management -------------------------
 
 @app.get("/api/characters")
-async def list_characters(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def list_characters(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """List characters accessible to the current user (their own + shared characters)"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.connect() as conn:
         if is_admin:
             # Admins see all characters
@@ -774,7 +1242,7 @@ async def list_characters(engine: Optional[AsyncEngine] = Depends(get_engine_dep
                 .where((t_characters.c.user_id == uid) | (t_characters.c.user_id.is_(None)))
                 .order_by(t_characters.c.name)
             )
-        
+
         characters = []
         for row in res.fetchall():
             char_dict = dict(row._mapping)
@@ -783,30 +1251,31 @@ async def list_characters(engine: Optional[AsyncEngine] = Depends(get_engine_dep
             char_dict["imagePath"] = char_dict.pop("image_path", "")
             char_dict["is_shared"] = char_dict["user_id"] is None
             characters.append(char_dict)
-        
+
         return characters
 
 @app.post("/api/characters")
-async def create_character(body: CharacterCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def create_character(body: CharacterCreate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Create a new character"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     # Only admins can create shared characters
     if body.is_shared and not is_admin:
         raise HTTPException(status_code=403, detail="Only admins can create shared characters")
-    
+
     # Generate unique ID
     char_id = str(uuid.uuid4())
-    
+
     # Set user_id based on whether it's shared
     user_id = None if body.is_shared else uid
-    
+
     async with engine.begin() as conn:
         await conn.execute(
             t_characters.insert().values(
@@ -817,35 +1286,36 @@ async def create_character(body: CharacterCreate, engine: Optional[AsyncEngine] 
                 image_path=body.image_path,
             )
         )
-    
+
     return {"id": char_id, "success": True}
 
 @app.get("/api/characters/{character_id}")
-async def get_character(character_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def get_character(character_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Get a specific character"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.connect() as conn:
         res = await conn.execute(
             select(t_characters).where(t_characters.c.id == character_id).limit(1)
         )
         row = res.first()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Character not found")
-        
+
         char_dict = dict(row._mapping)
-        
+
         # Check permissions
         if not is_admin and char_dict["user_id"] not in (None, uid):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         # Rename fields to match frontend expectations
         char_dict["systemPrompt"] = char_dict.pop("system_prompt", "")
         char_dict["imagePath"] = char_dict.pop("image_path", "")
@@ -853,36 +1323,37 @@ async def get_character(character_id: str, engine: Optional[AsyncEngine] = Depen
         return char_dict
 
 @app.put("/api/characters/{character_id}")
-async def update_character(character_id: str, body: CharacterUpdate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def update_character(character_id: str, body: CharacterUpdate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Update a character"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.begin() as conn:
         # Check if character exists and user has permission
         res = await conn.execute(
             select(t_characters).where(t_characters.c.id == character_id).limit(1)
         )
         row = res.first()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Character not found")
-        
+
         char_dict = dict(row._mapping)
-        
+
         # Check permissions: admin can edit any, users can edit their own or shared
         if not is_admin and char_dict["user_id"] not in (None, uid):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         # Only admins can modify shared characters
         if char_dict["user_id"] is None and not is_admin:
             raise HTTPException(status_code=403, detail="Only admins can modify shared characters")
-        
+
         # Build update values
         update_values = {}
         if body.name is not None:
@@ -891,71 +1362,73 @@ async def update_character(character_id: str, body: CharacterUpdate, engine: Opt
             update_values["system_prompt"] = body.system_prompt or body.systemPrompt
         if body.image_path is not None or body.imagePath is not None:
             update_values["image_path"] = body.image_path or body.imagePath
-        
+
         if update_values:
             await conn.execute(
                 t_characters.update()
                 .where(t_characters.c.id == character_id)
                 .values(**update_values)
             )
-        
+
         return {"success": True}
 
 @app.delete("/api/characters/{character_id}")
-async def delete_character(character_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def delete_character(character_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Delete a character"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.begin() as conn:
         # Check if character exists and user has permission
         res = await conn.execute(
             select(t_characters).where(t_characters.c.id == character_id).limit(1)
         )
         row = res.first()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Character not found")
-        
+
         char_dict = dict(row._mapping)
-        
+
         # Check permissions: admin can delete any, users can delete their own
         if not is_admin and char_dict["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         # Prevent deletion of default characters
         if character_id in ("default", "glados", "sam", "sherlock"):
             raise HTTPException(status_code=400, detail="Cannot delete built-in characters")
-        
+
         await conn.execute(
             t_characters.delete().where(t_characters.c.id == character_id)
         )
-        
+
         return {"success": True}
 
 # ------------------------- Character Management (Legacy Endpoints) -------------------------
 # These endpoints match the frontend expectations
 
 @app.get("/api/character/user/{user_id}")
-async def list_user_characters(user_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def list_user_characters(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """List characters for a specific user (legacy endpoint)"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    current_uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    current_uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     # Users can only see their own characters unless they're admin
     if user_id != current_uid and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     async with engine.connect() as conn:
         # Get user's own characters + shared characters
         res = await conn.execute(
@@ -963,7 +1436,7 @@ async def list_user_characters(user_id: str, engine: Optional[AsyncEngine] = Dep
             .where((t_characters.c.user_id == user_id) | (t_characters.c.user_id.is_(None)))
             .order_by(t_characters.c.name)
         )
-        
+
         characters = []
         for row in res.fetchall():
             char_dict = dict(row._mapping)
@@ -972,54 +1445,55 @@ async def list_user_characters(user_id: str, engine: Optional[AsyncEngine] = Dep
             char_dict["imagePath"] = char_dict.pop("image_path", "")
             char_dict["is_shared"] = char_dict["user_id"] is None
             characters.append(char_dict)
-        
+
         return characters
 
 @app.post("/api/character")
-async def create_character_legacy(body: CharacterCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def create_character_legacy(body: CharacterCreate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Create a new character (legacy endpoint)"""
-    return await create_character(body, engine, current)
+    return await create_character(body, request, engine)
 
 @app.put("/api/character/{character_id}")
-async def update_character_legacy(character_id: str, body: CharacterUpdate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def update_character_legacy(character_id: str, body: CharacterUpdate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Update a character (legacy endpoint)"""
-    return await update_character(character_id, body, engine, current)
+    return await update_character(character_id, body, request, engine)
 
 @app.delete("/api/character/{character_id}")
-async def delete_character_legacy(character_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def delete_character_legacy(character_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Delete a character (legacy endpoint)"""
-    return await delete_character(character_id, engine, current)
+    return await delete_character(character_id, request, engine)
 
 # Character YAML endpoints for the CharacterEditor frontend
 @app.post("/api/character/yaml")
-async def create_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def create_character_yaml(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Create a new character from YAML format"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     yaml_content = body.get("yamlProfile", "")
     if not yaml_content:
         raise HTTPException(status_code=400, detail="YAML profile required")
-    
+
     try:
         import yaml
         data = yaml.safe_load(yaml_content)
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Invalid YAML format")
-        
-        # Extract character data from YAML - user from current_user_dep only
+
+        # Extract character data from YAML - user from middleware only
         name = data.get("name", "New Character")
         character_id = str(uuid.uuid4())
-        
+
         # Insert character using authenticated user ID only
         async with engine.begin() as conn:
             await conn.execute(
                 t_characters.insert(),
                 {
                     "id": character_id,
-                    "user_id": current["id"],  # Enforce server-side user ownership
+                    "user_id": u["id"],  # Enforce server-side user ownership
                     "name": name,
                     "yaml_profile": yaml_content,
                     "created_at": datetime.utcnow(),
@@ -1027,47 +1501,48 @@ async def create_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depe
                 }
             )
             await conn.commit()
-        
+
         return {"id": character_id, "name": name, "success": True}
-    
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to create character: {str(e)}")
 
 @app.put("/api/character/{character_id}/yaml")
-async def update_character_yaml(character_id: str, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def update_character_yaml(character_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Update an existing character from YAML format"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     yaml_content = body.get("yamlProfile", "")
     if not yaml_content:
         raise HTTPException(status_code=400, detail="YAML profile required")
-    
+
     try:
         import yaml
         data = yaml.safe_load(yaml_content)
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Invalid YAML format")
-        
+
         # Extract character data from YAML
         name = data.get("name", "Updated Character")
-        
+
         # Verify ownership and update character
         async with engine.begin() as conn:
             # Check ownership - critical security check
             result = await conn.execute(
                 t_characters.select().where(
-                    (t_characters.c.id == character_id) & 
-                    (t_characters.c.user_id == current["id"])  # Enforce ownership
+                    (t_characters.c.id == character_id) &
+                    (t_characters.c.user_id == u["id"])  # Enforce ownership
                 )
             )
             existing = result.fetchone()
-            
+
             if not existing:
                 raise HTTPException(status_code=404, detail="Character not found or access denied")
-            
+
             # Update the character
             await conn.execute(
                 t_characters.update().where(t_characters.c.id == character_id),
@@ -1078,42 +1553,43 @@ async def update_character_yaml(character_id: str, body: dict, engine: Optional[
                 }
             )
             await conn.commit()
-        
+
         return {"id": character_id, "name": name, "success": True}
-    
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update character: {str(e)}")
 
 @app.post("/api/character/import-yaml")
-async def import_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def import_character_yaml(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Import a character from YAML format"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     yaml_content = body.get("yaml", "")
     if not yaml_content:
         raise HTTPException(status_code=400, detail="YAML content required")
-    
+
     try:
         import yaml
         data = yaml.safe_load(yaml_content)
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Invalid YAML format")
-        
+
         # Extract character data from YAML
         name = data.get("name", "Imported Character")
-        
+
         # Build system prompt from YAML structure
         parts = []
         for field in ["description", "personality", "scenario", "instructions"]:
             value = data.get(field, "")
             if isinstance(value, str) and value.strip():
                 parts.append(value.strip())
-        
+
         system_prompt = "\n\n".join(parts) if parts else "You are a helpful AI assistant."
-        
+
         # Create character
         char_create = CharacterCreate(
             name=name,
@@ -1121,9 +1597,9 @@ async def import_character_yaml(body: dict, engine: Optional[AsyncEngine] = Depe
             image_path=None,  # Could extract from YAML if available
             is_shared=False   # Default to private
         )
-        
-        return await create_character(char_create, engine, current)
-        
+
+        return await create_character(char_create, request, engine)
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse YAML: {str(e)}")
 
@@ -1194,14 +1670,15 @@ async def _validate_agent_auth(agent_id: str, api_key: str, engine: AsyncEngine)
 
 # Agent Registration (admin-only for security)
 @app.post("/api/agents/register")
-async def register_agent(body: AgentRegistration, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def register_agent(body: AgentRegistration, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Register an external agent service (admin only)"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    require_admin(current)
+    require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     now = current_timestamp()
     async with engine.begin() as conn:
         # Use upsert - try update first, then insert
@@ -1219,7 +1696,7 @@ async def register_agent(body: AgentRegistration, engine: Optional[AsyncEngine] 
                 updated_at=now,
             )
         )
-        
+
         if res.rowcount == 0:  # type: ignore[attr-defined]
             await conn.execute(
                 agent_registry.insert().values(
@@ -1235,25 +1712,26 @@ async def register_agent(body: AgentRegistration, engine: Optional[AsyncEngine] 
                     updated_at=now,
                 )
             )
-    
+
     return {"success": True, "message": f"Agent {body.agent_id} registered successfully"}
 
 # Agent Discovery (for users to see available agents)
 @app.get("/api/agents/available")
-async def list_available_agents(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def list_available_agents(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """List all available external agents"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     async with engine.connect() as conn:
         res = await conn.execute(
             select(agent_registry)
             .where(agent_registry.c.status == "available")
             .order_by(agent_registry.c.name)
         )
-        
+
         agents = []
         for row in res.fetchall():
             agent_dict = dict(row._mapping)
@@ -1265,22 +1743,23 @@ async def list_available_agents(engine: Optional[AsyncEngine] = Depends(get_engi
             # Remove sensitive data
             agent_dict.pop("api_key", None)
             agents.append(agent_dict)
-        
+
         return agents
 
 # Task Creation (user-scoped)
 @app.post("/api/agents/tasks")
-async def create_agent_task(body: TaskCreate, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def create_agent_task(body: TaskCreate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Create a new agent task for the current user"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
+
+    uid = u.get("id")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid user authentication")
-    
+
     # Verify agent exists
     async with engine.connect() as conn:
         res = await conn.execute(
@@ -1291,11 +1770,11 @@ async def create_agent_task(body: TaskCreate, engine: Optional[AsyncEngine] = De
         )
         if not res.first():
             raise HTTPException(status_code=404, detail="Agent not found or unavailable")
-    
+
     # Create task
     task_id = str(uuid.uuid4())
     now = current_timestamp()
-    
+
     async with engine.begin() as conn:
         await conn.execute(
             agent_tasks.insert().values(
@@ -1311,28 +1790,28 @@ async def create_agent_task(body: TaskCreate, engine: Optional[AsyncEngine] = De
                 updated_at=now,
             )
         )
-    
+
     return {"task_id": task_id, "success": True}
 
-# Task Status Updates (from external agents) 
+# Task Status Updates (from external agents)
 @app.patch("/api/agents/tasks/{task_id}")
 async def update_agent_task(task_id: str, body: TaskUpdate, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Update task status (called by external agents)"""
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     # Verify agent authentication
     agent_id = request.headers.get("X-Agent-ID")
     api_key = request.headers.get("X-Agent-API-Key")
-    
+
     if not agent_id or not api_key:
         raise HTTPException(status_code=401, detail="Agent authentication required")
-    
+
     if not await _validate_agent_auth(agent_id, api_key, engine):
         raise HTTPException(status_code=403, detail="Invalid agent credentials")
-    
+
     now = current_timestamp()
-    
+
     async with engine.begin() as conn:
         # Check if task exists and verify agent assignment
         res = await conn.execute(
@@ -1341,21 +1820,21 @@ async def update_agent_task(task_id: str, body: TaskUpdate, request: Request, en
         task = res.first()
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         # Verify agent is assigned to this task
         if task.agent_id != agent_id:
             raise HTTPException(status_code=403, detail="Agent not assigned to this task")
-        
+
         # Build update values
         update_values = {"updated_at": now}
-        
+
         if body.status is not None:
             update_values["status"] = body.status
             if body.status in ("completed", "failed", "cancelled"):
                 update_values["completed_at"] = now
             elif body.status == "working" and not task.started_at:
                 update_values["started_at"] = now
-                
+
         if body.progress is not None:
             update_values["progress"] = body.progress
         if body.current_step is not None:
@@ -1366,27 +1845,28 @@ async def update_agent_task(task_id: str, body: TaskUpdate, request: Request, en
             update_values["error_message"] = body.error_message
         if body.estimated_completion is not None:
             update_values["estimated_completion"] = body.estimated_completion
-        
+
         await conn.execute(
             agent_tasks.update()
             .where(agent_tasks.c.id == task_id)
             .values(**update_values)
         )
-    
+
     return {"success": True}
 
 # User Task Management (user-scoped viewing)
 @app.get("/api/agents/tasks/my")
-async def list_my_agent_tasks(engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def list_my_agent_tasks(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """List current user's agent tasks"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.connect() as conn:
         if is_admin:
             # Admins can see all tasks
@@ -1403,7 +1883,7 @@ async def list_my_agent_tasks(engine: Optional[AsyncEngine] = Depends(get_engine
                 .where(agent_tasks.c.user_id == uid)
                 .order_by(agent_tasks.c.created_at.desc())
             )
-        
+
         tasks = []
         for row in res.fetchall():
             task_dict = dict(row._mapping)
@@ -1415,21 +1895,22 @@ async def list_my_agent_tasks(engine: Optional[AsyncEngine] = Depends(get_engine
                 task_dict["input_data"] = {}
                 task_dict["output_data"] = {}
             tasks.append(task_dict)
-        
+
         return tasks
 
 # Get specific task (user-scoped)
 @app.get("/api/agents/tasks/{task_id}")
-async def get_agent_task(task_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def get_agent_task(task_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Get a specific agent task"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.connect() as conn:
         res = await conn.execute(
             select(agent_tasks, agent_registry.c.name.label("agent_name"))
@@ -1438,16 +1919,16 @@ async def get_agent_task(task_id: str, engine: Optional[AsyncEngine] = Depends(g
             .limit(1)
         )
         row = res.first()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         task_dict = dict(row._mapping)
-        
+
         # Check permissions: users can only see their own tasks, admins can see all
         if not is_admin and task_dict["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         # Parse JSON fields
         try:
             task_dict["input_data"] = json.loads(task_dict["input_data"] or "{}")
@@ -1455,7 +1936,7 @@ async def get_agent_task(task_id: str, engine: Optional[AsyncEngine] = Depends(g
         except (json.JSONDecodeError, TypeError):
             task_dict["input_data"] = {}
             task_dict["output_data"] = {}
-        
+
         return task_dict
 
 # Results Storage (user-scoped)
@@ -1464,17 +1945,17 @@ async def create_task_result(task_id: str, body: ResultCreate, request: Request,
     """Create a result for a task (called by external agents)"""
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
+
     # Verify agent authentication
     agent_id = request.headers.get("X-Agent-ID")
     api_key = request.headers.get("X-Agent-API-Key")
-    
+
     if not agent_id or not api_key:
         raise HTTPException(status_code=401, detail="Agent authentication required")
-    
+
     if not await _validate_agent_auth(agent_id, api_key, engine):
         raise HTTPException(status_code=403, detail="Invalid agent credentials")
-    
+
     async with engine.begin() as conn:
         # Get task to verify it exists, get user_id for isolation, and verify agent assignment
         res = await conn.execute(
@@ -1485,15 +1966,15 @@ async def create_task_result(task_id: str, body: ResultCreate, request: Request,
         task = res.first()
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         # Verify agent is assigned to this task
         if task.agent_id != agent_id:
             raise HTTPException(status_code=403, detail="Agent not assigned to this task")
-        
+
         user_id = task.user_id
         result_id = str(uuid.uuid4())
         now = current_timestamp()
-        
+
         await conn.execute(
             agent_results.insert().values(
                 id=result_id,
@@ -1510,21 +1991,22 @@ async def create_task_result(task_id: str, body: ResultCreate, request: Request,
                 created_at=now,
             )
         )
-    
+
     return {"result_id": result_id, "success": True}
 
 # Get task results (user-scoped)
 @app.get("/api/agents/tasks/{task_id}/results")
-async def get_task_results(task_id: str, engine: Optional[AsyncEngine] = Depends(get_engine_dep), current=Depends(current_user_dep)):
+async def get_task_results(task_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Get results for a task (user-scoped access)"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    
-    uid = current.get("id")
-    is_admin = current.get("role") == "admin"
-    
+
+    uid = u.get("id")
+    is_admin = u.get("role") == "admin"
+
     async with engine.connect() as conn:
         # First verify user has access to this task
         res = await conn.execute(
@@ -1535,18 +2017,18 @@ async def get_task_results(task_id: str, engine: Optional[AsyncEngine] = Depends
         task = res.first()
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         # Check permissions
         if not is_admin and task.user_id != uid:
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         # Get results
         res = await conn.execute(
             select(agent_results)
             .where(agent_results.c.task_id == task_id)
             .order_by(agent_results.c.created_at.desc())
         )
-        
+
         results = []
         for row in res.fetchall():
             result_dict = dict(row._mapping)
@@ -1558,99 +2040,293 @@ async def get_task_results(task_id: str, engine: Optional[AsyncEngine] = Depends
                 result_dict["content"] = {}
                 result_dict["metadata"] = {}
             results.append(result_dict)
-        
+
         return results
 
 # ------------------------- TTS Endpoints -------------------------
 
 @app.get("/api/tts/settings")
-async def get_tts_settings(user_id: Optional[str] = Query(None), current=Depends(current_user_dep)):
-    """Get TTS settings"""
-    if not current:
+async def get_tts_settings(request: Request, user_id: Optional[str] = Query(None), db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Get TTS settings for the user, including provider and saved voice."""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    # Return default settings for now
+
+    uid = user_id or u.get("id")
+    if uid != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    provider = "fishspeech"
+    voice_id = "glados"
+
+    # Pull from chat_settings if present
+    if db is not None:
+        try:
+            async with db.connect() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+                row = res.first()
+                if row:
+                    m = row._mapping
+                    provider = (m.get("tts_provider") or provider)
+                    voice_id = (m.get("tts_voice_id") or voice_id)
+        except Exception as e:
+            print(f"get_tts_settings DB error: {e}", file=sys.stderr, flush=True)
+
+    # Providers list: mark fishspeech available if TTS proxy is healthy
+    tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
+    available = False
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{tts_url}/health")
+            available = (r.status_code == 200)
+    except Exception:
+        available = False
+
+    providers = [
+        {"id": "fishspeech", "name": "OpenAudio S1 Mini (FishSpeech)", "available": bool(available)}
+    ]
+
     return {
-        "provider": "fishspeech",
-        "voice": "glados",
-        "apiKey": ""
+        "apiKey": "",
+        "voiceId": voice_id,
+        "fishSpeechApiKey": "",
+        "ttsProvider": provider,
+        "providers": providers,
     }
 
-@app.put("/api/tts/settings")
-async def save_tts_settings(
-    user_id: str,
-    tts_provider: str, 
-    voice_id: str,
-    api_key: str,
-    current=Depends(current_user_dep)
-):
-    """Save TTS settings"""
-    if not current:
+@app.post("/api/tts/settings")
+async def save_tts_settings(request: Request, body: dict, db: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Save TTS settings for the user (provider, voiceId)."""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    # For now, just return success
+
+    uid = (body or {}).get("userId") or u.get("id")
+    if uid != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    provider = (body or {}).get("ttsProvider") or "fishspeech"
+    voice_id = (body or {}).get("voiceId") or "glados"
+
+    # Update cache
+    s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
+    s["ttsProvider"] = provider
+    s["ttsVoiceId"] = voice_id
+    _chat_settings_store[uid] = s
+
+    # Persist to DB
+    if db is not None:
+        try:
+            async with db.begin() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
+                exists = res.first() is not None
+                values = {"tts_provider": provider, "tts_voice_id": voice_id}
+                if exists:
+                    await conn.execute(t_chat_settings.update().where(t_chat_settings.c.user_id == uid).values(**values))
+                else:
+                    await conn.execute(t_chat_settings.insert().values(user_id=uid, **values))
+        except Exception as e:
+            print(f"save_tts_settings DB error: {e}", file=sys.stderr, flush=True)
+
     return {"success": True}
 
 @app.get("/api/tts/voices")
-async def get_tts_voices(provider: str = Query(...), current=Depends(current_user_dep)):
-    """Get available voices for TTS provider"""
-    if not current:
+async def get_tts_voices(request: Request, provider: str = Query(...)):
+    """Get available voices from OpenAudio S1 Mini proxy (FishSpeech)."""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if provider == "fishspeech":
-        return [
-            "glados",
-            "jazzy", 
-            "scarlet",
-            "david",
-            "sarah"
-        ]
-    elif provider == "elevenlabs":
-        return ["default"]
-    elif provider == "openai":
-        return ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
-    return ["default"]
+
+    # For now we use the FishSpeech proxy regardless of provider
+    tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
+    voices: List[str] = []
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{tts_url}/voices")
+            if r.status_code == 200:
+                data = r.json() or {}
+                voices = data.get("voices") or []
+    except Exception as e:
+        print(f"get_tts_voices error: {e}", file=sys.stderr, flush=True)
+
+    return {"voices": voices}
+
+@app.get("/api/tts/health")
+async def tts_health(request: Request):
+    """Proxy TTS proxy /health so the frontend can display GPU/CPU status.
+    Always routes through the backend to keep the frontend free of direct service calls.
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{tts_url}/health")
+            if r.status_code == 200:
+                return r.json()
+    except Exception as e:
+        print(f"tts_health error: {e}", file=sys.stderr, flush=True)
+    return {"status": "degraded"}
+
+
+@app.post("/api/tts/synthesize")
+async def tts_synthesize(request: Request, body: Optional[dict] = None):
+    """Synthesize speech using OpenAudio S1 Mini proxy.
+    - If voiceId is provided, use /tts/clone (reference voice)
+    - Otherwise, use /tts (default voice)
+    Falls back to a short WAV tone if the proxy is unavailable.
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    payload = body or {}
+    text = (payload.get("text") or payload.get("message") or "").strip()
+    provider = (payload.get("provider") or "fishspeech").lower()
+    voice_id = payload.get("voiceId") or payload.get("voice")
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
+    try:
+        from fastapi.responses import Response as _Response
+        async with httpx.AsyncClient(timeout=90) as client:
+            if provider.startswith("fish") and voice_id:
+                r = await client.post(f"{tts_url}/tts/clone", data={"text": text, "voice_name": voice_id})
+            else:
+                r = await client.post(f"{tts_url}/tts", data={"text": text})
+            if r.status_code == 200 and r.content:
+                ctype = r.headers.get("content-type", "audio/wav")
+                return _Response(content=r.content, media_type=ctype)
+    except Exception as e:
+        print(f"tts_synthesize proxy error: {e}", file=sys.stderr, flush=True)
+
+    # Fallback: generate a 0.25s 440Hz sine wave WAV so the UI can complete successfully.
+    import io, math, struct
+    sample_rate = 22050
+    duration_s = 0.25
+    freq = 440.0
+    num_samples = int(sample_rate * duration_s)
+    wav = io.BytesIO()
+    byte_rate = sample_rate * 2
+    block_align = 2
+    data_bytes = num_samples * 2
+    wav.write(b"RIFF")
+    wav.write(struct.pack('<I', 36 + data_bytes))
+    wav.write(b"WAVEfmt ")
+    wav.write(struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, byte_rate, block_align, 16))
+    wav.write(b"data")
+    wav.write(struct.pack('<I', data_bytes))
+    for n in range(num_samples):
+        t = n / sample_rate
+        val = int(32767 * 0.2 * math.sin(2 * math.pi * freq * t))
+        wav.write(struct.pack('<h', val))
+    audio_bytes = wav.getvalue()
+    from fastapi.responses import Response as _Response
+    return _Response(content=audio_bytes, media_type="audio/wav")
 
 # ------------------------- Memory Endpoints -------------------------
 
 @app.get("/api/memory/{user_id}")
-async def get_memory(user_id: str, current=Depends(current_user_dep)):
+async def get_memory(user_id: str, request: Request):
     """Get memory for user"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
     return {"memories": [], "count": 0}
 
 @app.get("/api/memorysyncstatus/status/{user_id}")
-async def get_memory_sync_status(user_id: str, current=Depends(current_user_dep)):
+async def get_memory_sync_status(user_id: str, request: Request):
     """Get memory sync status"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
     return {"status": "synced", "lastSync": "2024-01-01T00:00:00Z"}
 
 # ------------------------- Upload Endpoints -------------------------
 
 @app.get("/api/upload/documents")
-async def get_uploaded_documents(current=Depends(current_user_dep)):
+async def get_uploaded_documents(request: Request):
     """Get uploaded documents"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     return {"documents": []}
 
 @app.post("/api/upload/documents")
-async def upload_document(file: UploadFile = File(...), current=Depends(current_user_dep)):
+async def upload_document(request: Request, file: UploadFile = File(...)):
     """Upload a document"""
-    if not current:
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     return {"filename": file.filename, "success": True}
 
 # ------------------------- Settings Endpoints -------------------------
 
 @app.get("/api/settings/connections")
-async def get_connection_settings(user_id: str = Query(...), current=Depends(current_user_dep)):
-    """Get connection settings"""
-    if not current:
+async def get_connection_settings(request: Request, userId: Optional[str] = Query(None), user_id: Optional[str] = Query(None), engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Get per-user connection settings. User is derived from auth; optional userId/user_id allowed for admin."""
+    u = getattr(request.state, "user", None)
+    if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return {
+    uid = u.get("id")
+    requested = userId or user_id or uid
+    if requested != uid and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    defaults = {
+        "OpenAiApiKey": None,
+        "ClaudeApiKey": None,
+        "ClaudeApiUrl": None,
         "OllamaApiUrl": "http://localhost:11434",
-        "LmStudioApiUrl": "http://localhost:1234", 
-        "VllmApiUrl": "http://localhost:8000"
+        "LmStudioApiUrl": "http://localhost:1234",
+        "EnableStreaming": True,
     }
+
+    # Prefer cache; fall back to DB if available
+    data = _connections_store.get(requested)
+    if not data and engine is not None:
+        try:
+            async with engine.connect() as conn:
+                res = await conn.execute(select(t_conn_settings).where(t_conn_settings.c.user_id == requested).limit(1))
+                row = res.first()
+                if row:
+                    data = dict(row._mapping)
+        except Exception:
+            data = None
+
+    result = {**defaults, **(data or {})}
+    return result
+
+@app.put("/api/settings/connections")
+async def put_connection_settings(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Upsert per-user connection settings from authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    allowed = {"OpenAiApiKey","ClaudeApiKey","ClaudeApiUrl","OllamaApiUrl","LmStudioApiUrl","EnableStreaming","TtsGpu","SttGpu"}
+    values = {k: v for k, v in (body or {}).items() if k in allowed}
+
+    # Update cache
+    existing = dict(_connections_store.get(uid, {}))
+    existing.update(values)
+    existing["user_id"] = uid
+    _connections_store[uid] = existing
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            res = await conn.execute(t_conn_settings.update().where(t_conn_settings.c.user_id == uid).values(**values))
+            # If no row updated, insert
+            if getattr(res, "rowcount", 0) == 0:
+                await conn.execute(t_conn_settings.insert().values(user_id=uid, **values))
+    return {"success": True}
 
 # This ends the main.py file - all imports and endpoints are complete
