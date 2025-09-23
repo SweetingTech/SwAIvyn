@@ -100,28 +100,27 @@ For the complete SwAIvyn experience without Docker complexity:
 # - .\stop-bare-metal.ps1 (created by setup)
 ```
 
-#### Option 2: Development (Docker + Host Services)
+#### Option 2: Hybrid Development (Recommended for Local Development)
 
-SwAIvyn includes comprehensive development scripts that handle both Docker containers and non-Docker services:
+SwAIvyn uses a hybrid architecture for optimal development experience:
 
-**1. Quick Start - Full Development Environment**
+**🎯 Hybrid Architecture Benefits:**
+- **Hot Reload**: Frontend, Backend, and Orchestrator run on host for instant code changes
+- **Infrastructure Stability**: Databases and services run in Docker containers
+- **Best of Both**: Development speed + production-like infrastructure
 
-Start everything with a single command:
-
+**Quick Start:**
 ```powershell
-# Start all Docker containers + non-Docker services
+# Start hybrid development environment
 .\dev-run.ps1
 
-# Stop everything cleanly
+# Stop everything cleanly  
 .\dev-shutdown.ps1
 ```
 
-**2. Development Options**
-
-The dev-run script supports various configurations:
-
+**Development Options:**
 ```powershell
-# Frontend only (React/Vite)
+# Frontend only (React/Vite hot reload)
 .\dev-run.ps1 -FrontendOnly
 
 # Backend only (FastAPI + Docker infrastructure)
@@ -129,30 +128,22 @@ The dev-run script supports various configurations:
 
 # Disable Traefik routing (use direct ports)
 .\dev-run.ps1 -DisableTraefik
-
-# Complete shutdown with container removal
-.\dev-shutdown.ps1 -DownCompose
-
-# Aggressive cleanup (prune networks and system)
-.\dev-shutdown.ps1 -Aggressive
 ```
 
-**What the Development Scripts Handle:**
+**🏠 Host Services (Hot Reload):**
+- **Frontend** (React/Vite) - http://localhost:5173 (local) / :5000 (Replit)
+- **Backend/BFF** (FastAPI) - http://localhost:5000 (local) / :8000 (Replit)
+- **Orchestrator** (Temporal worker) - runs in background
 
-**Docker Containers Started:**
-- PostgreSQL database (swai-db) - localhost:5432
-- Temporal workflow service - localhost:7233  
-- Qdrant vector database - localhost:6333
-- Neo4j graph database - localhost:7474/7687
-- Fish Speech TTS service - localhost:8081
-- Speech-to-Text (Whisper) - localhost:9000
-- 11Labs TTS adapter - localhost:8082
-- Traefik reverse proxy - localhost:80
-
-**Non-Docker Services Started:**
-- Frontend (React/Vite) - localhost:5173 (local dev) / localhost:5000 (Replit)
-- Backend BFF (FastAPI) - localhost:8000
-- Orchestrator (Temporal worker)
+**🐳 Docker Infrastructure Services:**
+- **PostgreSQL** database - localhost:5432
+- **Temporal** workflow service - localhost:7233  
+- **Qdrant** vector database - localhost:6333
+- **Neo4j** graph database - localhost:7474/7687
+- **Fish Speech TTS** - localhost:8081
+- **Whisper STT** - localhost:9000
+- **ElevenLabs adapter** - localhost:8082
+- **Traefik** reverse proxy - localhost:80
 
 **Key Features:**
 ✅ **One-Command Setup** - Start everything with `.\dev-run.ps1`
@@ -165,7 +156,7 @@ The dev-run script supports various configurations:
 
 **Available URLs:**
 - **Frontend**: http://localhost:5173 (local) / http://localhost:5000 (Replit) or http://app.localhost:80
-- **Backend API**: http://localhost:8000 or http://bff.localhost:80
+- **Backend API**: http://localhost:5000 (local) / http://localhost:8000 (Replit) or http://bff.localhost:80
 - **Traefik Dashboard**: http://traefik.localhost:80 (local development only)
 - **Infrastructure Services**:
   - Qdrant Vector DB: http://qdrant.localhost:80
@@ -245,7 +236,7 @@ npm run build
 During development, both the frontend (Vite) and backend (FastAPI) can be reached from other devices on your LAN.
 
 - Frontend: `http://<your-pc-ip>:5173` (local dev) / `http://<your-pc-ip>:5000` (Replit)
-- Backend (optional direct access): `http://<your-pc-ip>:8000`
+- Backend: `http://<your-pc-ip>:5000` (local dev) / `http://<your-pc-ip>:8000` (Replit)
 
 Already configured in this repo:
 - Vite binds to `0.0.0.0` so LAN clients can connect (see `frontend/vite.config.ts`).
@@ -254,8 +245,13 @@ Already configured in this repo:
 Windows Firewall (PowerShell as Administrator):
 
 ```
-netsh advfirewall firewall add rule name="SwAIvyn Frontend" dir=in action=allow protocol=TCP localport=5000
-netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow protocol=TCP localport=8000
+# For local development
+netsh advfirewall firewall add rule name="SwAIvyn Frontend" dir=in action=allow protocol=TCP localport=5173
+netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow protocol=TCP localport=5000
+
+# For Replit-style deployment  
+netsh advfirewall firewall add rule name="SwAIvyn Frontend Replit" dir=in action=allow protocol=TCP localport=5000
+netsh advfirewall firewall add rule name="SwAIvyn Backend Replit" dir=in action=allow protocol=TCP localport=8000
 ```
 
 ## 🔧 Recent Improvements (September 2025)
@@ -273,11 +269,11 @@ netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow p
 - **Comprehensive auth audit** ensuring all API calls include proper JWT headers
 - **Multi-user support verified** for all users (admin, mari, djay)
 
-### 🔀 Docker Swarm Stability Fixes
+### 🔀 Hybrid Development Architecture
+- **Optimized development workflow** with host services (Frontend, Backend, Orchestrator) for hot reload
+- **Docker infrastructure services** for databases and AI services providing production-like environment
 - **Fixed Temporal configuration** removing problematic BIND_ON_IP environment overrides that caused hangs
 - **Improved service startup reliability** with proper health checks and dependency ordering
-- **Updated docker-stack.yml** with correct load balancer configurations
-- **Restored service discovery** through Traefik for proper Docker Swarm deployment
 
 ### 🖥️ Environment Detection & Dashboard
 - **Smart environment detection** (Replit vs localhost vs production)
@@ -296,6 +292,12 @@ netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow p
 - **Consolidated documentation** with consistent kebab-case naming conventions  
 - **Scripts folder cleanup** with redundant files moved to old-scripts archive
 - **Comprehensive setup guides** for bare metal, Docker, and cloud deployments
+
+## 🚧 Known Architecture Notes
+
+- **SignalR Frontend Code**: The frontend contains `useChatHub.ts` with Microsoft SignalR client code, but the FastAPI backend does not implement corresponding SignalR hubs. This appears to be leftover from an earlier .NET architecture or planned future feature.
+- **Current Communication**: All real-time updates use REST API polling rather than WebSocket/SignalR connections.
+- **Development Ports**: Local development uses Frontend :5173 + Backend :5000; Replit/cloud environments use Frontend :5000 + Backend :8000.
 
 ## 🧩 Features in Detail
 
@@ -432,11 +434,11 @@ SwAIvyn features a flexible architecture supporting multiple deployment scenario
 - Simplified networking without containerization overhead
 - Ports: Frontend (5000), Backend (8000), PostgreSQL (5432), Neo4j (7474), etc.
 
-**🐳 Docker Swarm (Cross-platform)**
-- Container orchestration with Traefik routing
-- Infrastructure services (databases, AI services) in containers
-- Health checks and service discovery
-- Suitable for complex multi-environment deployments
+**🐳 Hybrid Development (Cross-platform)**
+- Host services (Frontend :5173, Backend :5000, Orchestrator) for hot reload
+- Docker infrastructure (databases, TTS, Traefik) for stability
+- Best development experience with production-like infrastructure
+- Automatic service orchestration and health monitoring
 
 **☁️ Cloud Development (Replit/etc)**
 - Simplified 2-service architecture (Frontend + Backend + Managed DB)

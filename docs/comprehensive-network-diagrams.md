@@ -118,7 +118,7 @@ graph TB
     class TRAEFIK,DOCKER,BARE_METAL infra
 ```
 
-## 🔄 Complete Data Flow Architecture
+## 🔄 Hybrid Development Architecture
 
 ```mermaid
 flowchart TD
@@ -127,120 +127,63 @@ flowchart TD
         BROWSER[Web Browser]
     end
     
-    subgraph "Presentation Layer"
-        UI[React Components]
-        STATE[Zustand Store]
-        HOOKS[Custom Hooks]
-        AUTH_HOOK[useEffectiveUser Hook]
+    subgraph "Host Services (Hot Reload)"
+        FRONTEND[Frontend - React/Vite :5173]
+        BFF[Backend/BFF - FastAPI :5000]
+        ORCHESTRATOR[Orchestrator - Temporal Worker]
     end
     
-    subgraph "API Layer"
-        REST[REST API Endpoints]
-        MIDDLEWARE[FastAPI Middleware]
-        VALIDATION[Request Validation]
+    subgraph "Docker Infrastructure"
+        TRAEFIK[Traefik Proxy :80]
+        TTS[TTS Services :8081]
+        POSTGRES[(PostgreSQL :5432)]
+        NEO4J[(Neo4j :7474)]
+        QDRANT[(Qdrant :6333)]
+        TEMPORAL[Temporal Server :7233]
+        ELEVENLABS[ElevenLabs Adapter :8082]
+        WHISPER[Whisper STT :9000]
     end
     
-    subgraph "Business Logic Layer"
-        AUTH_SERVICE[Authentication Service]
-        CHAT_SERVICE[Chat Service]
-        CHARACTER_SERVICE[Character Service]
-        AGENT_SERVICE[Agent Service]
-        USER_SERVICE[User Service]
-        MEMORY_SERVICE[Memory Service]
-    end
-    
-    subgraph "Data Processing Layer"
-        WORKFLOW_ENGINE[Temporal Workflows]
-        LLM_ORCHESTRATOR[LLM Orchestrator]
-        TTS_PROCESSOR[TTS Processor]
-        VECTOR_PROCESSOR[Vector Processor]
-        MEMORY_PROCESSOR[Memory Processor]
-    end
-    
-    subgraph "External Integration Layer"
-        LLM_APIS[LLM APIs]
-        TTS_APIS[TTS APIs]
+    subgraph "External Services"
+        LLM_APIS[LLM APIs - Ollama/OpenAI/Claude]
         EXTERNAL_AGENTS[External Agents]
-        WEBHOOKS[Webhook Handlers]
     end
     
-    subgraph "Data Storage Layer"
-        USER_DATA[(User & Auth Data)]
-        CHAT_DATA[(Conversations)]
-        VECTOR_DATA[(Vector Embeddings)]
-        GRAPH_DATA[(Memory Relationships)]
-        FILE_DATA[(File Storage)]
-    end
-    
-    %% Data Flow Connections
+    %% Client connections
     U --> BROWSER
-    BROWSER --> UI
-    UI --> STATE
-    UI --> HOOKS
-    HOOKS --> AUTH_HOOK
+    BROWSER --> FRONTEND
+    BROWSER --> TRAEFIK
     
-    STATE --> REST
-    HOOKS --> REST
-    AUTH_HOOK --> REST
+    %% Host service connections
+    FRONTEND --> BFF
+    BFF --> POSTGRES
+    BFF --> NEO4J  
+    BFF --> QDRANT
+    BFF --> TEMPORAL
+    ORCHESTRATOR --> TEMPORAL
+    ORCHESTRATOR --> LLM_APIS
     
-    REST --> MIDDLEWARE
-    MIDDLEWARE --> VALIDATION
-    VALIDATION --> AUTH_SERVICE
-    VALIDATION --> CHAT_SERVICE
-    VALIDATION --> CHARACTER_SERVICE
-    VALIDATION --> AGENT_SERVICE
-    VALIDATION --> USER_SERVICE
-    VALIDATION --> MEMORY_SERVICE
-    
-    CHAT_SERVICE --> WORKFLOW_ENGINE
-    WORKFLOW_ENGINE --> LLM_ORCHESTRATOR
-    LLM_ORCHESTRATOR --> LLM_APIS
-    
-    CHAT_SERVICE --> TTS_PROCESSOR
-    TTS_PROCESSOR --> TTS_APIS
-    
-    MEMORY_SERVICE --> VECTOR_PROCESSOR
-    VECTOR_PROCESSOR --> VECTOR_DATA
-    
-    MEMORY_SERVICE --> MEMORY_PROCESSOR
-    MEMORY_PROCESSOR --> GRAPH_DATA
-    
-    AGENT_SERVICE --> EXTERNAL_AGENTS
-    EXTERNAL_AGENTS --> WEBHOOKS
-    
-    AUTH_SERVICE --> USER_DATA
-    CHAT_SERVICE --> CHAT_DATA
-    CHARACTER_SERVICE --> CHAT_DATA
-    USER_SERVICE --> USER_DATA
-    MEMORY_SERVICE --> FILE_DATA
-    
-    %% Return flows
-    USER_DATA --> AUTH_SERVICE
-    CHAT_DATA --> CHAT_SERVICE
-    VECTOR_DATA --> MEMORY_SERVICE
-    GRAPH_DATA --> MEMORY_SERVICE
-    FILE_DATA --> MEMORY_SERVICE
-    
-    LLM_APIS --> LLM_ORCHESTRATOR
-    TTS_APIS --> TTS_PROCESSOR
-    EXTERNAL_AGENTS --> AGENT_SERVICE
+    %% Docker infrastructure connections
+    TRAEFIK --> FRONTEND
+    TRAEFIK --> BFF
+    TRAEFIK --> TTS
+    TRAEFIK --> NEO4J
+    TRAEFIK --> QDRANT
+    BFF --> TTS
+    BFF --> ELEVENLABS
+    BFF --> WHISPER
+    ORCHESTRATOR --> EXTERNAL_AGENTS
     
     %% Styling
-    classDef client fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef presentation fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef api fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    classDef business fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef processing fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef external fill:#f1f8e9,stroke:#689f38,stroke-width:2px
-    classDef storage fill:#fafafa,stroke:#616161,stroke-width:2px
+    classDef host fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef docker fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef external fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef client fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     
+    class FRONTEND,BFF,ORCHESTRATOR host
+    class TRAEFIK,TTS,POSTGRES,NEO4J,QDRANT,TEMPORAL,ELEVENLABS,WHISPER docker
+    class LLM_APIS,EXTERNAL_AGENTS external
     class U,BROWSER client
-    class UI,STATE,HOOKS,AUTH_HOOK presentation
-    class REST,MIDDLEWARE,VALIDATION api
-    class AUTH_SERVICE,CHAT_SERVICE,CHARACTER_SERVICE,AGENT_SERVICE,USER_SERVICE,MEMORY_SERVICE business
-    class WORKFLOW_ENGINE,LLM_ORCHESTRATOR,TTS_PROCESSOR,VECTOR_PROCESSOR,MEMORY_PROCESSOR processing
-    class LLM_APIS,TTS_APIS,EXTERNAL_AGENTS,WEBHOOKS external
-    class USER_DATA,CHAT_DATA,VECTOR_DATA,GRAPH_DATA,FILE_DATA storage
 ```
 
 ## 📊 Complete API Call Flow Diagram
@@ -365,30 +308,34 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    subgraph "Bare Metal Windows Deployment"
-        BM_USER[User] --> BM_FE[Frontend :5000]
-        BM_USER --> BM_BE[Backend :8000]
-        BM_FE --> BM_BE
-        BM_BE --> BM_PG[(PostgreSQL :5432)]
-        BM_BE --> BM_NEO[(Neo4j :7474)]
-        BM_BE --> BM_QD[(Qdrant :6333)]
-        BM_BE --> BM_TEMP[Temporal :7233]
-        BM_BE --> BM_TTS[Fish TTS :8081]
-        BM_TEMP --> BM_ORCH[Orchestrator]
-        BM_ORCH --> BM_LLM[LLM Services]
+    subgraph "Hybrid Development (Local)"
+        HD_USER[User] --> HD_FE[Frontend Host :5173]
+        HD_USER --> HD_TRAEFIK[Traefik Docker :80]
+        HD_FE --> HD_BE[Backend Host :5000]
+        HD_TRAEFIK --> HD_FE
+        HD_TRAEFIK --> HD_BE
+        HD_BE --> HD_PG[(PostgreSQL Docker :5432)]
+        HD_BE --> HD_NEO[(Neo4j Docker :7474)]
+        HD_BE --> HD_QD[(Qdrant Docker :6333)]
+        HD_BE --> HD_TEMP[Temporal Docker :7233]
+        HD_BE --> HD_TTS[TTS Docker :8081]
+        HD_TEMP --> HD_ORCH[Orchestrator Host]
+        HD_ORCH --> HD_LLM[External LLM Services]
+        Note over HD_USER,HD_LLM: Apps on host for hot reload, infrastructure in Docker
     end
     
-    subgraph "Docker Swarm Deployment"
-        DS_USER[User] --> DS_TRAEFIK[Traefik :80]
-        DS_TRAEFIK --> DS_FE[Frontend Container]
-        DS_TRAEFIK --> DS_BE[Backend Container]
-        DS_BE --> DS_PG[(PostgreSQL Container)]
-        DS_BE --> DS_NEO[(Neo4j Container)]
-        DS_BE --> DS_QD[(Qdrant Container)]
-        DS_BE --> DS_TEMP[Temporal Container]
-        DS_BE --> DS_TTS[TTS Container]
-        DS_TEMP --> DS_ORCH[Orchestrator Container]
-        DS_ORCH --> DS_LLM[External LLM Services]
+    subgraph "Bare Metal Windows Deployment"
+        BM_USER[User] --> BM_FE[Frontend Native :5000]
+        BM_USER --> BM_BE[Backend Native :8000]
+        BM_FE --> BM_BE
+        BM_BE --> BM_PG[(PostgreSQL Native :5432)]
+        BM_BE --> BM_NEO[(Neo4j Native :7474)]
+        BM_BE --> BM_QD[(Qdrant Native :6333)]
+        BM_BE --> BM_TEMP[Temporal Native :7233]
+        BM_BE --> BM_TTS[Fish TTS Native :8081]
+        BM_TEMP --> BM_ORCH[Orchestrator Native]
+        BM_ORCH --> BM_LLM[LLM Services]
+        Note over BM_USER,BM_LLM: All services run natively without containers
     end
     
     subgraph "Cloud Development (Replit)"
@@ -396,8 +343,7 @@ graph TB
         CD_FE --> CD_BE[Backend :8000]
         CD_BE --> CD_PG[(Managed PostgreSQL)]
         CD_BE --> CD_LLM[External LLM APIs]
-        
-    Note over CD_USER,CD_LLM: Simplified cloud deployment with core services only
+        Note over CD_USER,CD_LLM: Simplified deployment - core services only
     end
     
     %% Styling
@@ -543,19 +489,23 @@ flowchart TD
 
 ## 📋 Summary
 
-These comprehensive diagrams provide a complete view of SwAIvyn's architecture including:
+These comprehensive diagrams provide a complete view of SwAIvyn's hybrid architecture including:
 
-1. **System Architecture Overview** - High-level component relationships
-2. **Complete Data Flow** - End-to-end data processing flow
-3. **API Call Flow** - Detailed request/response patterns for all major operations
-4. **Deployment Comparison** - Architecture differences across deployment types
-5. **Frontend State Flow** - Client-side authentication and navigation flow
-6. **Real-time Communication** - WebSocket and streaming interactions
-7. **Performance Monitoring** - System health and metrics collection
+1. **Hybrid Development Architecture** - Host services (hot reload) + Docker infrastructure
+2. **Complete API Call Flow** - REST endpoint patterns based on actual FastAPI routes
+3. **Deployment Architecture Comparison** - Local hybrid vs bare metal vs cloud deployment
+4. **Frontend Authentication State Flow** - Client-side authentication and navigation
+5. **Status Polling Flow** - Real-time dashboard updates via polling
+6. **Performance Monitoring** - System health and metrics collection
+
+## 🚧 Known Architecture Notes
+
+- **SignalR Frontend Code**: The frontend contains `useChatHub.ts` with SignalR client code, but no corresponding SignalR hubs exist in the FastAPI backend. This appears to be leftover from earlier architecture or planned future feature.
+- **Current Communication**: All real-time updates use REST API polling rather than WebSocket/SignalR connections.
+- **Port Mapping**: Local development uses Frontend :5173 + Backend :5000; Replit/cloud uses Frontend :5000 + Backend :8000.
 
 These diagrams serve as a reference for:
-- **Developers** understanding the system architecture
-- **DevOps** planning deployments and scaling
+- **Developers** understanding the actual hybrid system architecture
+- **DevOps** planning deployments and scaling strategies
 - **Troubleshooting** system issues and performance bottlenecks
 - **Integration** planning for external agents and services
-- **Documentation** for comprehensive system understanding
