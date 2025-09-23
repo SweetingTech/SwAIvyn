@@ -12,3 +12,4 @@ PyJWT==2.9.0
 PyYAML==6.0.1
 python-multipart==0.0.20
 alembic==1.13.2
+prometheus-client==0.20.0

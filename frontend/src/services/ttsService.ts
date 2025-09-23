@@ -37,6 +37,12 @@ interface UploadVoiceRequest {
   voiceName: string;
 }
 
+interface SynthesizeRequestPayload {
+  text: string;
+  userId?: string;
+  voiceId?: string;
+}
+
 const ttsService = {
   /**
    * Fetch TTS settings including provider information.
@@ -72,7 +78,7 @@ const ttsService = {
    * Returns an audio Blob.
    */
   async synthesize(text: string, userId?: string, voiceId?: string): Promise<Blob> {
-    const payload: any = { text };
+    const payload: SynthesizeRequestPayload = { text };
     if (userId) payload.userId = userId;
     if (voiceId) payload.voiceId = voiceId;
 

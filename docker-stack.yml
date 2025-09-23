@@ -200,6 +200,8 @@ services:
       - VISIBILITY_DBNAME=temporal_visibility
       # Ensure Temporal advertises a reachable address inside the overlay network
       - SERVICES__FRONTEND__PUBLIC_CLIENT__HOSTPORT=temporal:7233
+      - SERVICES__FRONTEND__BIND_ON_IP=0.0.0.0
+      - TEMPORAL_BROADCAST_ADDRESS=temporal
     networks:
       - default
     ports:

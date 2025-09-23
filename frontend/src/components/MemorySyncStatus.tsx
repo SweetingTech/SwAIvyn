@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import { motion } from 'framer-motion';
 import { Database, RefreshCw, AlertCircle, CheckCircle, Wrench, Info } from 'lucide-react';
+import { createPrefixedLogger } from '../utils/logger';
 
 interface SyncStatus {
   userId: string;
@@ -60,6 +61,8 @@ interface MemorySyncStatusProps {
   userId: string;
 }
 
+const syncLogger = createPrefixedLogger('MemorySync');
+
 const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
   const eff = useEffectiveUser();
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -77,10 +80,12 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
         const data = await response.json();
         setSyncStatus(data);
       } else {
-        console.error('Failed to load sync status:', response.statusText);
+        syncLogger.warn('Failed to load sync status', { statusText: response.statusText });
       }
     } catch (error) {
-      console.error('Error loading sync status:', error);
+      syncLogger.error('Error loading sync status', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setLoading(false);
     }
@@ -97,10 +102,12 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
         // Refresh sync status after repair
         await loadSyncStatus();
       } else {
-        console.error('Failed to repair memories:', response.statusText);
+        syncLogger.warn('Failed to repair memories', { statusText: response.statusText });
       }
     } catch (error) {
-      console.error('Error repairing memories:', error);
+      syncLogger.error('Error repairing memories', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setFullSyncing(false);
     }
@@ -117,10 +124,12 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
         setFullSyncResult(data);
         setSyncStatus(data.finalStatus);
       } else {
-        console.error('Failed to perform full sync:', response.statusText);
+        syncLogger.warn('Failed to perform full sync', { statusText: response.statusText });
       }
     } catch (error) {
-      console.error('Error performing full sync:', error);
+      syncLogger.error('Error performing full sync', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setFullSyncing(false);
     }

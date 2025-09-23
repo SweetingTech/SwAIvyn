@@ -24,6 +24,7 @@ import useEffectiveUser from '../hooks/useEffectiveUser';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ttsService from '../services/ttsService';
 import { useNavigate } from 'react-router-dom';
+import { createPrefixedLogger } from '../utils/logger';
 
 interface SystemStatus {
   llmEngine: string;
@@ -36,6 +37,8 @@ interface SystemStatus {
   uptime: string;
   lastActivity: string;
 }
+
+const dashboardLogger = createPrefixedLogger('Dashboard');
 
 const DashboardPage = () => {
   const { user } = useInitialization();
@@ -85,7 +88,7 @@ const DashboardPage = () => {
 
   const loadSystemStatus = async () => {
     try {
-      console.log('🔍 Dashboard: Loading system status...');
+      dashboardLogger.info('Loading system status');
 
       const uid = eff.userId ? encodeURIComponent(eff.userId) : '';
       const url = uid ? `/api/dashboard/status?userId=${uid}` : '/api/dashboard/status';
@@ -93,7 +96,7 @@ const DashboardPage = () => {
 
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
-        console.log('🔍 Dashboard: Status data received:', statusData);
+        dashboardLogger.debug('Status data received', { statusData });
         setAgents(statusData.agents || { running: [], completed: 0, failed: 0, pending: 0 });
         setSystemStatus({
           llmEngine: statusData.llm?.engine || 'Unknown',
@@ -107,10 +110,12 @@ const DashboardPage = () => {
           lastActivity: new Date().toLocaleTimeString()
         });
       } else {
-        console.error('🔍 Dashboard: Failed to load status');
+        dashboardLogger.warn('Failed to load status', { status: statusResponse.status });
       }
     } catch (error) {
-      console.error('Error loading system status:', error);
+      dashboardLogger.error('Error loading system status', {
+        error: error instanceof Error ? error.message : String(error),
+      });
 
       // Set default values on error
       setSystemStatus({
@@ -566,7 +571,9 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
       const voices = await ttsService.getVoices(settings.ttsProvider || 'elevenlabs', userId);
       setAvailableVoices(voices);
     } catch (error) {
-      console.error('Failed to load voice settings:', error);
+      dashboardLogger.error('Failed to load voice settings', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Set fallback values
       setVoiceSettings({
         provider: 'elevenlabs',
@@ -591,7 +598,9 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
         setVoiceSettings(prev => ({ ...prev, voice: voices[0] }));
       }
     } catch (error) {
-      console.error('Failed to load voices for provider:', error);
+      dashboardLogger.error('Failed to load voices for provider', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       setAvailableVoices(['default']);
       setVoiceSettings(prev => ({ ...prev, voice: 'default' }));
     }
@@ -618,7 +627,9 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
-      console.error('Failed to save voice settings:', error);
+      dashboardLogger.error('Failed to save voice settings', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setSaving(false);
     }

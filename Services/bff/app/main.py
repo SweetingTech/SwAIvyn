@@ -9,6 +9,7 @@ import json
 import ipaddress
 import urllib.parse
 import uuid
+import time
 from typing import Optional, Dict, Any, List, Mapping, Set
 
 import httpx
@@ -22,10 +23,11 @@ from fastapi import (
     Response,
     Request,
     Depends,
+    status,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from temporalio.client import Client
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -35,6 +37,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+import logging
+from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
 
 # Local imports
 from .auth import create_access_token, verify_password, get_current_user, require_admin, JWT_SECRET  # JWT_SECRET may be unused if WS disabled
@@ -52,15 +56,94 @@ from .models import (
     agent_tasks,
     agent_results,
 )
+from .config import SETTINGS
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        reserved = {
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+        }
+        for key, value in record.__dict__.items():
+            if key not in reserved and not key.startswith("_"):
+                payload[key] = value
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload)
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(JsonFormatter())
+
+logger = logging.getLogger("swai.bff")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    logger.addHandler(_handler)
+    logger.propagate = False
+
+
+REQUEST_COUNT = Counter(
+    "swai_requests_total",
+    "Total HTTP requests",
+    labelnames=("method", "endpoint", "status"),
+)
+REQUEST_LATENCY = Histogram(
+    "swai_request_duration_seconds",
+    "Latency for HTTP requests",
+    labelnames=("endpoint",),
+)
+
+
+def _error_payload(message: str, code: str = "error", details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"error": {"code": code, "message": message}}
+    if details is not None:
+        payload["error"]["details"] = details
+    return payload
+
+
+def _extract_error(detail: Any) -> tuple[str, str, Optional[Dict[str, Any]]]:
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or detail.get("error") or "error")
+        message = str(detail.get("message") or detail.get("detail") or "Request failed")
+        extra = detail.get("details") if isinstance(detail.get("details"), dict) else None
+        return code, message, extra
+    if isinstance(detail, str):
+        return "error", detail, None
+    return "error", "Request failed", None
 
 # ------------------------- Config -------------------------
 
-TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
-ENABLE_TEMPORAL = os.getenv("ENABLE_TEMPORAL", "false").lower() == "true"
+TEMPORAL_HOST = SETTINGS.temporal_host
+ENABLE_TEMPORAL = SETTINGS.enable_temporal
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234")
-DATABASE_URL = os.getenv("DATABASE_URL")
-UPLOADS_DIR = os.getenv("UPLOADS_DIR", "./wwwroot/uploads")
+DATABASE_URL = SETTINGS.database_url
+UPLOADS_DIR = str(SETTINGS.uploads_dir)
 CHAR_UPLOADS_DIR = os.path.join(UPLOADS_DIR, "characters")
 WORKERS_ORCH_URL = os.getenv("WORKERS_ORCH_URL", os.getenv("ORCHESTRATOR_URL", "http://localhost:8000"))
 WORKERS_ORCH_BASE = WORKERS_ORCH_URL.rstrip("/")
@@ -175,7 +258,10 @@ async def _connect_with_retry(addr: str) -> Client:
         try:
             return await Client.connect(addr)
         except Exception as e:
-            print(f"Temporal connect failed (attempt {attempt}) to {addr}: {e}", file=sys.stderr, flush=True)
+            logger.warning(
+                "Temporal connect failed",
+                extra={"attempt": attempt, "target": addr, "error": str(e)},
+            )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 5)
 
@@ -189,11 +275,26 @@ async def _ensure_temporal_connected():
 app = FastAPI(title="SwAIvyn BFF", version="0.1.0")
 os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
 
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+    code, message, details = _extract_error(exc.detail)
+    return JSONResponse(status_code=exc.status_code, content=_error_payload(message, code, details))
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled application error", exc_info=exc)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=_error_payload("Internal server error", "internal_error"),
+    )
+
 # ------------------------- Security Middleware -------------------------
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """Global authentication middleware to secure all API endpoints"""
-    
+
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         
@@ -234,6 +335,21 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         
         return await call_next(request)
 
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration = time.perf_counter() - start
+        endpoint = request.url.path
+        try:
+            REQUEST_COUNT.labels(request.method, endpoint, str(response.status_code)).inc()
+            REQUEST_LATENCY.labels(endpoint).observe(duration)
+        except Exception:
+            # Metrics must never break request handling
+            pass
+        return response
+
 try:
     frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
     if os.path.exists(frontend_dist):
@@ -241,19 +357,28 @@ try:
 except Exception:
     pass
 
+# Metrics should wrap all downstream middleware
+app.add_middleware(MetricsMiddleware)
 # Add authentication middleware FIRST (before CORS)
 app.add_middleware(AuthenticationMiddleware)
 
 # Fix CORS configuration for security
+_DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+configured_origins = SETTINGS.allow_origins or []
+allow_origins = configured_origins or _DEFAULT_ALLOWED_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5000",
-        "http://127.0.0.1:5000",
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:5173",
-    ],
-    allow_origin_regex=r"^https?://[a-zA-Z0-9\-]+\.replit\.dev$" if os.getenv("REPLIT_DEV_DOMAIN") else None,
+    allow_origins=allow_origins,
+    allow_origin_regex=(
+        r"^https?://[a-zA-Z0-9\-]+\.replit\.dev$" if os.getenv("REPLIT_DEV_DOMAIN") else None
+    ),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Agent-ID", "X-Agent-API-Key"],
@@ -276,9 +401,9 @@ async def _startup_db_seed():
             _engine = create_engine()
             if _engine is not None:
                 await ensure_seed(_engine)
-                print("DB ready and users seeded", flush=True)
+                logger.info("DB ready and users seeded")
         except Exception as e:
-            print(f"DB init/seed failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("DB init/seed failed", exc_info=e)
 
 @app.on_event("startup")
 async def _startup_load_connection_settings():
@@ -292,9 +417,12 @@ async def _startup_load_connection_settings():
                     m = row._mapping
                     uid = m["user_id"]
                     _connections_store[uid] = m
-                print(f"Loaded connection settings for {len(rows)} users into cache.", flush=True)
+                logger.info(
+                    "Loaded connection settings",
+                    extra={"user_count": len(rows)},
+                )
         except Exception as e:
-            print(f"Failed to pre-load connection settings: {e}", file=sys.stderr, flush=True)
+            logger.exception("Failed to pre-load connection settings", exc_info=e)
 
 @app.on_event("startup")
 async def _startup_fix_admin_role():
@@ -306,7 +434,7 @@ async def _startup_fix_admin_role():
                     users.update().where(users.c.id == "admin").values(role="admin")
                 )
         except Exception as e:
-            print(f"Admin role fix failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("Admin role fix failed", exc_info=e)
 
 # ------------------------- Health -------------------------
 
@@ -317,6 +445,12 @@ async def healthz():
 @app.get("/readyz")
 async def readyz():
     return {"status": "ready", "temporal": ("connected" if _temporal_client is not None else "connecting")}
+
+
+@app.get("/metrics")
+async def metrics():
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/api/healthz")
 async def api_healthz():
@@ -423,19 +557,31 @@ async def get_chat_settings(user_id: str, current=Depends(current_user_dep)):
     """Chat settings endpoint that frontend calls"""
     if not current:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     # Return default chat settings
     settings = _chat_settings_store.get(user_id, _default_chat_settings(user_id))
     return settings
 
+
+class ChatSettingsUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    llmEngine: Optional[str] = Field(default=None, alias="llmEngine")
+    llmModel: Optional[str] = Field(default=None, alias="llmModel")
+    ttsProvider: Optional[str] = Field(default=None, alias="ttsProvider")
+    ttsVoiceId: Optional[str] = Field(default=None, alias="ttsVoiceId")
+    enabledEngines: Optional[Dict[str, bool]] = Field(default=None, alias="enabledEngines")
+    engineModels: Optional[Dict[str, Any]] = Field(default=None, alias="engineModels")
+
+
 @app.put("/api/chat/settings/{user_id}")
-async def update_chat_settings(user_id: str, settings: dict, current=Depends(current_user_dep)):
+async def update_chat_settings(user_id: str, settings: ChatSettingsUpdate, current=Depends(current_user_dep)):
     """Update chat settings endpoint that frontend calls"""
     if not current:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     # Store chat settings in memory for now
-    _chat_settings_store[user_id] = settings
+    _chat_settings_store[user_id] = settings.model_dump(by_alias=True, exclude_none=True)
     return {"success": True}
 
 @app.get("/api/llm/models")
@@ -697,7 +843,7 @@ def _merge_chat_settings_from_db_row(row_map: Dict[str, Any]) -> Dict[str, Any]:
                 parsed = json.loads(value)
                 return parsed if isinstance(parsed, dict) else default
             except (json.JSONDecodeError, TypeError):
-                print(f"Failed to parse JSON: {value!r}", file=sys.stderr, flush=True)
+            logger.warning("Failed to parse JSON value", extra={"value": value})
                 return default
         return default
 
@@ -730,7 +876,7 @@ async def get_llm_settings(current=Depends(current_user_dep), engine: Optional[A
                         "model": (m.get("llm_model") or os.getenv("LLM_MODEL", "llama3")),
                     }
         except Exception as e:
-            print(f"Database read failed in get_llm_settings: {e}", file=sys.stderr, flush=True)
+            logger.exception("Database read failed in get_llm_settings", exc_info=e)
 
     s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
     return {"engine": s.get("llmEngine", "ollama"), "model": s.get("llmModel", os.getenv("LLM_MODEL", "llama3"))}

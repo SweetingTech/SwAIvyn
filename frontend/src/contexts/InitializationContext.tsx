@@ -7,6 +7,7 @@ import React, {
   ReactNode,
 } from 'react';
 import fetchWithRetry from '../utils/fetchWithRetry';
+import { createPrefixedLogger } from '../utils/logger';
 import { useAuth } from './AuthContext';
 
 interface User {
@@ -28,6 +29,7 @@ interface InitializationContextType extends InitializationState {
 }
 
 const InitializationContext = createContext<InitializationContextType | undefined>(undefined);
+const initLogger = createPrefixedLogger('Initialization');
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useInitialization = () => {
@@ -139,8 +141,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       if (settingsResponse && (settingsResponse as Response).ok) {
         try {
           const settings = await (settingsResponse as Response).json();
-          // eslint-disable-next-line no-console
-          console.log('Settings loaded:', settings);
+          initLogger.debug('Settings loaded', { settings });
         } catch {
           // ignore parse issues
         }
@@ -149,8 +150,9 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       if (charactersResponse && (charactersResponse as Response).ok) {
         try {
           const characters = await (charactersResponse as Response).json();
-          // eslint-disable-next-line no-console
-          console.log('Characters loaded:', Array.isArray(characters) ? characters.length : 'n/a');
+          initLogger.debug('Characters loaded', {
+            count: Array.isArray(characters) ? characters.length : 'unknown',
+          });
         } catch {
           // ignore parse issues
         }
@@ -159,15 +161,15 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       // Step 3: done
       safeSetState({ currentStep: 'Initialization complete!', isInitialized: true, isLoading: false });
       safeSetAttempt('');
-      // eslint-disable-next-line no-console
-      console.log('Application initialization completed successfully');
+      initLogger.info('Application initialization completed successfully');
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message :
         typeof err === 'string' ? err :
         'Initialization failed';
-      // eslint-disable-next-line no-console
-      console.error('Initialization failed:', err);
+      initLogger.error('Initialization failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       safeSetState({
         error: message,
         isLoading: false,

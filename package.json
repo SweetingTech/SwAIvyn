@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "@microsoft/signalr": "^8.0.7",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
     "framer-motion": "^12.12.1",

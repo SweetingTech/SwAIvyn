@@ -20,6 +20,8 @@ services:
         condition: service_started
     networks:
       - swai-network
+    ports:
+      - "9000:9000"
     restart: unless-stopped
     profiles: ["orchestrator"]
 
@@ -33,6 +35,9 @@ services:
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=temporal
       - POSTGRES_SEEDS=swai-db
+      - SERVICES__FRONTEND__BIND_ON_IP=0.0.0.0
+      - SERVICES__FRONTEND__PUBLIC_CLIENT__HOSTPORT=temporal:7233
+      - TEMPORAL_BROADCAST_ADDRESS=temporal
     ports:
       - "7233:7233"
     networks:

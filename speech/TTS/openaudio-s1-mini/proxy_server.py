@@ -47,6 +47,18 @@ async def health():
     return {"status": "ok" if ok else "degraded", "upstream": up}
 
 
+@app.get("/ready")
+async def ready():
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            resp = await client.get(f"{UPSTREAM_TTS}/health")
+            if resp.status_code == 200:
+                return {"status": "ready"}
+            return {"status": "degraded", "upstream": resp.status_code}
+    except Exception:
+        return {"status": "starting", "upstream": "unreachable"}
+
+
 def _extract_names_from_upstream_payload(payload: Any) -> List[str]:
     names: List[str] = []
     try:

@@ -1,4 +1,11 @@
-# SwAIvyn Database Implementation Plan
+# SwAIvyn Database Implementation Plan (Archived)
+
+> [!IMPORTANT]
+> The project now ships with a PostgreSQL schema managed via SQLAlchemy and Alembic.
+> This document has been retained for historical context around the original
+> single-user SQLite prototype. Refer to `docs/postgres-schema.md` for the
+> authoritative description of the current production database layout and setup
+> workflow.
 
 ## Design Goals & Constraints
 

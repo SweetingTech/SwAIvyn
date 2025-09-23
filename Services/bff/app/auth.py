@@ -12,14 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .models import users
+from .config import SETTINGS
 
 
-JWT_SECRET = os.getenv("JWT_SECRET")
-if not JWT_SECRET:
-    import secrets
-    import warnings
-    warnings.warn("JWT_SECRET environment variable not set! Using generated secret. Set JWT_SECRET for production.")
-    JWT_SECRET = secrets.token_urlsafe(32)
+JWT_SECRET = SETTINGS.jwt_secret
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "60"))
 
 

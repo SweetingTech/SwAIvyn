@@ -1,3 +1,7 @@
+import { createPrefixedLogger } from './logger';
+
+const ttsLogger = createPrefixedLogger('TTS');
+
 export async function playTts(blob: Blob): Promise<void> {
   try {
     const url = URL.createObjectURL(blob);
@@ -14,7 +18,9 @@ export async function playTts(blob: Blob): Promise<void> {
 
     await audio.play();
   } catch (err) {
-    console.error('Error playing TTS:', err);
+    ttsLogger.error('Error playing TTS', {
+      error: err instanceof Error ? err.message : String(err),
+    });
     alert('Failed to play audio.');
   }
 }
