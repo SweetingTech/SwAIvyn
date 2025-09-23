@@ -86,17 +86,18 @@ For the complete SwAIvyn experience without Docker complexity:
 
 **Access Your Application:**
 - **Frontend**: http://localhost:5000
-- **Backend API**: http://localhost:6000
+- **Backend API**: http://localhost:8000
 - **Neo4j Browser**: http://localhost:7474
 - **Vector Database**: http://localhost:6333
 
 **Service Management:**
 ```powershell
-# Start all services
-.\start-bare-metal.ps1
+# Setup creates service management scripts
+.\scripts\setup-bare-metal.ps1 -InstallDependencies
 
-# Stop all services  
-.\stop-bare-metal.ps1
+# Generated scripts will be available after setup:
+# - .\start-bare-metal.ps1 (created by setup)
+# - .\stop-bare-metal.ps1 (created by setup)
 ```
 
 #### Option 2: Development (Docker + Host Services)
@@ -429,7 +430,7 @@ SwAIvyn features a flexible architecture supporting multiple deployment scenario
 - Native Windows services with Chocolatey dependency management
 - Direct process execution for optimal performance
 - Simplified networking without containerization overhead
-- Ideal for production and development on Windows systems
+- Ports: Frontend (5000), Backend (8000), PostgreSQL (5432), Neo4j (7474), etc.
 
 **🐳 Docker Swarm (Cross-platform)**
 - Container orchestration with Traefik routing
