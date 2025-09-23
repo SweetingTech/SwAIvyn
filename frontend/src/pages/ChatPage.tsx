@@ -687,71 +687,7 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  /* ---------------------------------------------------------------------- */
-  /*  Voice recording and STT functionality                                */
-  /* ---------------------------------------------------------------------- */
-
-  const startRecording = useCallback(async () => {
-    if (!sttEnabled) return;
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recordingChunks.current = [];
-      
-      const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordingChunks.current.push(event.data);
-        }
-      };
-      
-      recorder.onstop = async () => {
-        const audioBlob = new Blob(recordingChunks.current, { type: 'audio/webm' });
-        stream.getTracks().forEach(track => track.stop());
-        
-        try {
-          console.log('🎤 Transcribing audio...');
-          const transcription = await transcribeAudio(audioBlob);
-          if (transcription.trim()) {
-            setInputText(prev => prev + (prev ? ' ' : '') + transcription);
-          }
-          setNotice('Voice transcribed successfully');
-          setTimeout(() => setNotice(''), 2000);
-        } catch (error) {
-          console.error('Transcription failed:', error);
-          setNotice('Voice transcription failed');
-          setTimeout(() => setNotice(''), 2000);
-        }
-      };
-      
-      setMediaRecorder(recorder);
-      recorder.start();
-      setIsRecording(true);
-      
-      console.log('🎤 Recording started...');
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      setNotice('Microphone access denied');
-      setTimeout(() => setNotice(''), 2000);
-    }
-  }, [sttEnabled]);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-      setMediaRecorder(null);
-      setIsRecording(false);
-      console.log('🎤 Recording stopped...');
-    }
-  }, [mediaRecorder]);
-
-  const toggleRecording = useCallback(() => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  }, [isRecording, startRecording, stopRecording]);
+  /* Voice recording functions removed - moved to settings */
 
   /* ---------------------------------------------------------------------- */
   /*  Handle "remember this" command                                        */
@@ -1292,46 +1228,24 @@ const ChatPage: React.FC = () => {
               
               {/* Action buttons - Touch-friendly */}
               <div className="flex items-center gap-1 sm:gap-2">
-                {/* File upload - Hidden on small mobile, visible on larger screens */}
+                {/* File upload - Main upload button */}
                 <button 
                   type="button" 
-                  className="hidden sm:flex p-2 sm:p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors touch-manipulation"
+                  className="p-2 sm:p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors touch-manipulation"
                   onClick={() => fileInputRef.current?.click()}
                   title="Upload file"
                 >
                   <Paperclip size={18} />
                 </button>
                 
-                {/* Camera - Hidden on small mobile, visible on larger screens */}
+                {/* Camera - Single camera button (not implemented) */}
                 <button 
                   type="button" 
-                  className="hidden sm:flex p-2 sm:p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors touch-manipulation"
-                  title="Camera"
+                  className="p-2 sm:p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors touch-manipulation"
+                  title="Camera (coming soon)"
+                  disabled={true}
                 >
                   <Camera size={18} />
-                </button>
-                
-                {/* Voice recording - Visible on all sizes */}
-                <button 
-                  type="button" 
-                  onClick={toggleRecording}
-                  disabled={!sttEnabled || isLoading}
-                  className={`p-3 sm:p-2 rounded-full transition-all touch-manipulation ${
-                    isRecording
-                      ? 'bg-red-100 text-red-600 border border-red-300 animate-pulse'
-                      : sttEnabled
-                      ? 'text-green-600 hover:bg-green-50 border border-transparent hover:border-green-200'
-                      : 'text-gray-400 cursor-not-allowed'
-                  }`}
-                  title={
-                    !sttEnabled 
-                      ? 'Enable Speech-to-Text to use voice input' 
-                      : isRecording 
-                      ? 'Stop recording' 
-                      : 'Start voice recording'
-                  }
-                >
-                  <Mic size={18} />
                 </button>
                 
                 {/* Send button - Prominently displayed */}
@@ -1346,26 +1260,6 @@ const ChatPage: React.FC = () => {
               </div>
             </div>
             
-            {/* Mobile-only quick actions row */}
-            <div className="flex sm:hidden items-center justify-center gap-4 mt-3 pt-2 border-t border-gray-100">
-              <button 
-                type="button" 
-                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
-                onClick={() => fileInputRef.current?.click()}
-                title="Upload file"
-              >
-                <Paperclip size={16} />
-                <span>File</span>
-              </button>
-              <button 
-                type="button" 
-                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
-                title="Camera"
-              >
-                <Camera size={16} />
-                <span>Photo</span>
-              </button>
-            </div>
           </form>
         </div>
 
@@ -1380,22 +1274,16 @@ const ChatPage: React.FC = () => {
             <BrainExplorer />
 
             <div className="p-4 space-y-4">
+              {/* File Management UI will go here */}
               <div>
                 <h3 className="text-sm font-medium">Files</h3>
                 <p className="text-sm text-gray-500">
-                  Drag and drop files here to upload
+                  Uploaded files and embeddings
                 </p>
-                <button className="btn btn-ghost w-full mt-2 border-dashed" onClick={() => fileInputRef.current?.click()}>
-                  <Paperclip size={16} className="mr-2" />
-                  Upload Files
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost w-full mt-2"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip size={16} className="mr-2" /> Choose Files…
-                </button>
+                {/* File management component will be added here */}
+                <div className="mt-2 text-sm text-gray-400">
+                  Use the paperclip button in chat to upload files
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1420,24 +1308,6 @@ const ChatPage: React.FC = () => {
                     }
                   }}
                 />
-              </div>
-
-              <div>
-                <h3 className="text-sm font-medium">Voice</h3>
-                <p className="text-sm text-gray-500">Record a voice message</p>
-                <button className="btn btn-ghost w-full mt-2 border-dashed">
-                  <Mic size={16} className="mr-2" />
-                  Start Recording
-                </button>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-medium">Camera</h3>
-                <p className="text-sm text-gray-500">Take a photo or video</p>
-                <button className="btn btn-ghost w-full mt-2 border-dashed">
-                  <Camera size={16} className="mr-2" />
-                  Open Camera
-                </button>
               </div>
             </div>
           </div>
@@ -1467,43 +1337,16 @@ const ChatPage: React.FC = () => {
                 <BrainExplorer />
 
                 <div className="p-4 space-y-4">
+                  {/* File Management UI will go here */}
                   <div>
                     <h3 className="text-sm font-medium">Files</h3>
                     <p className="text-sm text-gray-500">
-                      Drag and drop files here to upload
+                      Uploaded files and embeddings
                     </p>
-                    <button 
-                      className="btn btn-ghost w-full mt-2 border-dashed touch-manipulation" 
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Paperclip size={16} className="mr-2" />
-                      Upload Files
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost w-full mt-2 touch-manipulation"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Paperclip size={16} className="mr-2" /> Choose Files…
-                    </button>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-medium">Voice</h3>
-                    <p className="text-sm text-gray-500">Record a voice message</p>
-                    <button className="btn btn-ghost w-full mt-2 border-dashed touch-manipulation">
-                      <Mic size={16} className="mr-2" />
-                      Start Recording
-                    </button>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-medium">Camera</h3>
-                    <p className="text-sm text-gray-500">Take a photo or video</p>
-                    <button className="btn btn-ghost w-full mt-2 border-dashed touch-manipulation">
-                      <Camera size={16} className="mr-2" />
-                      Open Camera
-                    </button>
+                    {/* File management component will be added here */}
+                    <div className="mt-2 text-sm text-gray-400">
+                      Use the paperclip button in chat to upload files
+                    </div>
                   </div>
                 </div>
               </div>
