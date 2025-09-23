@@ -8,12 +8,14 @@
 
 ### 1. **SignalR Frontend Code Without Backend Implementation**
 - **Issue**: `frontend/src/hooks/useChatHub.ts` contains Microsoft SignalR client code but FastAPI backend has no corresponding SignalR hubs
-- **Impact**: Dead code that could cause runtime errors if accidentally invoked; misleading for developers
-- **Fix**: Either remove `useChatHub.ts` and related imports OR implement SignalR hubs in FastAPI backend
+- **Impact**: **ACTUALLY LOW IMPACT** - Dead code but NOT used in main ChatPage; chat uses REST API calls instead
+- **Status**: **Safe to remove** - `useChatHub` is not imported or used in the main chat functionality
+- **Fix**: Remove `useChatHub.ts` and related imports since they're unused dead code
 - **Locations**:
   - `frontend/src/hooks/useChatHub.ts:6` - exports `useChatHub()` function with SignalR implementation
   - `frontend/src/hooks/useChatHub.ts:22,33,46,50,53,62` - console.error/log statements for SignalR events
   - `frontend/src/components/chat/ChatInput.tsx:11` - comment mentions "integration with SignalR chat hub"
+- **Verified**: `ChatPage.tsx` does NOT import or use `useChatHub` - uses REST API calls instead
 
 ### 2. **React Router Future Flag Warnings**
 - **Issue**: Browser console shows warnings about React Router v7 migration flags
@@ -163,7 +165,17 @@
 - **Fix**: Audit React components for performance issues
 - **Tools**: Use React DevTools Profiler, implement memoization where appropriate
 
-### 18. **Missing Loading States**
+### 18. **File Upload Features Need Documentation**
+- **Issue**: Chat page has extensive file upload functionality that's not well documented
+- **Status**: **ACTUALLY IMPLEMENTED** - Upload features exist but may need documentation
+- **Locations**: 
+  - `frontend/src/pages/ChatPage.tsx:95` - `fileInputRef` for file input handling
+  - `frontend/src/pages/ChatPage.tsx:1299,1354,1388,1395,1477,1485` - Multiple upload buttons with Paperclip icons
+  - `frontend/src/pages/ChatPage.tsx:1404-1414` - File upload handling with FormData to `/api/upload/files`
+  - `frontend/src/pages/ChatPage.tsx:1386,1473` - Drag and drop zones in UI
+- **Fix**: Document the upload workflow and ensure backend `/api/upload/files` endpoint is properly implemented
+
+### 19. **Missing Loading States**
 - **Issue**: Some API calls don't show loading indicators
 - **Impact**: Poor user experience during slow network conditions
 - **Fix**: Add loading states to all async operations
@@ -173,19 +185,19 @@
 
 ## 🔐 **Security Considerations**
 
-### 19. **JWT Token Security**
+### 20. **JWT Token Security**
 - **Issue**: JWT tokens may not have proper expiration handling
 - **Impact**: Security risk if tokens are compromised
 - **Fix**: Implement proper token refresh logic and secure storage
 - **Review**: Audit JWT expiration times and refresh token implementation
 
-### 20. **CORS Configuration**
+### 21. **CORS Configuration**
 - **Issue**: CORS settings may be too permissive for production
 - **Impact**: Potential security vulnerabilities in production deployment
 - **Fix**: Review CORS configuration and tighten for production environments
 - **Files**: FastAPI CORS middleware configuration
 
-### 21. **Input Validation**
+### 22. **Input Validation**
 - **Issue**: API endpoints may lack comprehensive input validation
 - **Impact**: Potential security vulnerabilities and data integrity issues
 - **Fix**: Audit all API endpoints for proper input validation and sanitization
@@ -195,13 +207,13 @@
 
 ## 📊 **Monitoring & Observability**
 
-### 22. **Missing Metrics Collection**
+### 23. **Missing Metrics Collection**
 - **Issue**: No system metrics or performance monitoring
 - **Impact**: Difficult to identify performance bottlenecks and system issues
 - **Fix**: Implement basic metrics collection for key system indicators
 - **Metrics**: API response times, database query performance, memory usage
 
-### 23. **Log Aggregation**
+### 24. **Log Aggregation**
 - **Issue**: Logs scattered across multiple services without centralization
 - **Impact**: Difficult to debug issues spanning multiple services
 - **Fix**: Consider centralized logging solution for production deployments
@@ -211,13 +223,13 @@
 
 ## 🚀 **Development Experience**
 
-### 24. **Pre-commit Hooks**
+### 25. **Pre-commit Hooks**
 - **Issue**: No automated code quality checks before commits
 - **Impact**: Code quality issues make it into the repository
 - **Fix**: Implement pre-commit hooks for linting, formatting, and basic tests
 - **Tools**: `husky`, `lint-staged`, `prettier`, `eslint`
 
-### 25. **Development Documentation**
+### 26. **Development Documentation**
 - **Issue**: Missing developer onboarding documentation
 - **Impact**: Difficult for new contributors to get started
 - **Fix**: Create CONTRIBUTING.md with development workflow and coding standards
@@ -228,7 +240,7 @@
 ## 📝 **Action Priority Matrix**
 
 ### **Fix This Week**
-1. Remove SignalR dead code (#1) - `useChatHub.ts:6` and `ChatInput.tsx:11`
+1. ~~Remove SignalR dead code (#1)~~ - **LOW PRIORITY** - Not used in main chat, safe dead code
 2. Fix React Router warnings (#2) - Add future flags to router config
 3. Implement Error Boundaries (#7) - Create `ErrorBoundary.tsx` component
 
