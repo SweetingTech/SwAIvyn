@@ -60,11 +60,46 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 - **Python 3.11+** with pip
 - **Node.js** (v18+) and npm
 - **PostgreSQL** database (local or hosted)
-- **Docker** (optional, for infrastructure services)
+- **Docker** (recommended for full stack, optional for simplified deployment)
 
 ### Installation
 
-#### Development (Recommended)
+#### Option 1: Bare Metal Installation (Windows) 🆕
+
+For the complete SwAIvyn experience without Docker complexity:
+
+**Complete Setup (One Command)**
+```powershell
+# Install all dependencies and start entire stack
+.\scripts\setup-bare-metal.ps1 -InstallDependencies
+
+# Start all services after setup
+.\start-bare-metal.ps1
+```
+
+**What You Get:**
+- ✅ **All Services Running Natively**: PostgreSQL, Neo4j, Qdrant, Temporal, TTS, Frontend, Backend
+- ✅ **No Docker Overhead**: Direct Windows performance
+- ✅ **Simple Management**: Easy start/stop scripts
+- ✅ **Process Tracking**: Clean service management and monitoring
+- ✅ **Custom Configuration**: All services optimized for local deployment
+
+**Access Your Application:**
+- **Frontend**: http://localhost:5000
+- **Backend API**: http://localhost:6000
+- **Neo4j Browser**: http://localhost:7474
+- **Vector Database**: http://localhost:6333
+
+**Service Management:**
+```powershell
+# Start all services
+.\start-bare-metal.ps1
+
+# Stop all services  
+.\stop-bare-metal.ps1
+```
+
+#### Option 2: Development (Docker + Host Services)
 
 SwAIvyn includes comprehensive development scripts that handle both Docker containers and non-Docker services:
 
@@ -224,17 +259,24 @@ netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow p
 
 ## 🔧 Recent Improvements (September 2025)
 
+### 🖥️ Bare Metal Deployment Support 🆕
+- **Complete Windows setup script** for Docker-free deployment with automatic dependency installation
+- **Native service orchestration** managing 15+ services without containers
+- **Optimized performance** with direct Windows process execution
+- **Simplified deployment** with one-command setup and easy service management
+- **Production-ready configuration** for PostgreSQL, Neo4j, Qdrant, Temporal, and TTS services
+
 ### 🛡️ Authentication Consistency
 - **Fixed authentication bugs** where characters/agents showed on dashboard but not in settings/chat pages
 - **Unified authentication pattern** across all frontend pages using `useEffectiveUser()` hook
 - **Comprehensive auth audit** ensuring all API calls include proper JWT headers
 - **Multi-user support verified** for all users (admin, mari, djay)
 
-### 🔀 Docker Swarm Routing Fixes
-- **Fixed Traefik routing** to match actual service ports (backend:8000, frontend:5000)
+### 🔀 Docker Swarm Stability Fixes
+- **Fixed Temporal configuration** removing problematic BIND_ON_IP environment overrides that caused hangs
+- **Improved service startup reliability** with proper health checks and dependency ordering
 - **Updated docker-stack.yml** with correct load balancer configurations
 - **Restored service discovery** through Traefik for proper Docker Swarm deployment
-- **Fixed CORS configuration** to support both local development and cloud environments
 
 ### 🖥️ Environment Detection & Dashboard
 - **Smart environment detection** (Replit vs localhost vs production)
@@ -247,6 +289,12 @@ netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow p
 - **Port binding** properly configured for cloud development constraints
 - **CORS enhancement** supporting both `*.repl.co` and localhost origins
 - **Development workflow** streamlined for both local and cloud environments
+
+### 📚 Documentation & Organization
+- **Agent Stack Integration Guide** (800+ lines) with complete technical specifications
+- **Consolidated documentation** with consistent kebab-case naming conventions  
+- **Scripts folder cleanup** with redundant files moved to old-scripts archive
+- **Comprehensive setup guides** for bare metal, Docker, and cloud deployments
 
 ## 🧩 Features in Detail
 
@@ -366,14 +414,33 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 
 ## 💻 Technical Architecture
 
-SwAIvyn architecture has been significantly improved with recent updates:
+SwAIvyn features a flexible architecture supporting multiple deployment scenarios:
 
 - **Backend**: FastAPI (Python) with async PostgreSQL database and robust authentication
 - **Frontend**: React 18 with TypeScript, Vite, and consistent authentication patterns
 - **Authentication**: JWT tokens with bcrypt password hashing and proper user data isolation
 - **Status Polling**: Efficient polling-based status updates with environment detection
 - **External Agents**: Multi-tenant agent registry with user isolation and secure API keys
-- **Infrastructure**: Docker Swarm with Traefik routing and environment-adaptive deployment
+- **Infrastructure**: Multi-deployment support (Docker Swarm, bare metal Windows, cloud environments)
+
+### Deployment Architectures
+
+**🖥️ Bare Metal (Windows)**
+- Native Windows services with Chocolatey dependency management
+- Direct process execution for optimal performance
+- Simplified networking without containerization overhead
+- Ideal for production and development on Windows systems
+
+**🐳 Docker Swarm (Cross-platform)**
+- Container orchestration with Traefik routing
+- Infrastructure services (databases, AI services) in containers
+- Health checks and service discovery
+- Suitable for complex multi-environment deployments
+
+**☁️ Cloud Development (Replit/etc)**
+- Simplified 2-service architecture (Frontend + Backend + Managed DB)
+- Automatic environment detection and configuration
+- Optimized for development and prototyping
 
 ### Per‑User LLM Dataflow
 
@@ -562,4 +629,4 @@ SwAIvyn uses a hybrid development approach: application services (BFF, Orchestra
 .\dev-shutdown.ps1 -DownCompose -Prune
 ```
 
-See `docs/HYBRID_DEV.md` for details, `docs/BARE_METAL.md` for a container‑free deployment guide, and `docs/DATAFLOW.md` for architecture diagrams.
+See `docs/hybrid-development.md` for details, `docs/bare-metal-deployment.md` for a container‑free deployment guide, and `docs/architecture-and-dataflow.md` for architecture diagrams.
