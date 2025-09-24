@@ -96,6 +96,8 @@ function AppContent() {
             <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
             <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
           </Route>
+          {/* Redirect any stray /login navigations for authenticated users */}
+          <Route path="/login" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
     </ErrorBoundary>
