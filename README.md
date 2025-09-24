@@ -295,9 +295,28 @@ netsh advfirewall firewall add rule name="SwAIvyn Backend Replit" dir=in action=
 
 ## 🚧 Known Architecture Notes
 
-- **SignalR Frontend Code**: The frontend contains `useChatHub.ts` with Microsoft SignalR client code, but the FastAPI backend does not implement corresponding SignalR hubs. This appears to be leftover from an earlier .NET architecture or planned future feature.
-- **Current Communication**: All real-time updates use REST API polling rather than WebSocket/SignalR connections.
+- **SignalR Frontend Code Removed**: Earlier SignalR client remnants have been deleted, and the frontend now exclusively uses REST APIs for chat updates.
+- **Current Communication**: All real-time updates rely on REST API polling rather than WebSocket/SignalR connections.
 - **Development Ports**: Local development uses Frontend :5173 + Backend :5000; Replit/cloud environments use Frontend :5000 + Backend :8000.
+
+## 🧾 Required Environment Variables
+
+### FastAPI BFF
+
+- `DATABASE_URL` – PostgreSQL connection string used for all persistence.
+- `JWT_SECRET` – Secret key for signing and verifying access tokens.
+- `ALLOWED_ORIGINS` *(optional)* – Comma-delimited list of origins allowed via CORS. Defaults to common localhost ports for development.
+
+### Temporal Orchestrator Worker
+
+- `TEMPORAL_HOST` – Temporal frontend host:port that the worker connects to.
+- `ACTIVITY_THREADS` *(optional)* – Number of worker threads for activities (must be a positive integer, defaults to 8).
+- `ORCHESTRATOR_HEALTH_PORT` *(optional)* – Port for the worker health endpoint (defaults to 8088).
+
+### Frontend (Vite)
+
+- `VITE_API_BASE_URL` – Base URL for the BFF API. Required in production builds; optional during development where Vite proxying is used.
+- `VITE_STAGEWISE_ENABLED` *(optional)* – Enable the Stagewise toolbar integration when set to `true`.
 
 ## 🧩 Features in Detail
 
@@ -481,16 +500,14 @@ Authorization: users can modify/read only their settings/conversations; admin ca
 
 See `docs/EXTERNAL_AGENT_GUIDE.md` for basic integration and `docs/AGENT_STACK_INTEGRATION.md` for comprehensive technical specifications.
 
-### SQLite VSS Integration
+### PostgreSQL Data Layer
 
-The application uses SQLite VSS for efficient vector similarity search:
+The FastAPI backend stores authentication, character, and conversation data in PostgreSQL via SQLAlchemy:
 
-- Pre-built DLL file located in the `assets` directory
-- Test project in `TestSqliteVssProject` for verifying VSS functionality
-- PowerShell build scripts for customized builds
-- Ensure `VectorServerAvailable` is set to `true` in `appsettings.json`
-
-When deploying to a new system, copy the `sqlite-vss.dll` file to `assets` directory before building.
+- `DATABASE_URL` controls the connection string (see environment variable section above).
+- Development scripts spin up PostgreSQL 16 containers alongside Temporal and other infra services.
+- Alembic/seed utilities initialize baseline users and settings during application startup.
+- Vector and memory services integrate through dedicated workers; no SQLite components remain in the active stack.
 
 ## 📄 License
 

@@ -1,5 +1,6 @@
 // src/services/agentService.ts
 import axios from "axios";
+import { env } from "../config/env";
 
 export interface Agent {
   id: string;
@@ -30,10 +31,8 @@ export interface AgentCatalogItem {
   file_path?: string;
 }
 
-// Base URL for the BFF API. Default to relative so Vite proxy handles it in dev.
-// If VITE_API_BASE_URL is provided (e.g., full http URL), it will be used.
-const rawBase = (import.meta as any)?.env?.VITE_API_BASE_URL || '';
-const API_BASE = typeof rawBase === 'string' ? rawBase.replace(/\/$/, '') : '';
+// Base URL for the BFF API. Defaults to relative path during development.
+const API_BASE = env.apiBaseUrl;
 
 /**
  * Fetch all agents from SwAIvyn backend

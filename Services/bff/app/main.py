@@ -4,11 +4,11 @@
 
 import os
 import asyncio
-import sys
 import json
 import ipaddress
 import urllib.parse
 import uuid
+import logging
 from typing import Optional, Dict, Any, List, Mapping, Set
 
 import httpx
@@ -48,7 +48,19 @@ from .models import (
     agent_results,
 )
 
-# ------------------------- Config -------------------------
+# ------------------------- Logging & Config -------------------------
+
+logging.basicConfig(
+    level=os.getenv("BFF_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("swai.bff")
+
+# Required environment variables for startup validation (name -> description)
+REQUIRED_ENV_VARS: Mapping[str, str] = {
+    "DATABASE_URL": "PostgreSQL connection string",
+    "JWT_SECRET": "Secret used to sign authentication tokens",
+}
 
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
 ENABLE_TEMPORAL = os.getenv("ENABLE_TEMPORAL", "false").lower() == "true"
@@ -59,8 +71,37 @@ UPLOADS_DIR = os.getenv("UPLOADS_DIR", "./wwwroot/uploads")
 CHAR_UPLOADS_DIR = os.path.join(UPLOADS_DIR, "characters")
 WORKERS_ORCH_URL = os.getenv("WORKERS_ORCH_URL", os.getenv("ORCHESTRATOR_URL", "http://localhost:8000"))
 WORKERS_ORCH_BASE = WORKERS_ORCH_URL.rstrip("/")
+DEFAULT_DEV_ORIGINS = [
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 # ------------------------- Globals -------------------------
+
+
+def _validate_required_env_vars(required: Mapping[str, str]) -> None:
+    missing = [name for name, _ in required.items() if not os.getenv(name)]
+    if missing:
+        for name in missing:
+            logger.critical(
+                "Missing required environment variable %s (%s)",
+                name,
+                required[name],
+            )
+        raise RuntimeError(
+            "Missing required environment variables: " + ", ".join(missing)
+        )
+
+
+def _load_allowed_origins() -> List[str]:
+    raw = os.getenv("ALLOWED_ORIGINS")
+    if raw:
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+        if origins:
+            return origins
+    return DEFAULT_DEV_ORIGINS
 
 _temporal_client: Optional[Client] = None
 _engine: Optional[AsyncEngine] = None
@@ -164,7 +205,12 @@ async def _connect_with_retry(addr: str) -> Client:
         try:
             return await Client.connect(addr)
         except Exception as e:
-            print(f"Temporal connect failed (attempt {attempt}) to {addr}: {e}", file=sys.stderr, flush=True)
+            logger.warning(
+                "Temporal connect failed (attempt %s) to %s: %s",
+                attempt,
+                addr,
+                e,
+            )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 5)
 
@@ -232,12 +278,7 @@ app.add_middleware(AuthenticationMiddleware)
 # Fix CORS configuration for security
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5000",
-        "http://127.0.0.1:5000",
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=_load_allowed_origins(),
     allow_origin_regex=r"^https?://[a-zA-Z0-9\-]+\.replit\.dev$" if os.getenv("REPLIT_DEV_DOMAIN") else None,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -245,6 +286,12 @@ app.add_middleware(
 )
 
 # ------------------------- Startup -------------------------
+
+
+@app.on_event("startup")
+async def _startup_validate_env() -> None:
+    _validate_required_env_vars(REQUIRED_ENV_VARS)
+
 
 @app.on_event("startup")
 async def _startup_connect_temporal():
@@ -261,9 +308,9 @@ async def _startup_db_seed():
             _engine = create_engine()
             if _engine is not None:
                 await ensure_seed(_engine)
-                print("DB ready and users seeded", flush=True)
+                logger.info("Database ready and seed complete")
         except Exception as e:
-            print(f"DB init/seed failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("Database initialization failed: %s", e)
 
 @app.on_event("startup")
 async def _startup_load_connection_settings():
@@ -277,9 +324,12 @@ async def _startup_load_connection_settings():
                     m = row._mapping
                     uid = m["user_id"]
                     _connections_store[uid] = m
-                print(f"Loaded connection settings for {len(rows)} users into cache.", flush=True)
+                logger.info(
+                    "Loaded connection settings for %s users into cache",
+                    len(rows),
+                )
         except Exception as e:
-            print(f"Failed to pre-load connection settings: {e}", file=sys.stderr, flush=True)
+            logger.exception("Failed to pre-load connection settings: %s", e)
 
 @app.on_event("startup")
 async def _startup_fix_admin_role():
@@ -291,7 +341,7 @@ async def _startup_fix_admin_role():
                     users.update().where(users.c.id == "admin").values(role="admin")
                 )
         except Exception as e:
-            print(f"Admin role fix failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("Admin role fix failed: %s", e)
 
 # ------------------------- Health -------------------------
 
@@ -409,7 +459,7 @@ async def dashboard_status(request: Request, userId: str = Query(), db: Optional
                 except Exception:
                     pass
     except Exception as e:
-        print(f"dashboard_status failed: {e}", file=sys.stderr, flush=True)
+        logger.exception("dashboard_status failed: %s", e)
 
     return status
 
@@ -733,7 +783,7 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
                     j = r.json()
                     reply = j.get("response")
     except Exception as e:
-        print(f"LLM call failed ({engine_name}): {e}", file=sys.stderr, flush=True)
+        logger.exception("LLM call failed (%s): %s", engine_name, e)
 
     if not reply:
         reply = f"Echo: {message}"
@@ -796,7 +846,7 @@ async def get_chat_settings(user_id: str, request: Request, db: Optional[AsyncEn
                         enabled["lmstudio"] = True
                     s["enabledEngines"] = enabled
         except Exception as e:
-            print(f"get_chat_settings merge failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("get_chat_settings merge failed: %s", e)
 
     return s
 
@@ -856,7 +906,7 @@ async def get_llm_models(request: Request, engine: str = Query(), userId: str = 
                     # LM Studio is OpenAI-compatible: each item has an id
                     models = [m.get("id") for m in data if m.get("id")]
     except Exception as e:
-        print(f"get_llm_models error for {eng}: {e}", file=sys.stderr, flush=True)
+        logger.exception("get_llm_models error for %s: %s", eng, e)
 
     return {"models": models}
 
@@ -891,7 +941,7 @@ async def get_lmstudio_model(request: Request, userId: str = Query(), db: Option
                 if data:
                     model = (data[0] or {}).get("id")
     except Exception as e:
-        print(f"get_lmstudio_model error: {e}", file=sys.stderr, flush=True)
+        logger.exception("get_lmstudio_model error: %s", e)
 
     return {"model": model}
 
@@ -1144,7 +1194,7 @@ def _merge_chat_settings_from_db_row(row_map: Dict[str, Any]) -> Dict[str, Any]:
                 parsed = json.loads(value)
                 return parsed if isinstance(parsed, dict) else default
             except (json.JSONDecodeError, TypeError):
-                print(f"Failed to parse JSON: {value!r}", file=sys.stderr, flush=True)
+                logger.warning("Failed to parse JSON from chat settings value %r", value)
                 return default
         return default
 
@@ -1178,7 +1228,7 @@ async def get_llm_settings(request: Request, engine: Optional[AsyncEngine] = Dep
                         "model": (m.get("llm_model") or os.getenv("LLM_MODEL", "llama3")),
                     }
         except Exception as e:
-            print(f"Database read failed in get_llm_settings: {e}", file=sys.stderr, flush=True)
+            logger.exception("Database read failed in get_llm_settings: %s", e)
 
     s = _chat_settings_store.get(uid) or _default_chat_settings(uid)
     return {"engine": s.get("llmEngine", "ollama"), "model": s.get("llmModel", os.getenv("LLM_MODEL", "llama3"))}
@@ -1213,7 +1263,7 @@ async def put_llm_settings(payload: dict, request: Request, db: Optional[AsyncEn
                 else:
                     await conn.execute(t_chat_settings.insert().values(user_id=uid, **values))
         except Exception as e:
-            print(f"Failed to persist LLM settings: {e}", file=sys.stderr, flush=True)
+            logger.exception("Failed to persist LLM settings: %s", e)
 
     return {"success": True}
 
@@ -2070,7 +2120,7 @@ async def get_tts_settings(request: Request, user_id: Optional[str] = Query(None
                     provider = (m.get("tts_provider") or provider)
                     voice_id = (m.get("tts_voice_id") or voice_id)
         except Exception as e:
-            print(f"get_tts_settings DB error: {e}", file=sys.stderr, flush=True)
+            logger.exception("get_tts_settings DB error: %s", e)
 
     # Providers list: mark fishspeech available if TTS proxy is healthy
     tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
@@ -2126,7 +2176,7 @@ async def save_tts_settings(request: Request, body: dict, db: Optional[AsyncEngi
                 else:
                     await conn.execute(t_chat_settings.insert().values(user_id=uid, **values))
         except Exception as e:
-            print(f"save_tts_settings DB error: {e}", file=sys.stderr, flush=True)
+            logger.exception("save_tts_settings DB error: %s", e)
 
     return {"success": True}
 
@@ -2147,7 +2197,7 @@ async def get_tts_voices(request: Request, provider: str = Query(...)):
                 data = r.json() or {}
                 voices = data.get("voices") or []
     except Exception as e:
-        print(f"get_tts_voices error: {e}", file=sys.stderr, flush=True)
+        logger.exception("get_tts_voices error: %s", e)
 
     return {"voices": voices}
 
@@ -2167,7 +2217,7 @@ async def tts_health(request: Request):
             if r.status_code == 200:
                 return r.json()
     except Exception as e:
-        print(f"tts_health error: {e}", file=sys.stderr, flush=True)
+        logger.exception("tts_health error: %s", e)
     return {"status": "degraded"}
 
 
@@ -2202,7 +2252,7 @@ async def tts_synthesize(request: Request, body: Optional[dict] = None):
                 ctype = r.headers.get("content-type", "audio/wav")
                 return _Response(content=r.content, media_type=ctype)
     except Exception as e:
-        print(f"tts_synthesize proxy error: {e}", file=sys.stderr, flush=True)
+        logger.exception("tts_synthesize proxy error: %s", e)
 
     # Fallback: generate a 0.25s 440Hz sine wave WAV so the UI can complete successfully.
     import io, math, struct

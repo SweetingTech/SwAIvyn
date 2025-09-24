@@ -1,6 +1,7 @@
 import { Suspense, useEffect } from 'react';
 import { Route, Routes, Navigate, useNavigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import SplashScreen from './components/SplashScreen';
 import DashboardPage from './pages/DashboardPage';
@@ -19,8 +20,9 @@ import CharacterEditor from './pages/CharacterEditor';
 import { InitializationProvider, useInitialization } from './contexts/InitializationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
+import { env } from './config/env';
 // Optional Stagewise toolbar (disabled by default). Enable with VITE_STAGEWISE_ENABLED=true
-const enableStagewise = (import.meta as any).env?.VITE_STAGEWISE_ENABLED === 'true';
+const enableStagewise = env.stagewiseEnabled;
 let StagewiseToolbar: any = null as any;
 let ReactPlugin: any = null as any;
 if (enableStagewise) {
@@ -62,37 +64,41 @@ function AppContent() {
   // Show main app once initialized and authenticated
   if (!token) {
     return (
-      <Suspense fallback={<LoadingSpinner />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<LoadingSpinner />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <Suspense fallback={<LoadingSpinner />}>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="chat/:sessionCharacter?" element={<ChatPage />} />
-          <Route path="voice-room" element={<VoiceRoomPage />} />
-          <Route path="memory" element={<MemoryPage />} />
-          <Route path="modules" element={<ModulesPage />} />
-          <Route path="module-store" element={<ModuleStorePage />} />
-          <Route path="agents" element={<AgentsTab />} /> {/* Changed this line */}
-          <Route path="profile" element={<UserProfilePage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
-          <Route path="character-editor" element={<CharacterEditor userId={user?.id || "demo-user-id"} onSave={() => navigate('/dashboard')} onCancel={() => navigate('/dashboard')} />} />
-          <Route path="admin/users" element={<AdminUsersPage />} />
-          <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
-          <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingSpinner />}>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="chat/:sessionCharacter?" element={<ChatPage />} />
+            <Route path="voice-room" element={<VoiceRoomPage />} />
+            <Route path="memory" element={<MemoryPage />} />
+            <Route path="modules" element={<ModulesPage />} />
+            <Route path="module-store" element={<ModuleStorePage />} />
+            <Route path="agents" element={<AgentsTab />} /> {/* Changed this line */}
+            <Route path="profile" element={<UserProfilePage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
+            <Route path="character-editor" element={<CharacterEditor userId={user?.id || "demo-user-id"} onSave={() => navigate('/dashboard')} onCancel={() => navigate('/dashboard')} />} />
+            <Route path="admin/users" element={<AdminUsersPage />} />
+            <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
+            <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -100,10 +106,14 @@ function App() {
   return (
     <AuthProvider>
       <InitializationProvider>
-        <AppContent />
-        {enableStagewise && StagewiseToolbar && ReactPlugin && (
-          <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
-        )}
+        <ErrorBoundary>
+          <>
+            <AppContent />
+            {enableStagewise && StagewiseToolbar && ReactPlugin && (
+              <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
+            )}
+          </>
+        </ErrorBoundary>
       </InitializationProvider>
     </AuthProvider>
   );

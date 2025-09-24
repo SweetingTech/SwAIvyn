@@ -7,8 +7,8 @@ interface ChatInputProps {
 }
 
 /**
- * ChatInput component provides an input area with send button and file upload zone.
- * Fully commented and designed for integration with SignalR chat hub.
+ * ChatInput component provides an input area with send button and file upload zone
+ * for the REST-based chat workflow.
  */
 const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onFileUpload }) => {
   // State to hold the current input text
