@@ -1,0 +1,10 @@
+﻿# Auto-generated wrapper for bff
+$env:OLLAMA_HOST = 'http://localhost:11434'
+$env:FISHSPEECH_URL = 'http://tts.localhost:8088'
+$env:LMSTUDIO_HOST = 'http://localhost:1234'
+$env:TEMPORAL_HOST = '127.0.0.1:7233'
+$env:DATABASE_URL = 'postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/swai'
+$env:NEO4J_URL = 'bolt://localhost:7687'
+$env:QDRANT_URL = 'http://qdrant.localhost:8088'
+$env:TTS_ADAPTER_URL = 'http://elevenlabs.localhost:8088'
+& 'D:\project\SwAIvyn\scripts\dev-bff.ps1'

@@ -1,0 +1,82 @@
+[33m933d4df4a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mTTS[m[33m, [m[1;31morigin/TTS[m[33m)[m HEAD@{2025-09-22 21:22:03 -0400}: commit: Add all pending changes and new files for TTS branch
+[33m2193ea340[m HEAD@{2025-09-22 21:20:36 -0400}: commit: Add setup-gpu-tts.ps1 script for TTS setup
+[33mb6caae666[m[33m ([m[1;32mmain[m[33m)[m HEAD@{2025-09-22 20:45:59 -0400}: checkout: moving from main to TTS
+[33mb6caae666[m[33m ([m[1;32mmain[m[33m)[m HEAD@{2025-09-18 21:31:39 -0400}: commit: fixed the startup script
+[33mfbdf15e22[m HEAD@{2025-09-18 09:26:50 -0400}: commit: Add .stack-swaivyn.hash file
+[33m326ef18e9[m HEAD@{2025-09-18 09:25:41 -0400}: commit: Update dev-run.ps1 and docker-stack.yml
+[33m28763337b[m HEAD@{2025-09-17 19:45:55 -0400}: pull: Fast-forward
+[33m8084db4d4[m HEAD@{2025-09-17 19:45:54 -0400}: reset: moving to HEAD
+[33m8084db4d4[m HEAD@{2025-09-17 08:48:57 -0400}: commit: Update dev-run.ps1
+[33mbcda6ff98[m HEAD@{2025-09-16 20:41:41 -0400}: pull: Fast-forward
+[33m9f274de96[m HEAD@{2025-09-15 19:05:01 -0400}: pull: Fast-forward
+[33m78fecdb9d[m HEAD@{2025-09-15 18:55:04 -0400}: pull: Fast-forward
+[33m166b56920[m HEAD@{2025-09-13 13:20:27 -0400}: pull: Fast-forward
+[33mdf87fc89e[m HEAD@{2025-09-13 13:16:57 -0400}: pull: Fast-forward
+[33mbd6bba2c3[m HEAD@{2025-09-13 12:42:48 -0400}: pull: Fast-forward
+[33md5d72fd64[m HEAD@{2025-09-13 12:34:25 -0400}: commit: fix: update dev-run.ps1 with local changes
+[33md0db33e97[m HEAD@{2025-09-13 01:37:52 -0400}: reset: moving to origin/main
+[33m9cfb01fb4[m HEAD@{2025-09-13 01:37:50 -0400}: checkout: moving from main to main
+[33m9cfb01fb4[m HEAD@{2025-09-13 01:37:50 -0400}: reset: moving to HEAD
+[33m9cfb01fb4[m HEAD@{2025-09-13 01:30:41 -0400}: pull: Fast-forward
+[33m2068ecece[m HEAD@{2025-09-13 01:11:51 -0400}: pull: Fast-forward
+[33m8daa01905[m HEAD@{2025-09-13 00:39:49 -0400}: pull: Fast-forward
+[33me67b5d231[m HEAD@{2025-09-13 00:29:46 -0400}: reset: moving to origin/main
+[33m13244afd4[m HEAD@{2025-09-13 00:29:45 -0400}: checkout: moving from main to main
+[33m13244afd4[m HEAD@{2025-09-13 00:29:45 -0400}: reset: moving to HEAD
+[33m13244afd4[m HEAD@{2025-09-13 00:12:39 -0400}: pull: Fast-forward
+[33md239dd1bb[m HEAD@{2025-09-12 23:35:22 -0400}: pull: Fast-forward
+[33m67295bb1c[m HEAD@{2025-09-12 23:30:36 -0400}: pull --tags origin main: Merge made by the 'ort' strategy.
+[33mfbb9047e1[m HEAD@{2025-09-12 23:30:27 -0400}: commit: .
+[33ma1a28dbc0[m HEAD@{2025-09-12 22:37:02 -0400}: pull: Fast-forward
+[33m5f2dc6ee7[m HEAD@{2025-09-12 22:36:54 -0400}: checkout: moving from hybrid to main
+[33m0d7e65eba[m[33m ([m[1;31morigin/hybrid[m[33m, [m[1;32mhybrid[m[33m)[m HEAD@{2025-09-12 20:12:54 -0400}: commit: User requested commit: snapshot of current changes
+[33m21eb55f14[m HEAD@{2025-09-08 21:13:15 -0400}: commit: User requested commit: snapshot of workspace (no content changes made)
+[33mda7064724[m HEAD@{2025-09-07 15:28:33 -0400}: commit: update.
+[33m7a7813622[m HEAD@{2025-09-06 00:49:54 -0400}: commit: chore: commit local workspace changes before push
+[33m80bc027e7[m HEAD@{2025-09-05 19:42:41 -0400}: pull: Fast-forward
+[33mb7b513013[m HEAD@{2025-09-05 00:25:52 -0400}: commit: bff: normalize host for worker; add conversation DB read/update/delete endpoints; orchestrator: normalize/candidate hosts for LLM requests and robust error logging
+[33m1f20884fd[m HEAD@{2025-09-05 00:08:04 -0400}: cherry-pick: chore: commit current recovery updates
+[33m2f960d558[m HEAD@{2025-09-05 00:08:04 -0400}: checkout: moving from hybrid to hybrid
+[33m2f960d558[m HEAD@{2025-09-05 00:06:49 -0400}: checkout: moving from recovery/restore-37071436a to hybrid
+[33m6c0ecf325[m[33m ([m[1;32mrecovery/restore-37071436a[m[33m)[m HEAD@{2025-09-04 23:50:41 -0400}: commit: chore: commit current recovery updates
+[33m37071436a[m HEAD@{2025-09-04 21:44:34 -0400}: checkout: moving from hybrid to recovery/restore-37071436a
+[33m2f960d558[m HEAD@{2025-09-04 21:34:18 -0400}: commit: chore: strengthen .gitignore for TTS env and local .env files
+[33mc85f7ba26[m HEAD@{2025-09-04 21:33:20 -0400}: reset: moving to origin/hybrid
+[33m37071436a[m HEAD@{2025-09-04 07:58:47 -0400}: commit: chore: add and track previously untracked files (including TTS directory)
+[33mc85f7ba26[m HEAD@{2025-09-04 07:48:00 -0400}: commit: chore: commit and push workspace changes to hybrid
+[33m21a2180ce[m[33m ([m[1;32mnew_db[m[33m)[m HEAD@{2025-09-04 07:47:13 -0400}: checkout: moving from new_db to hybrid
+[33m21a2180ce[m[33m ([m[1;32mnew_db[m[33m)[m HEAD@{2025-09-04 07:45:13 -0400}: commit: chore: ignore and untrack test_tts_gpu.wav
+[33m18c6f811f[m HEAD@{2025-09-02 23:21:43 -0400}: commit: chore: update .gitignore to ignore venvs and TTS model artifacts; remove env folders from index
+[33mc464d056a[m HEAD@{2025-08-31 03:07:43 -0400}: commit: chore: normalize line endings per .gitattributes
+[33m128e2c2a5[m[33m ([m[1;31morigin/new_db[m[33m)[m HEAD@{2025-08-29 23:12:09 -0400}: commit: Save all current changes
+[33m1120c6cd0[m[33m ([m[1;31morigin/backend[m[33m, [m[1;32mbackend[m[33m)[m HEAD@{2025-08-29 23:10:26 -0400}: checkout: moving from backend to new_db
+[33m1120c6cd0[m[33m ([m[1;31morigin/backend[m[33m, [m[1;32mbackend[m[33m)[m HEAD@{2025-08-27 22:06:47 -0400}: pull: Fast-forward
+[33mc6456c1e7[m HEAD@{2025-08-26 23:54:42 -0400}: commit: Tune init timing: health ping 3x with 8s timeout; increase API per-attempt timeouts to 10s; add [READY] log
+[33m480434a19[m HEAD@{2025-08-26 23:44:58 -0400}: commit: WIP: frontend init retries and status badge; compose depends_on tweak; backend startup defers heavy init
+[33m255429854[m[33m ([m[1;32mcodex/setup-docker-environment-for-swaivyn[m[33m)[m HEAD@{2025-08-26 23:44:58 -0400}: checkout: moving from codex/setup-docker-environment-for-swaivyn to backend
+[33m255429854[m[33m ([m[1;32mcodex/setup-docker-environment-for-swaivyn[m[33m)[m HEAD@{2025-08-24 16:40:59 -0400}: commit: chore: stop tracking TTS virtualenvs & model artifacts; update .gitignore
+[33m7763babce[m HEAD@{2025-08-24 15:51:05 -0400}: commit: chore: update .gitignore to exclude TTS artifacts and venvs
+[33m2afb95438[m[33m ([m[1;31morigin/codex/setup-docker-environment-for-swaivyn[m[33m)[m HEAD@{2025-08-23 16:16:04 -0400}: commit: Fix: LM Studio model selection, settings persistence, and frontend usability. Improve SettingsPage.tsx and ChatPage.tsx for Docker deployment.
+[33m7740d6f96[m HEAD@{2025-08-23 02:37:22 -0400}: commit: Add SwAIvyn.sln solution file to repository
+[33m9d4db88e2[m HEAD@{2025-08-23 02:36:32 -0400}: commit: Add missing System.Linq import to ChatController.cs
+[33m3a47af21d[m HEAD@{2025-08-23 02:34:51 -0400}: commit: Optimize backend boot time - Fix startup performance issues
+[33m1fbfce5d0[m HEAD@{2025-08-23 02:19:02 -0400}: commit: Fix Weaviate clustering issues with environment variables
+[33m21885e014[m HEAD@{2025-08-23 01:59:26 -0400}: commit: Fix Weaviate clustering errors and backend timeout issues
+[33m810a3ed87[m HEAD@{2025-08-22 23:28:13 -0400}: commit: Complete Docker environment setup fixes
+[33m76a81c23b[m HEAD@{2025-08-22 23:26:36 -0400}: commit: Fix 504 Gateway Timeout on /api/user/default endpoint
+[33m3f07650e4[m HEAD@{2025-08-22 16:00:52 -0400}: reset: moving to origin/codex/setup-docker-environment-for-swaivyn
+[33m3f07650e4[m HEAD@{2025-08-22 16:00:39 -0400}: checkout: moving from chore/gitignore-segments to codex/setup-docker-environment-for-swaivyn
+[33mdd3e4d745[m[33m ([m[1;31morigin/chore/gitignore-segments[m[33m, [m[1;32mchore/gitignore-segments[m[33m)[m HEAD@{2025-08-22 16:00:31 -0400}: reset: moving to HEAD
+[33mdd3e4d745[m[33m ([m[1;31morigin/chore/gitignore-segments[m[33m, [m[1;32mchore/gitignore-segments[m[33m)[m HEAD@{2025-08-21 23:05:15 -0400}: commit: chore(gitignore): ignore weaviate_data and segment directories; add .dockerignore
+[33m5f2dc6ee7[m HEAD@{2025-08-21 23:04:59 -0400}: checkout: moving from main to chore/gitignore-segments
+[33m5f2dc6ee7[m HEAD@{2025-08-21 23:04:58 -0400}: checkout: moving from feature/search-and-tts-updates to main
+[33m44e8be01b[m[33m ([m[1;31morigin/feature/search-and-tts-updates[m[33m, [m[1;32mfeature/search-and-tts-updates[m[33m)[m HEAD@{2025-08-21 22:09:32 -0400}: commit: feat(search): add SearchController and update HybridSearchService; chore: adjust Health/Config; chore: update .gitignore; chore: search.py tweaks
+[33m609ff59ae[m[33m ([m[1;31morigin/chore/remove-legacy-scripts[m[33m, [m[1;32mchore/remove-legacy-scripts[m[33m)[m HEAD@{2025-08-21 22:09:04 -0400}: checkout: moving from chore/remove-legacy-scripts to feature/search-and-tts-updates
+[33m609ff59ae[m[33m ([m[1;31morigin/chore/remove-legacy-scripts[m[33m, [m[1;32mchore/remove-legacy-scripts[m[33m)[m HEAD@{2025-08-21 22:08:24 -0400}: commit: chore(scripts): remove legacy helper scripts superseded by Docker setup
+[33m5f2dc6ee7[m HEAD@{2025-08-21 22:08:11 -0400}: checkout: moving from chore/remove-legacy-scripts to chore/remove-legacy-scripts
+[33m5f2dc6ee7[m HEAD@{2025-08-21 22:08:04 -0400}: reset: moving to HEAD
+[33m5f2dc6ee7[m HEAD@{2025-08-21 22:07:58 -0400}: checkout: moving from main to chore/remove-legacy-scripts
+[33m5f2dc6ee7[m HEAD@{2025-08-21 22:07:57 -0400}: checkout: moving from release/1.01-docker to main
+[33ma257cd5b1[m[33m ([m[1;31morigin/release/1.01-docker[m[33m, [m[1;32mrelease/1.01-docker[m[33m)[m HEAD@{2025-08-21 21:15:44 -0400}: commit: chore(config): docker compose + frontend proxy + sqlite path fix + setup scripts
+[33m5f2dc6ee7[m HEAD@{2025-08-21 21:15:13 -0400}: checkout: moving from main to release/1.01-docker
+[33m5f2dc6ee7[m HEAD@{2025-08-08 20:10:10 -0400}: clone: from https://github.com/SweetingTech/SwAIvyn.git

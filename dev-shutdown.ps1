@@ -150,10 +150,10 @@ function Stop-KnownContainers {
     if (-not (Test-Command 'docker')) { return }
     
     Write-Host '-> Stopping any remaining known containers...' -ForegroundColor Yellow
-    $knownContainers = @('vllm-chat', 'vllm-embed', 'swaivyn-tts-1')
-    
+    $knownContainers = @('vllm-chat', 'vllm-embed', 'swaivyn-tts-1', 'fishspeech-runtime-gpu')
+
     foreach ($containerName in $knownContainers) {
-        try { 
+        try {
             & docker stop $containerName 2>$null | Out-Null
             Write-Host ("  [OK] Stopped container: {0}" -f $containerName) -ForegroundColor Green
         } catch {}

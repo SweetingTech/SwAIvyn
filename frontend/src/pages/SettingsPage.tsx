@@ -85,7 +85,7 @@ const CharacterCreateSettings = () => {
           Design custom AI personalities with unique traits and behaviors. Create characters from templates or build from scratch.
         </p>
       </div>
-      
+
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-center">
           <User className="text-blue-600 mr-3" size={20} />
@@ -110,7 +110,7 @@ const CharacterCreateSettings = () => {
             <li>• GLaDOS (Sarcastic AI)</li>
           </ul>
         </div>
-        
+
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h4 className="font-medium text-gray-900 mb-2">Features</h4>
           <ul className="text-sm text-gray-600 space-y-1">
@@ -137,7 +137,7 @@ const ExternalAgentsSettings = () => {
           Manage external agent services that can process tasks and provide specialized capabilities.
         </p>
       </div>
-      
+
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-center">
           <Bot className="text-green-600 mr-3" size={20} />
@@ -161,7 +161,7 @@ const ExternalAgentsSettings = () => {
             <li>• Audit logging</li>
           </ul>
         </div>
-        
+
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h4 className="font-medium text-gray-900 mb-2">Agent Capabilities</h4>
           <ul className="text-sm text-gray-600 space-y-1">
@@ -184,7 +184,7 @@ const VoiceSettings = () => {
   const { user: authUser, token } = useAuth();
   const mounted = useMountedRef();
   const eff = useEffectiveUser();
-  
+
   // Use effective user ID with fallback like Chat page
   const voiceUserId = eff.userId || 'admin';
   const user = { id: voiceUserId };
@@ -212,6 +212,8 @@ const VoiceSettings = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [voiceDetails, setVoiceDetails] = useState<VoiceDetails[]>([]);
   const [showVoiceDetails, setShowVoiceDetails] = useState<string | null>(null);
+
+  const [ttsHealth, setTtsHealth] = useState<{ status: string; upstream?: string; upstreams?: { url: string; status: string }[] } | null>(null);
 
   // Resolve effective user id like UserProfilePage does
   useEffect(() => {
@@ -332,6 +334,25 @@ const VoiceSettings = () => {
     if (mounted.current && voices.length) {
       setVoiceId(voices[0]); // pick first available on switch
     }
+  // Fetch TTS health for FishSpeech to display GPU/CPU upstream status
+  useEffect(() => {
+    let cancelled = false;
+    const loadHealth = async () => {
+      try {
+        if (ttsProvider === 'fishspeech') {
+          const h = await ttsService.getHealth();
+          if (!cancelled) setTtsHealth(h);
+        } else {
+          if (!cancelled) setTtsHealth(null);
+        }
+      } catch {
+        if (!cancelled) setTtsHealth({ status: 'degraded' } as any);
+      }
+    };
+    void loadHealth();
+    return () => { cancelled = true; };
+  }, [ttsProvider]);
+
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -477,6 +498,8 @@ const VoiceSettings = () => {
                   const phrase = 'This is how my voice sounds. do you like it?';
                   const blob = await ttsService.synthesize(phrase, user?.id, voiceId || undefined);
                   const audio = new Audio(URL.createObjectURL(blob));
+
+
                   audio.play();
                 } catch (e) {
                   console.error('TTS test failed', e);
@@ -522,6 +545,32 @@ const VoiceSettings = () => {
                         <h4 className="font-medium truncate">{voice.name}</h4>
                         <p className="text-sm text-gray-600 truncate">
                           {voice.transcript?.substring(0, 100)}
+
+            {/* TTS Health Status */}
+            {ttsProvider === 'fishspeech' && ttsHealth && (
+              <div className={`p-3 rounded text-sm ${ttsHealth.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">TTS Health:</span>
+                  <span className="uppercase">{ttsHealth.status}</span>
+                </div>
+                {Array.isArray(ttsHealth.upstreams) && ttsHealth.upstreams.length > 0 && (
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {ttsHealth.upstreams.map((u, idx) => {
+                      const isGpu = u.url.toLowerCase().includes('-gpu');
+                      const label = isGpu ? 'GPU upstream' : 'CPU upstream';
+                      const ok = u.status === '200';
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-white/60 rounded px-2 py-1 border">
+                          <span className="text-xs">{label}</span>
+                          <span className={`text-xs font-medium ${ok ? 'text-green-600' : 'text-red-600'}`}>{ok ? 'UP' : 'DOWN'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
                           {voice.transcript && voice.transcript.length > 100 ? '...' : ''}
                         </p>
                         <div className="flex items-center flex-wrap gap-4 text-xs text-gray-500 mt-1">
@@ -660,7 +709,7 @@ const ModelSettings = () => {
   const { user: initUser } = useInitialization();
   const mounted = useMountedRef();
   const eff = useEffectiveUser();
-  
+
   // Use effective user ID with fallback like Chat page
   const modelUserId = eff.userId || 'admin';
   const user = { id: modelUserId };
@@ -737,22 +786,22 @@ const ModelSettings = () => {
         const s = await chatService.getChatSettings(user.id);
         console.log('🔧 Settings: Loaded chat settings for user', user.id, ':', s);
         if (!mounted.current) return;
-        
+
         // Ensure we have complete settings before updating state
         const loadedEnabledEngines = s.enabledEngines || {};
         const loadedEngineModels = s.engineModels || {};
-        
+
         console.log('🔧 Settings: Enabled engines from backend:', loadedEnabledEngines);
         console.log('🔧 Settings: Engine models from backend:', loadedEngineModels);
-        
+
         setEnabledEngines(loadedEnabledEngines);
         setEngineModels(loadedEngineModels);
-        
+
         if (s.llmEngine) {
           setSelectedEngine(s.llmEngine as any);
           console.log('🔧 Settings: Set engine to', s.llmEngine);
         }
-        
+
         // Get the model for the specific engine, not just the generic model
         const modelForEngine = loadedEngineModels[s.llmEngine] || s.llmModel || '';
         if (modelForEngine) {
@@ -1220,22 +1269,22 @@ const ModelSettings = () => {
   const saveSettings = async () => {
     // Use fallback user ID if authentication failed
     const effectiveUserId = user?.id || 'admin';
-    
+
     console.log('🔧 Settings: === SAVE BUTTON CLICKED ===');
     console.log('🔧 Settings: User context:', user);
     console.log('🔧 Settings: Effective User ID:', effectiveUserId);
-    
+
     if (!effectiveUserId) {
       console.error('🔧 Settings: No user ID available, cannot save');
       setSaveError('No user ID available - authentication required');
       return;
     }
-    
+
     setLoading(true);
     setSaveError('');
     try {
       const finalEngineModels = { ...engineModels, [selectedEngine]: selectedModel || (engineModels[selectedEngine] || '') };
-      
+
       const chatSettingsPayload = {
         llmEngine: selectedEngine,
         llmModel: selectedModel || '',
@@ -1289,7 +1338,7 @@ const ModelSettings = () => {
 
       const connResponse = await fetch('/api/settings/connections', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...eff.headers },
         body: JSON.stringify(connectionSettings),
       });
 
@@ -1303,14 +1352,14 @@ const ModelSettings = () => {
       if (!mounted.current) return;
       setSaveSuccess(true);
       setTimeout(() => mounted.current && setSaveSuccess(false), 3000);
-      
+
       // Notify dashboard to refresh its status display
       window.dispatchEvent(
         new CustomEvent('llmSettingsChanged', {
           detail: { engine: selectedEngine, model: selectedModel }
         })
       );
-      
+
       console.log('🔧 Settings: === SETTINGS SAVE COMPLETED ===');
     } catch (e) {
       console.error('🔧 Settings: Save failed with error:', e);
@@ -1439,7 +1488,7 @@ const CharacterSettings = () => {
   const { user: authUser } = useAuth();
   const mounted = useMountedRef();
   const eff = useEffectiveUser();
-  
+
   // Use effective user ID with fallback like Chat page
   const charUserId = eff.userId || 'admin';
   const user = { id: charUserId };
@@ -1545,9 +1594,9 @@ const CharacterSettings = () => {
       const resp = await fetch('/api/character', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...eff.headers },
-        body: JSON.stringify({ 
-          name: form.name.trim() || 'New Character', 
-          imagePath: form.imagePath.trim(), 
+        body: JSON.stringify({
+          name: form.name.trim() || 'New Character',
+          imagePath: form.imagePath.trim(),
           systemPrompt: form.systemPrompt.trim() || 'You are a helpful AI assistant.',
           shared: form.shared || false
         })
@@ -1662,8 +1711,8 @@ const CharacterSettings = () => {
               }}
             />
           </label>
-          <button 
-            className="btn btn-primary" 
+          <button
+            className="btn btn-primary"
             onClick={() => {
               setCreateMode('template');
               setNewCharOpen(true);
@@ -1697,9 +1746,9 @@ const CharacterSettings = () => {
                     }`}
                     onClick={() => {
                       setSelectedTemplate(key);
-                      setForm({ 
-                        name: template.name, 
-                        imagePath: template.imagePath, 
+                      setForm({
+                        name: template.name,
+                        imagePath: template.imagePath,
                         systemPrompt: template.systemPrompt,
                         shared: false
                       });
@@ -1711,31 +1760,31 @@ const CharacterSettings = () => {
                 ))}
               </div>
             </div>
-            
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="text-sm font-medium">Name</label>
-                <input 
-                  className="w-full border rounded px-3 py-2" 
-                  value={form.name} 
-                  onChange={e => setForm({ ...form, name: e.target.value })} 
+                <input
+                  className="w-full border rounded px-3 py-2"
+                  value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
                   placeholder="Enter character name"
                 />
               </div>
               <div>
                 <label className="text-sm font-medium">Image URL (optional)</label>
-                <input 
-                  className="w-full border rounded px-3 py-2" 
-                  value={form.imagePath} 
-                  onChange={e => setForm({ ...form, imagePath: e.target.value })} 
+                <input
+                  className="w-full border rounded px-3 py-2"
+                  value={form.imagePath}
+                  onChange={e => setForm({ ...form, imagePath: e.target.value })}
                   placeholder="/images/character.png or https://..."
                 />
               </div>
               <div className="sm:col-span-2">
                 <label className="text-sm font-medium">System Prompt</label>
-                <textarea 
-                  className="w-full border rounded px-3 py-2 h-32" 
-                  value={form.systemPrompt} 
+                <textarea
+                  className="w-full border rounded px-3 py-2 h-32"
+                  value={form.systemPrompt}
                   onChange={e => setForm({ ...form, systemPrompt: e.target.value })}
                   placeholder="Describe the character's personality, role, and behavior..."
                 />
@@ -1743,9 +1792,9 @@ const CharacterSettings = () => {
               {authUser?.role === 'admin' && (
                 <div className="sm:col-span-2">
                   <label className="flex items-center space-x-2">
-                    <input 
-                      type="checkbox" 
-                      checked={form.shared} 
+                    <input
+                      type="checkbox"
+                      checked={form.shared}
                       onChange={e => setForm({ ...form, shared: e.target.checked })}
                     />
                     <span className="text-sm font-medium">Make this character available to all users (Admin only)</span>
@@ -1753,8 +1802,8 @@ const CharacterSettings = () => {
                 </div>
               )}
               <div className="sm:col-span-2 flex justify-end space-x-2">
-                <button 
-                  className="btn" 
+                <button
+                  className="btn"
                   onClick={() => {
                     setNewCharOpen(false);
                     setCreateMode(null);

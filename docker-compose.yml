@@ -8,7 +8,6 @@ services:
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - LMSTUDIO_HOST=${LMSTUDIO_HOST:-http://host.docker.internal:1234}
       - LLM_MODEL=${LLM_MODEL:-llama3}
-      - TTS_ADAPTER_URL=http://tts-11labs-adapter:8082
       - FISHSPEECH_URL=${FISHSPEECH_URL:-http://tts:8081}
       - QDRANT_URL=http://qdrant:6333
       - NEO4J_URL=bolt://neo4j:7687
@@ -49,7 +48,8 @@ services:
       context: .
       dockerfile: speech/TTS/openaudio-s1-mini/Dockerfile
     environment:
-      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://host.docker.internal:8081}
+      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://fishspeech-runtime-gpu:8000}
+      - UPSTREAM_TTS_LIST=${UPSTREAM_TTS_LIST:-http://fishspeech-runtime-gpu:8000}
       - VOICES_DIR=/app/voices
     ports:
       - "8081:8081"
@@ -65,18 +65,21 @@ services:
       start_period: 20s
     profiles: ["tts"]
 
-  tts-11labs-adapter:
-    build:
-      context: ./services/tts_11labs_adapter
-      dockerfile: Dockerfile
+  fishspeech-runtime-gpu:
+    image: swai/fish-speech:cuda
+    command: >
+      python tools/api_server.py --listen 0.0.0.0:8000 --device cuda --half
     environment:
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-    ports:
-      - "8082:8082"
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    gpus: all
+    volumes:
+      - ./speech/TTS/openaudio-s1-mini/fish_speech_model:/opt/fish-speech/checkpoints/openaudio-s1-mini:ro
     networks:
       - swai-network
-    restart: unless-stopped
-    profiles: ["tts-adapter"]
+    profiles: ["tts"]
+
+
 
   qdrant:
     image: qdrant/qdrant:latest

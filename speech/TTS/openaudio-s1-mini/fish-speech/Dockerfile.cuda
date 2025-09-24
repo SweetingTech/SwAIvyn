@@ -1,0 +1,51 @@
+# CUDA-enabled FishSpeech runtime image for RTX GPUs
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+# System dependencies
+ARG DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -ex \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      python3 \
+      python3-pip \
+      python3-venv \
+      python3-dev \
+      ca-certificates \
+      build-essential \
+      cmake \
+      git \
+      ffmpeg \
+      libsox-dev \
+      libasound2-dev \
+      portaudio19-dev \
+      libportaudio2 \
+      libportaudiocpp0 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Make python3 the default python
+RUN ln -sf /usr/bin/python3 /usr/bin/python && \
+    python -m pip install --upgrade pip
+
+# Preinstall PyTorch with CUDA 12.1 wheels
+# See: https://pytorch.org/get-started/locally/
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 \
+      torch torchvision torchaudio
+
+WORKDIR /opt/fish-speech
+
+# Copy repository (context is the fish-speech folder)
+COPY . .
+
+# Install FishSpeech and its Python deps
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --no-cache-dir -e .[stable]
+
+ENV GRADIO_SERVER_NAME="0.0.0.0"
+EXPOSE 8000 7860
+
+# Default to API server with CUDA; stack can override flags
+CMD ["python", "tools/api_server.py", "--listen", "0.0.0.0:8000", "--device", "cuda", "--half"]
+

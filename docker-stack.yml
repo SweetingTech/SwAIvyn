@@ -11,7 +11,11 @@ volumes:
   swai_data: {}
   weaviate_data: {}
   weaviate_data_fresh: {}
+  weaviate_data_v2: {}
 
+configs:
+  weaviate_wait_sh:
+    file: ./scripts/weaviate-wait.sh
 
 services:
   traefik:
@@ -19,16 +23,16 @@ services:
     command:
       - --log.level=INFO
       - --api.dashboard=true
-      - --entrypoints.web.address=:80
+      - --entrypoints.web.address=:8088
+      - --ping=true
+      - --ping.entryPoint=web
       - --providers.swarm=true
       - --providers.swarm.exposedbydefault=false
       - --providers.swarm.network=swaivyn_default
-      - --ping=true
-      - --ping.entryPoint=web
 
     ports:
-      - target: 80
-        published: ${TRAEFIK_PORT:-80}
+      - target: 8088
+        published: 8088
         protocol: tcp
         mode: host
     volumes:
@@ -61,20 +65,18 @@ services:
   tts:
     image: swai/tts-proxy:local
     environment:
-      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://host.docker.internal:8080}
+      - UPSTREAM_TTS=http://fishspeech-runtime:8000
+      - UPSTREAM_TTS_LIST=http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime:8000
+
       - VOICES_DIR=/app/voices
     volumes:
       - type: bind
-        source: ${SWAI_ROOT_POSIX}
+        source: D:/project/SwAIvyn/speech/TTS/openaudio-s1-mini/voices
         target: /app/voices
         read_only: true
     networks:
       - default
-    ports:
-      - target: 8081
-        published: 8081
-        protocol: tcp
-        mode: host
+
     deploy:
       replicas: 1
       labels:
@@ -86,27 +88,24 @@ services:
         - traefik.http.routers.tts.entrypoints=web
         - traefik.http.services.tts.loadbalancer.server.port=8081
 
-  tts-11labs-adapter:
-    image: swai/tts-11labs-adapter:local
+
+  fishspeech-runtime:
+    image: swai/fish-speech:cuda
+    command: >
+      python tools/api_server.py --listen 0.0.0.0:8000 --device cuda --half
     environment:
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - type: bind
+        source: D:/project/SwAIvyn/speech/TTS/openaudio-s1-mini/fish_speech_model
+        target: /opt/fish-speech/checkpoints/openaudio-s1-mini
+        read_only: true
     networks:
       - default
-    ports:
-      - target: 8082
-        published: 8082
-        protocol: tcp
-        mode: host
     deploy:
       replicas: 1
-      labels:
-        - swai.service.name=elevenlabs-tts
-        - swai.service.type=ai-audio
-        - swai.service.description=ElevenLabs TTS adapter service
-        - traefik.enable=true
-        - traefik.http.routers.tts11.rule=Host(`elevenlabs.localhost`)
-        - traefik.http.routers.tts11.entrypoints=web
-        - traefik.http.services.tts11.loadbalancer.server.port=8082
+
 
   stt:
     image: onerahmet/openai-whisper-asr-webservice:latest
@@ -156,20 +155,11 @@ services:
   neo4j:
     image: neo4j:5
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-SwaiNeo4j!}
     volumes:
       - neo4j_data:/data
     networks:
       - default
-    ports:
-      - target: 7474
-        published: 7474
-        protocol: tcp
-        mode: host
-      - target: 7687
-        published: 7687
-        protocol: tcp
-        mode: host
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 15s
@@ -272,32 +262,22 @@ services:
       - QUERY_DEFAULTS_LIMIT=25
       - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
       - PERSISTENCE_DATA_PATH=/var/lib/weaviate
-      - DEFAULT_VECTORIZER_MODULE=multi2vec-clip
-      - ENABLE_MODULES=multi2vec-clip,qna-transformers,sum-transformers,text-spellcheck,reranker-transformers,backup-filesystem
+      - DEFAULT_VECTORIZER_MODULE=none
+      - ENABLE_MODULES=backup-filesystem
       - CLUSTER_HOSTNAME=swaivyn-node1
       - RAFT_BOOTSTRAP_EXPECT=1
-
+      - LOG_LEVEL=debug
+      - DISABLE_TELEMETRY=true
       - BACKUP_FILESYSTEM_PATH=/var/lib/weaviate/backups
-      - CLIP_INFERENCE_API=http://multi2vec-clip:8080
-      - QNA_INFERENCE_API=http://qna-transformers:8080
-      - SUM_INFERENCE_API=http://sum-transformers:8080
-      - SPELLCHECK_INFERENCE_API=http://text-spellcheck:8080
-      - RERANKER_INFERENCE_API=http://reranker-transformers:8080
     volumes:
-      - weaviate_data_fresh:/var/lib/weaviate
+      - weaviate_data_v2:/var/lib/weaviate
     networks:
       - default
     ports:
       - target: 8080
-        published: 8080
+        published: 8086
         protocol: tcp
         mode: host
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/v1/.well-known/ready || curl -fsS http://localhost:8080/v1/.well-known/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
     deploy:
       labels:
         - swai.service.name=weaviate-vector-db
@@ -365,4 +345,3 @@ services:
         - swai.service.name=text-reranker
         - swai.service.type=ai-transformer
         - swai.service.description=Text reranking model for search results
-

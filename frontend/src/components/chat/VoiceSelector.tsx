@@ -34,18 +34,18 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     setLoadingVoices(true);
     try {
       console.log(`🔄 VoiceSelector: Fetching voices for provider: ${currentProvider}`);
-      // Assuming ttsService.getVoices can take a provider
-      // If not, this logic needs to adapt to how voices are fetched per provider
       let voices: string[] = [];
-      if (currentProvider === 'fishspeech') {
-        voices = ['jazzy', 'glados', 'scarlet']; // Hardcoded for fishspeech as before
-      } else if (currentProvider === 'elevenlabs') {
-        voices = ['Rachel', 'Domi', 'Bella', 'Antoni']; // Hardcoded for elevenlabs
-      } else if (currentProvider === 'openai') {
-        voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']; // Standard OpenAI voices
-      } else {
-        console.warn(`🔄 VoiceSelector: Unknown TTS provider "${currentProvider}", using default voices.`);
-        voices = ['glados']; // Fallback
+      try {
+        // Prefer backend-provided voices so the list matches what the proxy actually supports
+        voices = await ttsService.getVoices(currentProvider, user?.id);
+      } catch (error) {
+        console.warn('🔄 VoiceSelector: getVoices failed, falling back to defaults:', error);
+      }
+      if (!voices || voices.length === 0) {
+        // Safe fallback if backend is unreachable or empty
+        voices = currentProvider === 'fishspeech'
+          ? ['glados', 'jazzy', 'scarlet']
+          : ['glados'];
       }
       setAvailableVoices(voices);
       console.log(`🔄 VoiceSelector: Voices for ${currentProvider}:`, voices);
