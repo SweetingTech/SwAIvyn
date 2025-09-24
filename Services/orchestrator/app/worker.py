@@ -23,6 +23,8 @@ REQUIRED_ENV_VARS: Mapping[str, str] = {
     "TEMPORAL_HOST": "Temporal frontend host:port for the worker to connect",
 }
 
+_READINESS_EVENT = threading.Event()
+
 
 def _require_env(name: str) -> str:
     value = os.getenv(name)
@@ -62,8 +64,14 @@ def _start_health_server() -> None:
                 self.send_response(404)
                 self.end_headers()
                 return
-            body = b'{"status":"ok"}' if self.path == "/healthz" else b'{"status":"ready"}'
-            self.send_response(200)
+
+            if self.path == "/readyz" and not _READINESS_EVENT.is_set():
+                body = b'{"status":"starting"}'
+                self.send_response(503)
+            else:
+                body = b'{"status":"ok"}' if self.path == "/healthz" else b'{"status":"ready"}'
+                self.send_response(200)
+
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -111,6 +119,8 @@ async def main() -> None:
     _start_health_server()
     activity_threads = _parse_activity_threads()
     client = await _connect_with_retry(temporal_host)
+    _READINESS_EVENT.set()
+    logger.info("Orchestrator worker marked ready")
     worker = Worker(
         client,
         task_queue="reply-queue",
