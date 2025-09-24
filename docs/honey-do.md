@@ -6,16 +6,9 @@
 
 ## 🚨 **Critical Issues (Fix Soon)**
 
-### 1. **SignalR Frontend Code Without Backend Implementation**
-- **Issue**: `frontend/src/hooks/useChatHub.ts` contains Microsoft SignalR client code but FastAPI backend has no corresponding SignalR hubs
-- **Impact**: **ACTUALLY LOW IMPACT** - Dead code but NOT used in main ChatPage; chat uses REST API calls instead
-- **Status**: **Safe to remove** - `useChatHub` is not imported or used in the main chat functionality
-- **Fix**: Remove `useChatHub.ts` and related imports since they're unused dead code
-- **Locations**:
-  - `frontend/src/hooks/useChatHub.ts:6` - exports `useChatHub()` function with SignalR implementation
-  - `frontend/src/hooks/useChatHub.ts:22,33,46,50,53,62` - console.error/log statements for SignalR events
-  - `frontend/src/components/chat/ChatInput.tsx:11` - comment mentions "integration with SignalR chat hub"
-- **Verified**: `ChatPage.tsx` does NOT import or use `useChatHub` - uses REST API calls instead
+### 1. **SignalR Frontend Code Without Backend Implementation** ✅ **COMPLETED**
+- **Resolution**: Removed the unused `useChatHub.ts` hook, deleted the SignalR dependency from package manifests, and cleaned up lingering SignalR comments.
+- **Current State**: Chat experience now exclusively relies on REST endpoints with no dead SignalR references in code or documentation.
 
 ### 2. **React Router Future Flag Warnings** ✅ **COMPLETED**
 - **Issue**: Browser console shows warnings about React Router v7 migration flags
@@ -43,14 +36,12 @@
 
 ## ⚠️ **High Priority (Address Soon)**
 
-### 4. **Missing Environment Variable Validation**
-- **Issue**: Services assume environment variables exist without validation
-- **Impact**: Silent failures or crashes when env vars are missing/malformed
-- **Fix**: Add startup validation for required environment variables in all services
-- **Locations**:
-  - `Services/bff/alembic.ini:3` - Comment shows DATABASE_URL read from environment without validation
-  - `frontend/src/services/agentService.ts:35` - VITE_API_BASE_URL read without validation
-  - Backend services likely read env vars directly without checking existence
+### 4. **Missing Environment Variable Validation** ✅ **COMPLETED**
+- **Resolution**: Added startup checks for required environment variables in the FastAPI BFF and Temporal orchestrator worker, plus a central Vite env helper for frontend builds.
+- **Coverage**:
+  - BFF fails fast if `DATABASE_URL` or `JWT_SECRET` are missing and logs structured errors.
+  - Orchestrator validates `TEMPORAL_HOST`, `ACTIVITY_THREADS`, and exposes a health endpoint for readiness probes.
+  - Frontend now validates `VITE_API_BASE_URL` during production builds and exposes typed env access.
 
 ### 5. **Database Schema Inconsistencies**
 - **Issue**: Documentation mentions SQLite but project uses PostgreSQL; schema files may be outdated
@@ -64,15 +55,9 @@
 - **Fix**: Monitor Temporal startup logs and verify cluster formation works reliably
 - **Files**: `docker-stack.yml`, Temporal service configuration
 
-### 7. **Missing Error Boundaries**
-- **Issue**: Frontend lacks React Error Boundaries for graceful error handling
-- **Impact**: White screen of death when components crash
-- **Fix**: Implement Error Boundaries around major component sections
-- **Locations**: **CONFIRMED MISSING** - No ErrorBoundary or componentDidCatch found in codebase
-- **Priority**: Especially important for chat interface and settings pages
-- **Suggested files to create**: 
-  - `frontend/src/components/ErrorBoundary.tsx`
-  - Wrap major sections in `frontend/src/App.tsx`
+### 7. **Missing Error Boundaries** ✅ **COMPLETED**
+- **Resolution**: Introduced a reusable `ErrorBoundary` component and wrapped login routes, primary router, and the Stagewise toolbar in guards to prevent white screens.
+- **UX**: Users now see a helpful fallback message if unexpected runtime errors occur in Chat or Settings views.
 
 ---
 

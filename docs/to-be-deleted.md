@@ -6,12 +6,9 @@
 
 ## 🚨 **High Priority Deletions (Safe to Remove Immediately)**
 
-### 1. **Dead SignalR Implementation** 
-- **Files to Delete**:
-  - `frontend/src/hooks/useChatHub.ts` - Complete SignalR client implementation **NOT USED**
-- **Justification**: Hook is never imported or used in any component. ChatPage uses REST API calls instead.
-- **Dependencies to Review**: `@microsoft/signalr` package in `frontend/package.json` (can be removed)
-- **Impact**: **ZERO** - This is dead code with no references
+### 1. **Dead SignalR Implementation** ✅ **REMOVED**
+- **Action Taken**: The unused SignalR hook and dependency were deleted. Chat features now rely solely on REST APIs.
+- **Follow-up**: Documentation updated to remove SignalR references.
 
 ### 2. **Backup and Dump Files**
 - **Files to Delete**:

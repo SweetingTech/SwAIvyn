@@ -27,7 +27,7 @@ Preferred communication style: Simple, everyday language.
 - **Build Tool**: Vite with hot reload support
 - **Styling**: TailwindCSS with custom components
 - **State Management**: Zustand for global state
-- **Real-time Communication**: SignalR for WebSocket connections
+- **Real-time Communication**: REST polling (SignalR integration removed)
 - **Routing**: React Router DOM for navigation
 - **HTTP Client**: Axios for API communication
 

@@ -1,5 +1,7 @@
 # SwAIvyn Project Structure
 
+> **Note:** This document outlines the legacy .NET-oriented layout. The current production stack centers on the FastAPI BFF and React frontend described in the README.
+
 This document provides a comprehensive overview of the SwAIvyn project folder and file layout, including the Fish Speech TTS integration.
 
 ## 📁 Root Directory Structure

@@ -1,5 +1,7 @@
 # SwAIvyn Database Implementation Plan
 
+> **Note:** The active SwAIvyn stack now uses PostgreSQL via SQLAlchemy for the FastAPI backend. The SQLite-focused content below describes the legacy .NET implementation and is retained for historical context.
+
 ## Design Goals & Constraints
 
 1. **One-click install / portable `.exe`** – no Docker, no external services that must be running
