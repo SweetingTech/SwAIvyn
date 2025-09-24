@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect, useMemo } from 'react';
+import { toast } from 'react-toastify';
 import {
   Activity,
-  Database,
   MessageSquare,
   Brain,
   Bot,
@@ -13,13 +13,11 @@ import {
   Mic,
   Volume2,
   Save,
-  Play,
   User,
   Settings,
   Plus,
   Shield
 } from 'lucide-react';
-import { useInitialization } from '../contexts/InitializationContext';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ttsService from '../services/ttsService';
@@ -38,7 +36,6 @@ interface SystemStatus {
 }
 
 const DashboardPage = () => {
-  const { user } = useInitialization();
   const eff = useEffectiveUser();
   const navigate = useNavigate();
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
@@ -53,9 +50,7 @@ const DashboardPage = () => {
     lastActivity: 'Never'
   });
   const [loading, setLoading] = useState(true);
-  const [agents, setAgents] = useState<{ running: any[]; completed: number; failed: number; pending: number }>({ running: [], completed: 0, failed: 0, pending: 0 });
-  const [characters, setCharacters] = useState<any[]>([]);
-  const [agentTasks, setAgentTasks] = useState<any[]>([]);
+  const [agents, setAgents] = useState<{ running: unknown[]; completed: number; failed: number; pending: number }>({ running: [], completed: 0, failed: 0, pending: 0 });
   const environmentInfo = useMemo(() => {
     const currentHost = window.location.hostname;
     const currentPort = window.location.port;
@@ -85,32 +80,30 @@ const DashboardPage = () => {
 
   const loadSystemStatus = async () => {
     try {
-      console.log('🔍 Dashboard: Loading system status...');
-
       const uid = eff.userId ? encodeURIComponent(eff.userId) : '';
       const url = uid ? `/api/dashboard/status?userId=${uid}` : '/api/dashboard/status';
       const statusResponse = await fetch(url, { headers: eff.headers });
 
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        console.log('🔍 Dashboard: Status data received:', statusData);
-        setAgents(statusData.agents || { running: [], completed: 0, failed: 0, pending: 0 });
-        setSystemStatus({
-          llmEngine: statusData.llm?.engine || 'Unknown',
-          llmModel: statusData.llm?.model || 'Not selected',
-          ttsProvider: statusData.tts?.provider || 'Unknown',
-          ttsVoice: statusData.tts?.voice || 'Not selected',
-          charactersLoaded: statusData.metrics?.characterCount || 0,
-          memoryItems: statusData.metrics?.memoryCount || 0,
-          chatSessions: statusData.metrics?.conversationCount || 0,
-          uptime: calculateUptime(),
-          lastActivity: new Date().toLocaleTimeString()
-        });
-      } else {
-        console.error('🔍 Dashboard: Failed to load status');
+      if (!statusResponse.ok) {
+        throw new Error(`Request failed with status ${statusResponse.status}`);
       }
+
+      const statusData = await statusResponse.json();
+      setAgents(statusData.agents || { running: [], completed: 0, failed: 0, pending: 0 });
+      setSystemStatus({
+        llmEngine: statusData.llm?.engine || 'Unknown',
+        llmModel: statusData.llm?.model || 'Not selected',
+        ttsProvider: statusData.tts?.provider || 'Unknown',
+        ttsVoice: statusData.tts?.voice || 'Not selected',
+        charactersLoaded: statusData.metrics?.characterCount || 0,
+        memoryItems: statusData.metrics?.memoryCount || 0,
+        chatSessions: statusData.metrics?.conversationCount || 0,
+        uptime: calculateUptime(),
+        lastActivity: new Date().toLocaleTimeString()
+      });
     } catch (error) {
-      console.error('Error loading system status:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to load system status: ${message}`, { toastId: 'dashboard-status-error' });
 
       // Set default values on error
       setSystemStatus({
@@ -566,7 +559,8 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
       const voices = await ttsService.getVoices(settings.ttsProvider || 'fishspeech', userId);
       setAvailableVoices(voices);
     } catch (error) {
-      console.error('Failed to load voice settings:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to load voice settings: ${message}`, { toastId: 'voice-settings-load' });
       // Set fallback values
       setVoiceSettings({
         provider: 'fishspeech',
@@ -591,7 +585,8 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
         setVoiceSettings(prev => ({ ...prev, voice: voices[0] }));
       }
     } catch (error) {
-      console.error('Failed to load voices for provider:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to load voices for provider: ${message}`, { toastId: 'voice-provider-load' });
       setAvailableVoices(['glados', 'jazzy', 'scarlet']);
       setVoiceSettings(prev => ({ ...prev, voice: 'glados' }));
     }
@@ -618,7 +613,8 @@ const VoiceSettingsCard = ({ userId }: VoiceSettingsCardProps) => {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
-      console.error('Failed to save voice settings:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to save voice settings: ${message}`, { toastId: 'voice-settings-save' });
     } finally {
       setSaving(false);
     }

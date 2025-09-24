@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import { motion } from 'framer-motion';
 import { Database, RefreshCw, AlertCircle, CheckCircle, Wrench, Info } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 interface SyncStatus {
   userId: string;
@@ -77,10 +78,11 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
         const data = await response.json();
         setSyncStatus(data);
       } else {
-        console.error('Failed to load sync status:', response.statusText);
+        toast.error(`Failed to load sync status: ${response.statusText}`, { toastId: 'memory-sync-status-load' });
       }
     } catch (error) {
-      console.error('Error loading sync status:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Error loading sync status: ${message}`, { toastId: 'memory-sync-status-load' });
     } finally {
       setLoading(false);
     }
@@ -97,10 +99,11 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
         // Refresh sync status after repair
         await loadSyncStatus();
       } else {
-        console.error('Failed to repair memories:', response.statusText);
+        toast.error(`Failed to repair memories: ${response.statusText}`, { toastId: 'memory-sync-repair' });
       }
     } catch (error) {
-      console.error('Error repairing memories:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Error repairing memories: ${message}`, { toastId: 'memory-sync-repair' });
     } finally {
       setFullSyncing(false);
     }
@@ -117,10 +120,11 @@ const MemorySyncStatus: React.FC<MemorySyncStatusProps> = ({ userId }) => {
         setFullSyncResult(data);
         setSyncStatus(data.finalStatus);
       } else {
-        console.error('Failed to perform full sync:', response.statusText);
+        toast.error(`Failed to perform full sync: ${response.statusText}`, { toastId: 'memory-sync-full' });
       }
     } catch (error) {
-      console.error('Error performing full sync:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Error performing full sync: ${message}`, { toastId: 'memory-sync-full' });
     } finally {
       setFullSyncing(false);
     }
