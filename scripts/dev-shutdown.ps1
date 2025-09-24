@@ -9,7 +9,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$rootDir = $PSScriptRoot
+$scriptsDir = $PSScriptRoot
+$rootDir = Split-Path -Parent $PSScriptRoot
 $stateFile = Join-Path $rootDir '.dev-state.json'
 
 # --- Utility Functions ---
@@ -216,5 +217,5 @@ Write-Host "• Backend BFF (FastAPI)" -ForegroundColor White
 Write-Host "• Orchestrator (Temporal worker)" -ForegroundColor White
 Write-Host "• All Docker containers (databases, TTS, etc.)" -ForegroundColor White
 Write-Host ""
-Write-Host "To restart everything, run: .\dev-run.ps1" -ForegroundColor Yellow
+Write-Host "To restart everything, run: .\scripts\dev-run.ps1" -ForegroundColor Yellow
 Write-Host ""

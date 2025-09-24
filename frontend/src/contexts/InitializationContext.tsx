@@ -117,7 +117,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
       // Step 2: settings + characters in parallel. Each with its own retry surface.
       safeSetState({ currentStep: 'Loading settings and characters…' });
 
-      const [settingsResponse, charactersResponse] = await Promise.all([
+      await Promise.all([
         fetchWithRetry(
           `/api/settings/llm?userId=${encodeURIComponent(loadedUser.id)}`,
           {},
@@ -125,7 +125,7 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
           400,
           10000,
           (a, t) => safeSetAttempt(`(settings ${a}/${t})`)
-        ).catch(e => e as Response), // normalize
+        ).catch(() => undefined),
         fetchWithRetry(
           `/api/character/user/${encodeURIComponent(loadedUser.id)}`,
           {},
@@ -133,41 +133,17 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
           400,
           10000,
           (a, t) => safeSetAttempt(`(characters ${a}/${t})`)
-        ).catch(e => e as Response),
+        ).catch(() => undefined),
       ]);
-
-      if (settingsResponse && (settingsResponse as Response).ok) {
-        try {
-          const settings = await (settingsResponse as Response).json();
-          // eslint-disable-next-line no-console
-          console.log('Settings loaded:', settings);
-        } catch {
-          // ignore parse issues
-        }
-      }
-
-      if (charactersResponse && (charactersResponse as Response).ok) {
-        try {
-          const characters = await (charactersResponse as Response).json();
-          // eslint-disable-next-line no-console
-          console.log('Characters loaded:', Array.isArray(characters) ? characters.length : 'n/a');
-        } catch {
-          // ignore parse issues
-        }
-      }
 
       // Step 3: done
       safeSetState({ currentStep: 'Initialization complete!', isInitialized: true, isLoading: false });
       safeSetAttempt('');
-      // eslint-disable-next-line no-console
-      console.log('Application initialization completed successfully');
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message :
         typeof err === 'string' ? err :
         'Initialization failed';
-      // eslint-disable-next-line no-console
-      console.error('Initialization failed:', err);
       safeSetState({
         error: message,
         isLoading: false,

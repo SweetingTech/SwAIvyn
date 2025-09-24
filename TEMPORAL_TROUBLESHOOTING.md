@@ -27,7 +27,7 @@ This bypasses Docker Swarm's routing mesh entirely, eliminating h2c connection i
 ### ✅ 2. Force IPv4 Localhost
 **Status: IMPLEMENTED**
 
-In `dev-run.ps1`, services are configured to use IPv4:
+In `scripts/dev-run.ps1`, services are configured to use IPv4:
 ```powershell
 $serviceEnv = @{
     'TEMPORAL_HOST' = '127.0.0.1:7233'  # force IPv4
@@ -72,7 +72,7 @@ temporal:
 ### ✅ 5. PowerShell UTF-8 Fix
 **Status: IMPLEMENTED**
 
-Fixed the mojibake error in `dev-run.ps1` by setting UTF-8 encoding before emoji output.
+Fixed the mojibake error in `scripts/dev-run.ps1` by setting UTF-8 encoding before emoji output.
 
 ## Validation Commands
 
@@ -162,7 +162,7 @@ If clients work with this setup, it confirms that Swarm ingress was the issue.
 ## Additional Hardening
 
 ### Enhanced Service Waiting
-The `dev-run.ps1` script includes enhanced Temporal readiness checking:
+The `scripts/dev-run.ps1` script includes enhanced Temporal readiness checking:
 - Waits for TCP port availability
 - Allows additional time for service initialization
 - Verifies container is running

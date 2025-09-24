@@ -13,8 +13,7 @@ export async function playTts(blob: Blob): Promise<void> {
     audio.addEventListener('error', cleanup);
 
     await audio.play();
-  } catch (err) {
-    console.error('Error playing TTS:', err);
+  } catch {
     alert('Failed to play audio.');
   }
 }

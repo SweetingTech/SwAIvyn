@@ -51,11 +51,9 @@
 - **Justification**: Scripts marked as "old-scripts" with README.txt explaining they're legacy
 - **Impact**: **LOW** - May contain useful reference material, check README.txt first
 
-### 7. **Root-Level Legacy Scripts**
-- **Files to Review**:
-  - `dev-run.ps1` - May be superseded by scripts/dev-run.ps1
-  - `dev-shutdown.ps1` - May be superseded by scripts/dev-*.ps1
-- **Action**: Compare with scripts/ versions, delete if identical
+### 7. **Root-Level Legacy Scripts** ✅ **REMOVED**
+- Root-level `dev-run.ps1` and `dev-shutdown.ps1` have been consolidated under `scripts/`.
+- Use `scripts/dev-run.ps1` and `scripts/dev-shutdown.ps1` going forward.
 
 ### 8. **Generated/Cache Files in attached_assets**
 - **Files to Delete** (timestamped PowerShell output files):

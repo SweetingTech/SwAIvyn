@@ -1,4 +1,5 @@
 import { useTranslation as useI18nTranslation } from 'react-i18next';
+import { toast } from 'react-toastify';
 import useEffectiveUser from './useEffectiveUser';
 
 export const useTranslation = () => {
@@ -23,7 +24,8 @@ export const useTranslation = () => {
         })
       });
     } catch (error) {
-      console.error('Error saving language preference:', error);
+      const message = error instanceof Error ? error.message : undefined;
+      toast.error(message ? `Failed to save language preference: ${message}` : 'Failed to save language preference');
     }
   };
 

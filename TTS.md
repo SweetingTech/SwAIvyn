@@ -4,7 +4,7 @@ This document summarizes what has been done for TTS and what remains to fully en
 
 ## Summary
 - Current end-to-end TTS path works through Traefik on CPU fallback (audio/wav 200 OK via `tts.localhost`).
-- ~~GPU path not yet active/stable in the dev workflow; a helper script exists but needs finalization.~~ GPU compose service added and dev-run.ps1 now auto-ensures a FishSpeech GPU runtime container; activation depends on WSL/Docker GPU availability on the host.
+- ~~GPU path not yet active/stable in the dev workflow; a helper script exists but needs finalization.~~ GPU compose service added and `scripts/dev-run.ps1` now auto-ensures a FishSpeech GPU runtime container; activation depends on WSL/Docker GPU availability on the host.
 - Weaviate stability has been improved by disabling heavy modules for now; service comes up and is reachable.
 - Traefik is bound on port 8088 to avoid conflicts; routing for TTS works.
 - Neo4j failed during the latest full start due to missing password injection.
@@ -49,9 +49,9 @@ This document summarizes what has been done for TTS and what remains to fully en
 - In Swarm (docker-stack.yml), TTS already prefers GPU via `UPSTREAM_TTS_LIST=http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime:8000`.
 
 ### Scripts & Dev Flow
-- dev-shutdown.ps1 updated to stop the standalone GPU TTS container if present.
+- scripts/dev-shutdown.ps1 updated to stop the standalone GPU TTS container if present.
 - setup-gpu-tts.ps1 script added to bring up a standalone CUDA FishSpeech container on the Swarm overlay network (`swaivyn_default`) and point the TTS proxy to it.
-- dev-run.ps1 improvements:
+- scripts/dev-run.ps1 improvements:
   - Longer converge timeout; Swarm overlay network recovery logic.
   - Neo4j password presence guard (intended; see “Open Issues”).
 
@@ -72,11 +72,11 @@ This document summarizes what has been done for TTS and what remains to fully en
 - Validate CUDA availability inside the container; otherwise log a clear warning and continue with CPU.
 - Confirm TTS proxy health shows GPU upstream UP and that a `/tts` request returns audio from the GPU upstream.
 - Decide final orchestration:
-  - Option A: Keep the GPU runtime as a standalone container (recommended for Docker Desktop) and ensure dev-run.ps1 manages it.
+  - Option A: Keep the GPU runtime as a standalone container (recommended for Docker Desktop) and ensure scripts/dev-run.ps1 manages it.
   - Option B: Move the GPU runtime into Swarm (less ideal on Docker Desktop due to GPU runtime limitations), only if necessary.
 
-### 2) Fix Neo4j password injection in dev-run
-- Latest `dev-run.ps1` failed with: `Invalid value for NEO4J_AUTH: 'neo4j/'` and port-in-use flaps.
+### 2) Fix Neo4j password injection in scripts/dev-run
+- Latest `scripts/dev-run.ps1` failed with: `Invalid value for NEO4J_AUTH: 'neo4j/'` and port-in-use flaps.
 - Ensure `NEO4J_PASSWORD` from `.env` is exported into the environment used by `docker stack deploy` (Swarm reads `${NEO4J_PASSWORD}` at deploy time).
 - Options:
   - Export env in-session before `docker stack deploy`.
@@ -92,7 +92,7 @@ This document summarizes what has been done for TTS and what remains to fully en
 
 ### 5) Temporal admin-tools image pre-pull
 - Health check error previously reported: missing `temporalio/admin-tools:1.23` image.
-- Add a pre-pull step in dev-run.ps1 (or setup script) to avoid transient failures.
+- Add a pre-pull step in scripts/dev-run.ps1 (or setup script) to avoid transient failures.
 
 
 ## WSL GPU readiness checklist (host setup)
@@ -103,11 +103,11 @@ This document summarizes what has been done for TTS and what remains to fully en
   - `wsl -e bash -lc "docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi"` should also list the GPU
 - If you see: `WSL environment detected but no adapters were found` from `nvidia-container-cli`, GPU is not exposed to containers yet; fix Docker Desktop GPU settings and WSL driver support, then retry.
 
-### 6) Consolidate GPU setup into dev-run and setup
-- Integrate the working steps from `scripts/setup-gpu-tts.ps1` into `dev-run.ps1` and `scripts/setup.ps1` so the standard dev workflow manages GPU TTS automatically at startup (and `.\dev-shutdown.ps1`), per project preference.
+### 6) Consolidate GPU setup into scripts/dev-run and setup
+- Integrate the working steps from `scripts/setup-gpu-tts.ps1` into `scripts/dev-run.ps1` and `scripts/setup.ps1` so the standard dev workflow manages GPU TTS automatically at startup (and `.\scripts\dev-shutdown.ps1`), per project preference.
 
 ### 7) Tests and telemetry
-- Add a small automated smoke test step in dev-run to hit:
+- Add a small automated smoke test step in scripts/dev-run to hit:
   - Traefik `/ping` (200)
   - TTS proxy `/health` (expects at least CPU upstream 200; GPU preferred 200)
   - Optional: `/tts` with a short text and verify non-empty WAV
@@ -124,12 +124,12 @@ This document summarizes what has been done for TTS and what remains to fully en
 
 1) Stop everything cleanly
 ```
-./dev-shutdown.ps1
+./scripts/dev-shutdown.ps1
 ```
 
 2) Start the stack (Traefik, DBs, services)
 ```
-./dev-run.ps1
+./scripts/dev-run.ps1
 ```
 
 3) If GPU is desired and Docker Desktop supports GPU, in Windows PowerShell:
@@ -137,7 +137,7 @@ This document summarizes what has been done for TTS and what remains to fully en
 ./scripts/setup-gpu-tts.ps1 -SkipGPUTest
 ```
 - This will attempt to start `fishspeech-runtime-gpu` on the overlay network and point the TTS proxy to it.
-- Temporary: this GPU setup step will be automated by dev-run once GPU consolidation is complete.
+- Temporary: this GPU setup step will be automated by scripts/dev-run once GPU consolidation is complete.
 
 
 4) Verify
@@ -167,7 +167,7 @@ curl -s -H "Host: tts.localhost" -X POST -d "text=Hello from SwAIvyn" --output o
 ## Next Concrete Steps (proposed)
 1) Fix Neo4j password injection (export env or use env_file/secrets) so full stack comes up reliably.
 2) Run GPU container with the correct model mount and network; confirm `/health` shows GPU=UP.
-3) Add a minimal, scripted smoke test at the end of dev-run (Traefik ping, TTS health, 1 synth) to catch regressions fast.
+3) Add a minimal, scripted smoke test at the end of scripts/dev-run (Traefik ping, TTS health, 1 synth) to catch regressions fast.
 4) Decide and document final Traefik port/entrypoint convention (keep 8088 outside; 80 inside recommended).
 5) Optionally re-enable Weaviate modules after stability and add startup tolerances.
 

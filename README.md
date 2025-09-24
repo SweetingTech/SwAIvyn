@@ -112,22 +112,22 @@ SwAIvyn uses a hybrid architecture for optimal development experience:
 **Quick Start:**
 ```powershell
 # Start hybrid development environment
-.\dev-run.ps1
+.\scripts\dev-run.ps1
 
 # Stop everything cleanly  
-.\dev-shutdown.ps1
+.\scripts\dev-shutdown.ps1
 ```
 
 **Development Options:**
 ```powershell
 # Frontend only (React/Vite hot reload)
-.\dev-run.ps1 -FrontendOnly
+.\scripts\dev-run.ps1 -FrontendOnly
 
 # Backend only (FastAPI + Docker infrastructure)
-.\dev-run.ps1 -BackendOnly
+.\scripts\dev-run.ps1 -BackendOnly
 
 # Disable Traefik routing (use direct ports)
-.\dev-run.ps1 -DisableTraefik
+.\scripts\dev-run.ps1 -DisableTraefik
 ```
 
 **🏠 Host Services (Hot Reload):**
@@ -146,8 +146,8 @@ SwAIvyn uses a hybrid architecture for optimal development experience:
 - **Traefik** reverse proxy - localhost:80
 
 **Key Features:**
-✅ **One-Command Setup** - Start everything with `.\dev-run.ps1`
-✅ **Clean Shutdown** - Stop everything with `.\dev-shutdown.ps1`
+✅ **One-Command Setup** - Start everything with `.\scripts\dev-run.ps1`
+✅ **Clean Shutdown** - Stop everything with `.\scripts\dev-shutdown.ps1`
 ✅ **Health Checks** - Waits for services to be ready before proceeding
 ✅ **Service Coordination** - Ensures dependencies are ready before starting dependent services
 ✅ **Remote Access Support** - Services accessible from other devices on your network
@@ -619,10 +619,10 @@ SwAIvyn uses a hybrid development approach: application services (BFF, Orchestra
 ### Quick Start:
 ```powershell
 # Start everything (Docker + non-Docker services)
-.\dev-run.ps1
+.\scripts\dev-run.ps1
 
 # Stop everything cleanly
-.\dev-shutdown.ps1
+.\scripts\dev-shutdown.ps1
 ```
 
 ### Development Endpoints:
@@ -640,13 +640,13 @@ SwAIvyn uses a hybrid development approach: application services (BFF, Orchestra
 ### Advanced Options:
 ```powershell
 # Frontend only development
-.\dev-run.ps1 -FrontendOnly
+.\scripts\dev-run.ps1 -FrontendOnly
 
 # Backend only development  
-.\dev-run.ps1 -BackendOnly
+.\scripts\dev-run.ps1 -BackendOnly
 
 # Complete removal (containers + networks)
-.\dev-shutdown.ps1 -DownCompose -Prune
+.\scripts\dev-shutdown.ps1 -DownCompose -Prune
 ```
 
 See `docs/hybrid-development.md` for details, `docs/bare-metal-deployment.md` for a container‑free deployment guide, and `docs/architecture-and-dataflow.md` for architecture diagrams.
