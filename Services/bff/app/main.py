@@ -59,7 +59,7 @@ logger = logging.getLogger("swai.bff")
 # Required environment variables for startup validation (name -> description)
 REQUIRED_ENV_VARS: Mapping[str, str] = {
     "DATABASE_URL": "PostgreSQL connection string",
-    "JWT_SECRET": "Secret used to sign authentication tokens",
+    # JWT_SECRET is optional - auth.py generates one automatically if not provided
 }
 
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")

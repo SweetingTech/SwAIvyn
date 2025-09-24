@@ -21,5 +21,17 @@ def create_engine() -> Optional[AsyncEngine]:
     # Disable SSL by default for local/dev Postgres; enable only if explicitly asked via DB_SSL=true
     use_ssl = os.getenv("DB_SSL", "false").lower() in ("1","true","yes")
     connect_args = {"ssl": True} if use_ssl else {}
-    return create_async_engine(url, echo=False, future=True, connect_args=connect_args)
+    
+    # Connection pool configuration to prevent timeout issues
+    return create_async_engine(
+        url, 
+        echo=False, 
+        future=True, 
+        connect_args=connect_args,
+        pool_size=20,           # Maintain 20 connections in pool
+        pool_recycle=3600,      # Recreate connections every hour (prevents timeouts)
+        pool_pre_ping=True,     # Test connections before use
+        pool_timeout=30,        # Wait 30 seconds for connection
+        max_overflow=20         # Allow 20 additional connections if needed
+    )
 
