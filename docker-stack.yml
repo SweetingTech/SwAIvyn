@@ -24,11 +24,11 @@ services:
       - --log.level=INFO
       - --api.dashboard=true
       - --entrypoints.web.address=:8088
+      - --ping=true
+      - --ping.entryPoint=web
       - --providers.swarm=true
       - --providers.swarm.exposedbydefault=false
       - --providers.swarm.network=swaivyn_default
-      - --ping=true
-      - --ping.entryPoint=web
 
     ports:
       - target: 8088
@@ -76,11 +76,7 @@ services:
         read_only: true
     networks:
       - default
-    ports:
-      - target: 8081
-        published: 8081
-        protocol: tcp
-        mode: host
+
     deploy:
       replicas: 1
       labels:
@@ -159,20 +155,11 @@ services:
   neo4j:
     image: neo4j:5
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-SwaiNeo4j!}
     volumes:
       - neo4j_data:/data
     networks:
       - default
-    ports:
-      - target: 7474
-        published: 7474
-        protocol: tcp
-        mode: host
-      - target: 7687
-        published: 7687
-        protocol: tcp
-        mode: host
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 15s

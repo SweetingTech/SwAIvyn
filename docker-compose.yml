@@ -48,7 +48,8 @@ services:
       context: .
       dockerfile: speech/TTS/openaudio-s1-mini/Dockerfile
     environment:
-      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://host.docker.internal:8081}
+      - UPSTREAM_TTS=${UPSTREAM_TTS:-http://fishspeech-runtime-gpu:8000}
+      - UPSTREAM_TTS_LIST=${UPSTREAM_TTS_LIST:-http://fishspeech-runtime-gpu:8000}
       - VOICES_DIR=/app/voices
     ports:
       - "8081:8081"
@@ -63,6 +64,21 @@ services:
       retries: 12
       start_period: 20s
     profiles: ["tts"]
+
+  fishspeech-runtime-gpu:
+    image: swai/fish-speech:cuda
+    command: >
+      python tools/api_server.py --listen 0.0.0.0:8000 --device cuda --half
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    gpus: all
+    volumes:
+      - ./speech/TTS/openaudio-s1-mini/fish_speech_model:/opt/fish-speech/checkpoints/openaudio-s1-mini:ro
+    networks:
+      - swai-network
+    profiles: ["tts"]
+
 
 
   qdrant:

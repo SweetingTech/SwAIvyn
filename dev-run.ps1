@@ -7,7 +7,7 @@ param (
     [switch] $DisableTraefik = $false,
     [switch] $Swarm = $false,
     [string] $StackName = 'swaivyn',
-    [int] $TraefikPort = 80,
+    [int] $TraefikPort = 8088,
     [switch]$NoCache,
     [switch]$Pull
 )
@@ -192,6 +192,30 @@ function Build-Image {
     & docker @args
     if ($LASTEXITCODE -ne 0) { throw "docker build failed for $Tag" }
   } finally { Pop-Location }
+}
+
+
+function Test-GPUPrereqs {
+  try {
+    $null = & wsl -e bash -lc "nvidia-smi" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Log "WSL GPU detected (nvidia-smi OK)." 'SUCCESS'
+    } else {
+      Write-Log "WSL GPU check failed; enable WSL GPU to use FishSpeech CUDA. Will fall back to CPU if unavailable." 'WARN'
+    }
+  } catch {
+    Write-Log ("WSL GPU check error: {0}" -f $_.Exception.Message) 'WARN'
+  }
+  try {
+    $null = & docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Log "Docker GPU runtime available (nvidia-container-runtime OK)." 'SUCCESS'
+    } else {
+      Write-Log "Docker GPU runtime not available; GPU containers may fail to start. TTS will fall back to CPU." 'WARN'
+    }
+  } catch {
+    Write-Log ("Docker GPU runtime test error: {0}" -f $_.Exception.Message) 'WARN'
+  }
 }
 
 function Ensure-Images {
@@ -822,6 +846,11 @@ try {
         Start-Sleep -Seconds 1
     }
     if (-not $ok) { Write-Warning "Overlay network '$networkName' not visible yet; deploy may fail." }
+
+# --- GPU prerequisites (WSL + Docker) ---
+Write-Host "Checking GPU availability (WSL/Docker)..." -ForegroundColor DarkGray
+Test-GPUPrereqs
+
 } catch {
     Write-Warning "Failed to ensure network '$networkName': $($_.Exception.Message)"
 }
@@ -856,6 +885,8 @@ try {
 
   # Create if missing
   $existingId = (& docker ps -aq -f name=$gpuName 2>$null)
+
+
   if (-not $existingId) {
     if (-not (Test-Path $modelPath)) {
       Write-Warning ("FishSpeech model path not found: {0}" -f $modelPath)
@@ -896,6 +927,20 @@ Write-Host "`nWaiting for critical infrastructure services...`n" -ForegroundColo
 
 # Wait for PostgreSQL first (Temporal depends on it)
 $pgReady = Wait-TcpPort -HostName '127.0.0.1' -Port 5432 -Retries 30 -DelaySec 2
+
+
+# Inspect GPU container logs for common GPU/runtime issues and warn
+try {
+  Start-Sleep -Seconds 2
+  $gpuLogs = & docker logs $gpuName --tail 80 2>$null
+  if ($gpuLogs) {
+    if ($gpuLogs -match 'WSL environment detected but no adapters were found' -or $gpuLogs -match 'NVIDIA Driver was not detected') {
+      Write-Log "GPU container started without GPU (driver/runtime not available). TTS will run via CPU fallback." 'WARN'
+    }
+  }
+} catch {
+  Write-Log ("Could not fetch GPU container logs: {0}" -f $_.Exception.Message) 'DEBUG'
+}
 
 if (-not $pgReady) {
     Handle-StartupFailure -Reason "PostgreSQL did not become ready within the expected time window." -FailingServices @("${StackName}_swai-db")
