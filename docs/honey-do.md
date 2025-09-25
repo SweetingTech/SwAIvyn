@@ -1,24 +1,24 @@
-# SwAIvyn Honey-Do List 🍯✅
+# SwAIvyn Honey-Do List [OK]
 
 *Technical debt, improvements, and maintenance items identified during comprehensive program review*
 
 ---
 
-## 🚨 **Critical Issues (Fix Soon)**
+##  **Critical Issues (Fix Soon)**
 
-### 1. **SignalR Frontend Code Without Backend Implementation** ✅ **COMPLETED**
+### 1. **SignalR Frontend Code Without Backend Implementation** [OK] **COMPLETED**
 - **Resolution**: Removed the unused `useChatHub.ts` hook, deleted the SignalR dependency from package manifests, and cleaned up lingering SignalR comments.
 - **Current State**: Chat experience now exclusively relies on REST endpoints with no dead SignalR references in code or documentation.
 
-### 2. **React Router Future Flag Warnings** ✅ **COMPLETED**
+### 2. **React Router Future Flag Warnings** [OK] **COMPLETED**
 - **Issue**: Browser console shows warnings about React Router v7 migration flags
 - **Impact**: Deprecation warnings indicate code will break in future React Router versions
-- **Fix**: ✅ **DONE** - Added future flags to BrowserRouter in `frontend/src/main.tsx`
+- **Fix**: [OK] **DONE** - Added future flags to BrowserRouter in `frontend/src/main.tsx`
 - **Resolution**: Added `v7_startTransition: true` and `v7_relativeSplatPath: true` to BrowserRouter future config
 - **Status**: Warnings eliminated, React Router v7 compatibility enabled
 - **Warning Messages**: **RESOLVED**
-  - ✅ `v7_startTransition` - State updates will be wrapped in React.startTransition 
-  - ✅ `v7_relativeSplatPath` - Relative route resolution changes in Splat routes
+  - [OK] `v7_startTransition` - State updates will be wrapped in React.startTransition 
+  - [OK] `v7_relativeSplatPath` - Relative route resolution changes in Splat routes
 
 ### 3. **Inconsistent Authentication Pattern Usage** 
 - **Issue**: Mix of `useEffectiveUser()` hook and direct API calls across components
@@ -34,9 +34,9 @@
 
 ---
 
-## ⚠️ **High Priority (Address Soon)**
+##  **High Priority (Address Soon)**
 
-### 4. **Missing Environment Variable Validation** ✅ **COMPLETED**
+### 4. **Missing Environment Variable Validation** [OK] **COMPLETED**
 - **Resolution**: Added startup checks for required environment variables in the FastAPI BFF and Temporal orchestrator worker, plus a central Vite env helper for frontend builds.
 - **Coverage**:
   - BFF fails fast if `DATABASE_URL` or `JWT_SECRET` are missing and logs structured errors.
@@ -47,7 +47,7 @@
 - **Issue**: Documentation mentions SQLite but project uses PostgreSQL; schema files may be outdated
 - **Impact**: Migration failures and data integrity issues
 - **Fix**: Audit `shared/schema.ts` against actual database structure; run `npm run db:push` to sync
-- **Critical**: Never change primary key ID types (serial ↔ varchar) - causes destructive migrations
+- **Critical**: Never change primary key ID types (serial  varchar) - causes destructive migrations
 
 ### 6. **Temporal Configuration Issues**
 - **Issue**: `BIND_ON_IP` overrides removed but may still cause ringpop bootstrap failures
@@ -55,13 +55,13 @@
 - **Fix**: Monitor Temporal startup logs and verify cluster formation works reliably
 - **Files**: `docker-stack.yml`, Temporal service configuration
 
-### 7. **Missing Error Boundaries** ✅ **COMPLETED**
+### 7. **Missing Error Boundaries** [OK] **COMPLETED**
 - **Resolution**: Introduced a reusable `ErrorBoundary` component and wrapped login routes, primary router, and the Stagewise toolbar in guards to prevent white screens.
 - **UX**: Users now see a helpful fallback message if unexpected runtime errors occur in Chat or Settings views.
 
 ---
 
-## 🔧 **Medium Priority (Quality Improvements)**
+##  **Medium Priority (Quality Improvements)**
 
 ### 8. **Inconsistent API Error Handling**
 - **Issue**: Some API endpoints return different error formats
@@ -96,9 +96,9 @@
 - **Fix**: Implement `/health` and `/ready` endpoints for all services
 - **Status**: **PARTIALLY IMPLEMENTED** 
 - **Locations**:
-  - ✅ `Services/bff/app/main.py:313-327` - Has `/healthz`, `/readyz`, `/api/healthz`, `/api/readyz` endpoints
-  - ✅ `Services/bff/app/main.py:336` - Has `/api/llm/health` endpoint  
-  - ❌ **Missing**: Orchestrator and TTS services lack health endpoints
+  - [OK] `Services/bff/app/main.py:313-327` - Has `/healthz`, `/readyz`, `/api/healthz`, `/api/readyz` endpoints
+  - [OK] `Services/bff/app/main.py:336` - Has `/api/llm/health` endpoint  
+  -  **Missing**: Orchestrator and TTS services lack health endpoints
   - `Services/bff/app/models.py:136` - health_endpoint field exists for external agents
 
 ### 12. **Inconsistent Logging Patterns**
@@ -117,7 +117,7 @@
 
 ---
 
-## 🧹 **Low Priority (Nice to Have)**
+##  **Low Priority (Nice to Have)**
 
 ### 13. **Unused Dependencies**
 - **Issue**: `package.json` and `requirements.txt` may contain unused dependencies
@@ -149,19 +149,19 @@
 - **Fix**: Audit React components for performance issues
 - **Tools**: Use React DevTools Profiler, implement memoization where appropriate
 
-### 18. **File Upload Features and Management** ✅ **COMPLETED**
+### 18. **File Upload Features and Management** [OK] **COMPLETED**
 - **Issue**: Chat page had redundant upload buttons and lacked file management UI
-- **Status**: ✅ **FULLY IMPLEMENTED** - Complete file management system with Weaviate integration
+- **Status**: [OK] **FULLY IMPLEMENTED** - Complete file management system with Weaviate integration
 - **Completed Work**:
-  - ✅ **Upload Button Consolidation**: Reduced from 6 redundant upload buttons to 1 main button in chat composer
-  - ✅ **FileManager Component**: Created comprehensive file management UI with:
+  - [OK] **Upload Button Consolidation**: Reduced from 6 redundant upload buttons to 1 main button in chat composer
+  - [OK] **FileManager Component**: Created comprehensive file management UI with:
     - File listing with metadata (size, upload date, embedding status)
     - File deletion with confirmation
     - Weaviate embedding search functionality
     - Visual indicators for embedded files
     - Search interface for file contents
-  - ✅ **Weaviate Integration**: Embedding search calls `/api/embeddings/search` endpoint
-  - ✅ **Resource Management**: Proper file upload handling and cleanup
+  - [OK] **Weaviate Integration**: Embedding search calls `/api/embeddings/search` endpoint
+  - [OK] **Resource Management**: Proper file upload handling and cleanup
 - **New Locations**:
   - `frontend/src/components/chat/FileManager.tsx` - Complete file management component
   - `frontend/src/pages/ChatPage.tsx` - Integrated FileManager in right sidebar
@@ -175,7 +175,7 @@
 
 ---
 
-## 🔐 **Security Considerations**
+##  **Security Considerations**
 
 ### 20. **JWT Token Security**
 - **Issue**: JWT tokens may not have proper expiration handling
@@ -197,7 +197,7 @@
 
 ---
 
-## 📊 **Monitoring & Observability**
+##  **Monitoring & Observability**
 
 ### 23. **Missing Metrics Collection**
 - **Issue**: No system metrics or performance monitoring
@@ -213,7 +213,7 @@
 
 ---
 
-## 🚀 **Development Experience**
+##  **Development Experience**
 
 ### 25. **Pre-commit Hooks**
 - **Issue**: No automated code quality checks before commits
@@ -227,19 +227,19 @@
 - **Fix**: Create CONTRIBUTING.md with development workflow and coding standards
 - **Include**: Setup instructions, coding standards, testing guidelines
 
-### 27. **ChatPage Code Redundancy and UI Cleanup** ✅ **COMPLETED**
+### 27. **ChatPage Code Redundancy and UI Cleanup** [OK] **COMPLETED**
 - **Issue**: ChatPage had significant redundant code patterns and broken/misleading UI elements
 - **Impact**: Confusing UX with 6 upload buttons, 3 broken camera buttons, inconsistent voice recording
-- **Status**: ✅ **MAJOR CLEANUP COMPLETED** - Comprehensive ChatPage refactoring
+- **Status**: [OK] **MAJOR CLEANUP COMPLETED** - Comprehensive ChatPage refactoring
 - **Completed Work**:
-  - ✅ **Upload Button Consolidation**: Removed 5 redundant upload buttons → 1 main button
-  - ✅ **Camera Button Cleanup**: Removed 3 duplicate camera buttons → 1 disabled button marked "coming soon"
-  - ✅ **Voice Recording Cleanup**: Removed MediaRecorder functionality from chat interface (preserved STT/TTS controls)
-  - ✅ **Universal TTS Implementation**: Added play button to read all AI messages with proper audio control and resource management
-  - ✅ **TTS System Enhancement**: Preserved individual play buttons, added chat bar toggle integration
-  - ✅ **Code Quality**: Fixed all LSP errors, removed unused imports, proper resource cleanup
-  - ✅ **Text Length Limits**: Added 3000-char limit to prevent TTS provider failures
-  - ✅ **Memory Leak Prevention**: Proper Audio instance management and URL cleanup
+  - [OK] **Upload Button Consolidation**: Removed 5 redundant upload buttons -> 1 main button
+  - [OK] **Camera Button Cleanup**: Removed 3 duplicate camera buttons -> 1 disabled button marked "coming soon"
+  - [OK] **Voice Recording Cleanup**: Removed MediaRecorder functionality from chat interface (preserved STT/TTS controls)
+  - [OK] **Universal TTS Implementation**: Added play button to read all AI messages with proper audio control and resource management
+  - [OK] **TTS System Enhancement**: Preserved individual play buttons, added chat bar toggle integration
+  - [OK] **Code Quality**: Fixed all LSP errors, removed unused imports, proper resource cleanup
+  - [OK] **Text Length Limits**: Added 3000-char limit to prevent TTS provider failures
+  - [OK] **Memory Leak Prevention**: Proper Audio instance management and URL cleanup
 - **Technical Improvements**:
   - Proper audio control with start/stop functionality
   - Resource management prevents memory leaks
@@ -253,11 +253,11 @@
 
 ---
 
-## 📝 **Action Priority Matrix**
+##  **Action Priority Matrix**
 
 ### **Fix This Week**
 1. ~~Remove SignalR dead code (#1)~~ - **LOW PRIORITY** - Not used in main chat, safe dead code
-2. ✅ **COMPLETED**: Fix React Router warnings (#2) - Added future flags to BrowserRouter config
+2. [OK] **COMPLETED**: Fix React Router warnings (#2) - Added future flags to BrowserRouter config
 3. Implement Error Boundaries (#7) - Create `ErrorBoundary.tsx` component
 
 ### **Fix This Month**
@@ -278,14 +278,14 @@
 
 ---
 
-## 🎯 **Recently Completed Items** 
+##  **Recently Completed Items** 
 
 **September 23, 2025 - ChatPage Enhancement Session:**
-- ✅ **React Router Warnings** (#2) - Added v7 future flags
-- ✅ **File Management System** (#18) - Complete FileManager component with Weaviate integration
-- ✅ **ChatPage Code Cleanup** (#27) - Major redundancy elimination and TTS system enhancement
-- ✅ **Upload Button Consolidation** - Reduced from 6 buttons to 1
-- ✅ **Camera Button Cleanup** - Consolidated to 1 disabled button
-- ✅ **Universal TTS Implementation** - Read all messages functionality
-- ✅ **Resource Management** - Proper audio cleanup and memory leak prevention
-- ✅ **Code Quality** - Fixed LSP errors and removed unused code
+- [OK] **React Router Warnings** (#2) - Added v7 future flags
+- [OK] **File Management System** (#18) - Complete FileManager component with Weaviate integration
+- [OK] **ChatPage Code Cleanup** (#27) - Major redundancy elimination and TTS system enhancement
+- [OK] **Upload Button Consolidation** - Reduced from 6 buttons to 1
+- [OK] **Camera Button Cleanup** - Consolidated to 1 disabled button
+- [OK] **Universal TTS Implementation** - Read all messages functionality
+- [OK] **Resource Management** - Proper audio cleanup and memory leak prevention
+- [OK] **Code Quality** - Fixed LSP errors and removed unused code

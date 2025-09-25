@@ -99,14 +99,14 @@ The frontend now supports the following endpoints:
 ## File Structure
 ```
 SwAIvyn/
-├── frontend/src/
-│   ├── services/ttsService.ts (✓ Enhanced)
-│   └── pages/SettingsPage.tsx (✓ Enhanced)
-├── backend/
-│   ├── Controllers/TtsController.cs (⏳ Pending)
-│   └── Services/FishSpeechTtsService.cs (⏳ Pending)
-└── speech/TTS/openaudio-s1-mini/
-    └── voices/ (Directory for voice files)
++-- frontend/src/
+   +-- services/ttsService.ts ([CHECK] Enhanced)
+   +-- pages/SettingsPage.tsx ([CHECK] Enhanced)
++-- backend/
+   +-- Controllers/TtsController.cs ( Pending)
+   +-- Services/FishSpeechTtsService.cs ( Pending)
++-- speech/TTS/openaudio-s1-mini/
+    +-- voices/ (Directory for voice files)
 ```
 
 ## Next Steps

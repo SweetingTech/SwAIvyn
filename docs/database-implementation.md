@@ -4,12 +4,12 @@
 
 ## Design Goals & Constraints
 
-1. **One-click install / portable `.exe`** – no Docker, no external services that must be running
-2. **Single-user desktop workload** – one human + background threads (STT, TTS, vector search)
+1. **One-click install / portable `.exe`** - no Docker, no external services that must be running
+2. **Single-user desktop workload** - one human + background threads (STT, TTS, vector search)
 3. **Local data lives in `Sqldatabase/` folder relative to application**
-4. **Support "power mode" later** – allow pointing to external Postgres, Qdrant, etc.
-5. **Automatic character loading** – load character cards from `frontend/AI` directory on startup
-6. **Idempotent database operations** – safe to run setup scripts multiple times
+4. **Support "power mode" later** - allow pointing to external Postgres, Qdrant, etc.
+5. **Automatic character loading** - load character cards from `frontend/AI` directory on startup
+6. **Idempotent database operations** - safe to run setup scripts multiple times
 
 ## Database Technology Stack
 
@@ -20,7 +20,7 @@
 | Graph database                         | **Neo4j** (embedded or remote)                                 | Custom HTTP client                                           | Neo4j database files                       | Username: `neo4j`<br>Password: `password`<br>Config: `appsettings.json`<br>Auth file: `%AppData%\SwAIvyn\neo4j\conf\auth` |
 | Ephemeral cache                        | In-process `MemoryCache` (`IMemoryCache`)                      | built-in                                                     | N/A                                        | N/A |
 | Chat messages                          | File system (JSON files)                                        | System.IO + System.Text.Json                                 | `/sessions/{conversationId}/{timestamp}.json` | N/A |
-| Large binary blobs (avatar PNGs, WAVs) | File system                                                    | –                                                            | `/Assets/…`                                | N/A |
+| Large binary blobs (avatar PNGs, WAVs) | File system                                                    | -                                                            | `/Assets/`                                | N/A |
 
 ## Database Initialization & Setup
 
@@ -60,13 +60,13 @@ Characters are automatically loaded from the `frontend/AI` directory:
 1. **Directory Structure Expected**:
    ```
    frontend/AI/
-   ├── GLaDOS/
-   │   ├── GLaDOS_Character_card.yaml
-   │   └── char_img.jpg
-   ├── Sam/
-   │   └── Sam_Character_card.yaml
-   └── Sherlock/
-       └── Sherlock_Character_card.yaml
+   +-- GLaDOS/
+      +-- GLaDOS_Character_card.yaml
+      +-- char_img.jpg
+   +-- Sam/
+      +-- Sam_Character_card.yaml
+   +-- Sherlock/
+       +-- Sherlock_Character_card.yaml
    ```
 
 2. **Loading Logic**:
@@ -660,7 +660,7 @@ Invoke-RestMethod -Uri 'http://localhost:5000/api/user/default' -Method GET
 
 ## Current Implementation Status
 
-### ✅ Completed Features
+### [OK] Completed Features
 
 1. **Database Schema**: Complete Users table with `LastSelectedCharacterId` column
 2. **Default User Creation**: Automatic creation of required default user
@@ -673,44 +673,44 @@ Invoke-RestMethod -Uri 'http://localhost:5000/api/user/default' -Method GET
 9. **API Functionality**: `/api/user/default` endpoint working correctly
 10. **Character Management**: GLaDOS, Sam, and Sherlock characters loaded
 
-### 🔧 Current Database State
+###  Current Database State
 
 - **Users**: 1 (default user with ID `00000000-0000-0000-0000-000000000001`)
 - **Avatars**: 3 (GLaDOS, Sam, Sherlock loaded from YAML files)
 - **Schema**: Complete with all required columns
 - **Location**: `Sqldatabase/swai-vyn.db` and copied to application runtime location
 
-### 🚀 Ready for Production
+###  Ready for Production
 
 The database implementation is now **fully functional** and ready for production use. All critical issues have been resolved:
 
-- ✅ No more 500 Internal Server Errors
-- ✅ User profile loads successfully
-- ✅ Character selector populated with 3 characters
-- ✅ Complete build automation
-- ✅ Robust error handling and recovery
+- [OK] No more 500 Internal Server Errors
+- [OK] User profile loads successfully
+- [OK] Character selector populated with 3 characters
+- [OK] Complete build automation
+- [OK] Robust error handling and recovery
 
 ## Next Steps
 
-1. **Create data directory structure** on startup ✅
-2. **Implement backup service** for automated backups ✅
-3. **Add migration support** for future schema changes ✅
-4. **Update controllers** to use the refined data models ✅
-5. **Implement memory embedding** with the vector store ✅
-6. **Implement user-configurable LLM settings** ✅
-7. **Create settings UI** for configuring LLM connections and preferences ✅
-8. **Integrate chat functionality** with user-selected LLM settings ✅
-9. **Implement folder management for organizing conversations** ✅
+1. **Create data directory structure** on startup [OK]
+2. **Implement backup service** for automated backups [OK]
+3. **Add migration support** for future schema changes [OK]
+4. **Update controllers** to use the refined data models [OK]
+5. **Implement memory embedding** with the vector store [OK]
+6. **Implement user-configurable LLM settings** [OK]
+7. **Create settings UI** for configuring LLM connections and preferences [OK]
+8. **Integrate chat functionality** with user-selected LLM settings [OK]
+9. **Implement folder management for organizing conversations** [OK]
    - Create, rename, and delete folders
    - Hierarchical folder structure
    - Automatic deletion of contained conversations when folder is deleted
-10. **Implement automatic chat session management** ✅
+10. **Implement automatic chat session management** [OK]
    - Start with empty chat session
    - Assign UUID on first message
    - Auto-save sessions
    - Generate title from first message
    - Rename, edit, and delete sessions
-11. **Database initialization and character loading** ✅
+11. **Database initialization and character loading** [OK]
    - Automatic default user creation
    - Character card loading from filesystem
    - Idempotent database operations

@@ -1,30 +1,30 @@
-# SwAIvyn TTS (FishSpeech) – Status & Plan
+# SwAIvyn TTS (FishSpeech) - Status & Plan
 
 This document summarizes what has been done for TTS and what remains to fully enable GPU-accelerated TTS within the SwAIvyn dev workflow.
 
 ## Summary
 - Current end-to-end TTS path works through Traefik on CPU fallback (audio/wav 200 OK via `tts.localhost`).
-- ~~GPU path not yet active/stable in the dev workflow; a helper script exists but needs finalization.~~ GPU compose service added and `scripts/dev-run.ps1` now auto-ensures a FishSpeech GPU runtime container; activation depends on WSL/Docker GPU availability on the host.
+- GPU runtime support is integrated: `scripts/dev-run.ps1` will start a standalone FishSpeech GPU container when WSL/Docker GPU prerequisites pass, otherwise the stack automatically falls back to CPU.
 - Weaviate stability has been improved by disabling heavy modules for now; service comes up and is reachable.
 - Traefik is bound on port 8088 to avoid conflicts; routing for TTS works.
 - Neo4j failed during the latest full start due to missing password injection.
 
 ---
 
-## What’s Done
+## What's Done
 
 ### TTS Proxy and Backend
-- Removed external “dial-home” calls; proxy now operates offline.
+- Removed external "dial-home" calls; proxy now operates offline.
 - Added multi-upstream fallback for TTS:
   - Prefers GPU upstream first, falls back to CPU.
-  - Controlled via `UPSTREAM_TTS_LIST` env var (e.g., `http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime:8000`).
+  - Controlled via `UPSTREAM_TTS_LIST` env var (e.g., `http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime-cpu:8000`).
 - Added `/health` in the TTS proxy to report upstream statuses (GPU/CPU).
 - Backend BFF: added `/api/tts/health` passthrough for UI.
 
 ### Frontend
 - VoiceSelector now fetches voices dynamically from backend (removed hard-coded lists).
 - Dashboard defaults to FishSpeech provider.
-- ChatPage: clarified TTS toggle with “Auto voice” label.
+- ChatPage: clarified TTS toggle with "Auto voice" label.
 - SettingsPage: added TTS health panel showing GPU/CPU upstream status.
 
 ### Docker/Infra
@@ -46,14 +46,15 @@ This document summarizes what has been done for TTS and what remains to fully en
   - `UPSTREAM_TTS` -> `http://fishspeech-runtime-gpu:8000`
   - `UPSTREAM_TTS_LIST` -> `http://fishspeech-runtime-gpu:8000`
 - Result: `docker compose --profile tts up -d tts fishspeech-runtime-gpu` brings up the proxy and GPU runtime together for local testing.
-- In Swarm (docker-stack.yml), TTS already prefers GPU via `UPSTREAM_TTS_LIST=http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime:8000`.
+- In Swarm (docker-stack.yml), TTS already prefers GPU via `UPSTREAM_TTS_LIST=http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime-cpu:8000`.
+- In Swarm (docker-stack.yml), the CPU fallback runs as `fishspeech-runtime-cpu` while the GPU runtime is managed as a standalone container that joins the overlay network when available.
 
 ### Scripts & Dev Flow
 - scripts/dev-shutdown.ps1 updated to stop the standalone GPU TTS container if present.
 - setup-gpu-tts.ps1 script added to bring up a standalone CUDA FishSpeech container on the Swarm overlay network (`swaivyn_default`) and point the TTS proxy to it.
 - scripts/dev-run.ps1 improvements:
   - Longer converge timeout; Swarm overlay network recovery logic.
-  - Neo4j password presence guard (intended; see “Open Issues”).
+  - Neo4j password presence guard (intended; see "Open Issues").
 
 - setup.ps1 is the single source of truth for database and base infra setup; run it once initially (and when config changes).
 
@@ -97,7 +98,7 @@ This document summarizes what has been done for TTS and what remains to fully en
 
 ## WSL GPU readiness checklist (host setup)
 - Install the latest NVIDIA Windows driver with WSL support (RTX 3090).
-- Docker Desktop: enable WSL 2 based engine, enable your WSL distro under Resources → WSL Integration, and enable GPU support.
+- Docker Desktop: enable WSL 2 based engine, enable your WSL distro under Resources -> WSL Integration, and enable GPU support.
 - Verify GPU in WSL:
   - `wsl -e bash -lc "nvidia-smi"` should list the GPU
   - `wsl -e bash -lc "docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi"` should also list the GPU

@@ -66,7 +66,7 @@ function Test-Command { param([string]$Name) try { Get-Command $Name -ErrorActio
 function Test-Port { param([int]$Port) try { $listener = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners(); return ($listener | Where-Object { $_.Port -eq $Port }).Count -gt 0 } catch { return $false } }
 function Wait-ForPort { param([int]$Port, [int]$TimeoutSec = 60) for ($i = 0; $i -lt $TimeoutSec; $i++) { if (Test-Port $Port) { return $true } Start-Sleep 1 } return $false }
 
-Write-Host "🚀 SwAIvyn Bare Metal Setup" -ForegroundColor Cyan
+Write-Host " SwAIvyn Bare Metal Setup" -ForegroundColor Cyan
 Write-Host "Data Directory: $DataDir" -ForegroundColor Gray
 Write-Host "Base Port: $Port" -ForegroundColor Gray
 
@@ -86,7 +86,7 @@ $dirs = @(
 foreach ($dir in $dirs) {
     if (-not (Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        Write-Host "✅ Created directory: $dir" -ForegroundColor Green
+        Write-Host "[OK] Created directory: $dir" -ForegroundColor Green
     }
 }
 
@@ -106,13 +106,13 @@ $ports = @{
     'lmstudio' = 1234
 }
 
-Write-Host "`n📦 Service Port Assignments:" -ForegroundColor Yellow
+Write-Host "`n Service Port Assignments:" -ForegroundColor Yellow
 foreach ($service in $ports.Keys) {
     Write-Host "  $service : $($ports[$service])" -ForegroundColor Gray
 }
 
 if ($InstallDependencies -and -not $SkipInstall) {
-    Write-Host "`n🔧 Installing Dependencies..." -ForegroundColor Cyan
+    Write-Host "`n Installing Dependencies..." -ForegroundColor Cyan
     
     # Check if running as Administrator
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -142,7 +142,7 @@ if ($InstallDependencies -and -not $SkipInstall) {
         Write-Host "Installing $package..." -ForegroundColor Yellow
         try {
             & choco install $package -y --no-progress
-            Write-Host "✅ Installed $package" -ForegroundColor Green
+            Write-Host "[OK] Installed $package" -ForegroundColor Green
         } catch {
             Write-Warning "Failed to install $package : $_"
         }
@@ -163,14 +163,14 @@ if ($InstallDependencies -and -not $SkipInstall) {
     & pip install -r requirements.txt
     Pop-Location
     
-    Write-Host "✅ All dependencies installed" -ForegroundColor Green
+    Write-Host "[OK] All dependencies installed" -ForegroundColor Green
 }
 
 # Import environment variables
 Import-DotEnv
 
 # Generate configuration files
-Write-Host "`n⚙️ Generating Configuration Files..." -ForegroundColor Cyan
+Write-Host "`n Generating Configuration Files..." -ForegroundColor Cyan
 
 # PostgreSQL configuration
 $pgConfig = @"
@@ -190,7 +190,7 @@ default_text_search_config = 'pg_catalog.english'
 "@
 
 Set-Content -Path "$DataDir\config\postgresql.conf" -Value $pgConfig -Encoding UTF8
-Write-Host "✅ PostgreSQL configuration generated" -ForegroundColor Green
+Write-Host "[OK] PostgreSQL configuration generated" -ForegroundColor Green
 
 # Neo4j configuration  
 $neo4jConfig = @"
@@ -205,7 +205,7 @@ auth.minimum_password_length=4
 "@
 
 Set-Content -Path "$DataDir\config\neo4j.conf" -Value $neo4jConfig -Encoding UTF8
-Write-Host "✅ Neo4j configuration generated" -ForegroundColor Green
+Write-Host "[OK] Neo4j configuration generated" -ForegroundColor Green
 
 # Qdrant configuration
 $qdrantConfig = @"
@@ -223,7 +223,7 @@ telemetry_disabled: true
 "@
 
 Set-Content -Path "$DataDir\config\qdrant.yaml" -Value $qdrantConfig -Encoding UTF8
-Write-Host "✅ Qdrant configuration generated" -ForegroundColor Green
+Write-Host "[OK] Qdrant configuration generated" -ForegroundColor Green
 
 # Temporal configuration
 $temporalConfig = @"
@@ -323,7 +323,7 @@ publicClient:
 "@
 
 Set-Content -Path "$DataDir\config\temporal.yaml" -Value $temporalConfig -Encoding UTF8
-Write-Host "✅ Temporal configuration generated" -ForegroundColor Green
+Write-Host "[OK] Temporal configuration generated" -ForegroundColor Green
 
 # SwAIvyn environment configuration
 $envConfig = @"
@@ -353,10 +353,10 @@ BACKEND_PORT=$($ports.backend)
 "@
 
 Set-Content -Path "$rootDir\.env.baremetal" -Value $envConfig -Encoding UTF8
-Write-Host "✅ SwAIvyn environment configuration generated" -ForegroundColor Green
+Write-Host "[OK] SwAIvyn environment configuration generated" -ForegroundColor Green
 
 if ($ConfigOnly) {
-    Write-Host "`n✅ Configuration files generated successfully!" -ForegroundColor Green
+    Write-Host "`n[OK] Configuration files generated successfully!" -ForegroundColor Green
     Write-Host "Next steps:" -ForegroundColor Yellow
     Write-Host "1. Review and customize config files in: $DataDir\config" -ForegroundColor Gray
     Write-Host "2. Run this script again without -ConfigOnly to start services" -ForegroundColor Gray
@@ -364,7 +364,7 @@ if ($ConfigOnly) {
 }
 
 # Create service management functions
-Write-Host "`n🎯 Creating Service Management Scripts..." -ForegroundColor Cyan
+Write-Host "`n Creating Service Management Scripts..." -ForegroundColor Cyan
 
 # PostgreSQL service script
 $pgServiceScript = @"
@@ -375,7 +375,7 @@ $pgServiceScript = @"
 if (-not (Test-Path "`$dataDir\postgresql\PG_VERSION")) {
     Write-Host "Initializing PostgreSQL database..." -ForegroundColor Yellow
     & initdb -D "`$dataDir\postgresql" -U postgres --auth=trust
-    Write-Host "✅ PostgreSQL initialized" -ForegroundColor Green
+    Write-Host "[OK] PostgreSQL initialized" -ForegroundColor Green
 }
 
 # Start PostgreSQL
@@ -415,7 +415,7 @@ if (-not (Test-Path `$qdrantPath)) {
     Write-Host "Downloading Qdrant..." -ForegroundColor Yellow
     `$url = "https://github.com/qdrant/qdrant/releases/latest/download/qdrant-x86_64-pc-windows-msvc.exe"
     Invoke-WebRequest -Uri `$url -OutFile `$qdrantPath
-    Write-Host "✅ Qdrant downloaded" -ForegroundColor Green
+    Write-Host "[OK] Qdrant downloaded" -ForegroundColor Green
 }
 
 # Start Qdrant
@@ -439,7 +439,7 @@ if (-not (Test-Path `$temporalPath)) {
     Invoke-WebRequest -Uri `$url -OutFile `$tempFile
     & tar -xzf `$tempFile -C "$DataDir"
     Remove-Item `$tempFile
-    Write-Host "✅ Temporal CLI downloaded" -ForegroundColor Green
+    Write-Host "[OK] Temporal CLI downloaded" -ForegroundColor Green
 }
 
 # Start Temporal server
@@ -459,7 +459,7 @@ Write-Host "Starting Fish Speech TTS service on port $($ports.tts)..." -Foregrou
 `$listener.Prefixes.Add("http://localhost:$($ports.tts)/")
 `$listener.Start()
 
-Write-Host "✅ TTS service listening on http://localhost:$($ports.tts)" -ForegroundColor Green
+Write-Host "[OK] TTS service listening on http://localhost:$($ports.tts)" -ForegroundColor Green
 
 while (`$listener.IsListening) {
     `$context = `$listener.GetContext()
@@ -492,7 +492,7 @@ Set-Content -Path "$DataDir\start-tts.ps1" -Value $ttsServiceScript -Encoding UT
 $startupScript = @"
 #!/usr/bin/env powershell
 
-Write-Host "🚀 Starting SwAIvyn Bare Metal Services..." -ForegroundColor Cyan
+Write-Host " Starting SwAIvyn Bare Metal Services..." -ForegroundColor Cyan
 
 # Import environment
 Get-Content "$rootDir\.env.baremetal" | ForEach-Object {
@@ -510,11 +510,11 @@ function Start-BackgroundService {
         "-NoExit", "-ExecutionPolicy", "Bypass", "-File", `$ScriptPath
     ) -WindowStyle Minimized -PassThru
     
-    Write-Host "✅ `$Name started (PID: `$(`$process.Id))" -ForegroundColor Green
+    Write-Host "[OK] `$Name started (PID: `$(`$process.Id))" -ForegroundColor Green
     
     # Wait for service to be ready
     if (Wait-ForPort `$Port 30) {
-        Write-Host "✅ `$Name is ready on port `$Port" -ForegroundColor Green
+        Write-Host "[OK] `$Name is ready on port `$Port" -ForegroundColor Green
     } else {
         Write-Warning "`$Name may not be ready on port `$Port"
     }
@@ -538,7 +538,7 @@ function Wait-ForPort {
 }
 
 # Start infrastructure services
-Write-Host "`n🗄️ Starting Infrastructure Services..." -ForegroundColor Yellow
+Write-Host "`n Starting Infrastructure Services..." -ForegroundColor Yellow
 `$pids = @{}
 
 `$pids.postgresql = Start-BackgroundService "PostgreSQL" "$DataDir\start-postgresql.ps1" $($ports.postgresql)
@@ -549,7 +549,7 @@ Start-Sleep 5  # Give PostgreSQL time to start
 `$pids.temporal = Start-BackgroundService "Temporal" "$DataDir\start-temporal.ps1" $($ports.temporal)
 `$pids.tts = Start-BackgroundService "TTS" "$DataDir\start-tts.ps1" $($ports.tts)
 
-Write-Host "`n🎯 Starting Application Services..." -ForegroundColor Yellow
+Write-Host "`n Starting Application Services..." -ForegroundColor Yellow
 
 # Start backend
 Write-Host "Starting SwAIvyn Backend..." -ForegroundColor Green
@@ -575,27 +575,27 @@ Push-Location "$rootDir\frontend"
 Pop-Location
 
 Write-Host "`n" + ("="*60) -ForegroundColor Yellow
-Write-Host "🎉 SwAIvyn Bare Metal Services Started!" -ForegroundColor Green
+Write-Host " SwAIvyn Bare Metal Services Started!" -ForegroundColor Green
 Write-Host ("="*60) -ForegroundColor Yellow
 
-Write-Host "`n📱 ACCESS URLS:" -ForegroundColor Cyan
+Write-Host "`n ACCESS URLS:" -ForegroundColor Cyan
 Write-Host "Frontend: http://localhost:$($ports.frontend)" -ForegroundColor White
 Write-Host "Backend API: http://localhost:$($ports.backend)" -ForegroundColor White
 
-Write-Host "`n🗄️ INFRASTRUCTURE:" -ForegroundColor Cyan
+Write-Host "`n INFRASTRUCTURE:" -ForegroundColor Cyan
 Write-Host "PostgreSQL: localhost:$($ports.postgresql)" -ForegroundColor White
 Write-Host "Neo4j Browser: http://localhost:$($ports.neo4j_http)" -ForegroundColor White
 Write-Host "Qdrant: http://localhost:$($ports.qdrant)" -ForegroundColor White
 Write-Host "Temporal: http://localhost:$($ports.temporal)" -ForegroundColor White
 
-Write-Host "`n💾 DATA DIRECTORY: $DataDir" -ForegroundColor Cyan
+Write-Host "`n DATA DIRECTORY: $DataDir" -ForegroundColor Cyan
 
-Write-Host "`n🔧 PROCESS IDs:" -ForegroundColor Yellow
+Write-Host "`n PROCESS IDs:" -ForegroundColor Yellow
 foreach (`$service in `$pids.Keys) {
     Write-Host "  `$service : `$(`$pids[`$service])" -ForegroundColor Gray
 }
 
-Write-Host "`n⚠️  To stop all services, run: Stop-Process `$(`$pids.Values -join ',') -Force" -ForegroundColor Yellow
+Write-Host "`n  To stop all services, run: Stop-Process `$(`$pids.Values -join ',') -Force" -ForegroundColor Yellow
 Write-Host "Or close this PowerShell window and all service windows." -ForegroundColor Gray
 
 # Save PIDs for cleanup
@@ -611,13 +611,13 @@ try {
 "@
 
 Set-Content -Path "$rootDir\start-bare-metal.ps1" -Value $startupScript -Encoding UTF8
-Write-Host "✅ Main startup script created: start-bare-metal.ps1" -ForegroundColor Green
+Write-Host "[OK] Main startup script created: start-bare-metal.ps1" -ForegroundColor Green
 
 # Create shutdown script
 $shutdownScript = @"
 #!/usr/bin/env powershell
 
-Write-Host "🛑 Stopping SwAIvyn Bare Metal Services..." -ForegroundColor Yellow
+Write-Host " Stopping SwAIvyn Bare Metal Services..." -ForegroundColor Yellow
 
 # Load saved PIDs
 `$pidsFile = "$DataDir\service-pids.json"
@@ -629,7 +629,7 @@ if (Test-Path `$pidsFile) {
         Write-Host "Stopping `$service (PID: `$pid)..." -ForegroundColor Gray
         try {
             Stop-Process -Id `$pid -Force -ErrorAction SilentlyContinue
-            Write-Host "✅ `$service stopped" -ForegroundColor Green
+            Write-Host "[OK] `$service stopped" -ForegroundColor Green
         } catch {
             Write-Warning "Failed to stop `$service : `$_"
         }
@@ -644,42 +644,42 @@ if (Test-Path `$pidsFile) {
     foreach (`$proc in `$processes) {
         try {
             Get-Process -Name `$proc -ErrorAction SilentlyContinue | Stop-Process -Force
-            Write-Host "✅ Stopped `$proc processes" -ForegroundColor Green
+            Write-Host "[OK] Stopped `$proc processes" -ForegroundColor Green
         } catch {
             # Ignore errors for processes that don't exist
         }
     }
 }
 
-Write-Host "✅ All SwAIvyn services stopped" -ForegroundColor Green
+Write-Host "[OK] All SwAIvyn services stopped" -ForegroundColor Green
 "@
 
 Set-Content -Path "$rootDir\stop-bare-metal.ps1" -Value $shutdownScript -Encoding UTF8
-Write-Host "✅ Shutdown script created: stop-bare-metal.ps1" -ForegroundColor Green
+Write-Host "[OK] Shutdown script created: stop-bare-metal.ps1" -ForegroundColor Green
 
 Write-Host "`n" + ("="*60) -ForegroundColor Yellow
-Write-Host "🎉 SwAIvyn Bare Metal Setup Complete!" -ForegroundColor Green  
+Write-Host " SwAIvyn Bare Metal Setup Complete!" -ForegroundColor Green  
 Write-Host ("="*60) -ForegroundColor Yellow
 
-Write-Host "`n📋 NEXT STEPS:" -ForegroundColor Cyan
+Write-Host "`n NEXT STEPS:" -ForegroundColor Cyan
 Write-Host "1. Review configuration files in: $DataDir\config" -ForegroundColor White
 Write-Host "2. Ensure .env file has required passwords (POSTGRES_PASSWORD, etc.)" -ForegroundColor White
 Write-Host "3. Start all services: .\start-bare-metal.ps1" -ForegroundColor White
 Write-Host "4. Access the application at: http://localhost:$($ports.frontend)" -ForegroundColor White
 
-Write-Host "`n🔧 MANAGEMENT COMMANDS:" -ForegroundColor Cyan
+Write-Host "`n MANAGEMENT COMMANDS:" -ForegroundColor Cyan
 Write-Host "Start all services: .\start-bare-metal.ps1" -ForegroundColor White
 Write-Host "Stop all services: .\stop-bare-metal.ps1" -ForegroundColor White
 
-Write-Host "`n💾 DATA LOCATION:" -ForegroundColor Cyan
+Write-Host "`n DATA LOCATION:" -ForegroundColor Cyan
 Write-Host "All data stored in: $DataDir" -ForegroundColor White
 
-Write-Host "`n⚠️  REQUIREMENTS:" -ForegroundColor Yellow
+Write-Host "`n  REQUIREMENTS:" -ForegroundColor Yellow
 Write-Host "- Windows 10/11 with PowerShell 7+" -ForegroundColor Gray
 Write-Host "- Administrator privileges (for initial setup)" -ForegroundColor Gray  
 Write-Host "- At least 4GB RAM available" -ForegroundColor Gray
 Write-Host "- Ports $($ports.frontend)-$($ports.backend + 100) available" -ForegroundColor Gray
 
 if (-not $SkipInstall -and -not $InstallDependencies) {
-    Write-Host "`n💡 TIP: Run with -InstallDependencies to automatically install all required software" -ForegroundColor Yellow
+    Write-Host "`n TIP: Run with -InstallDependencies to automatically install all required software" -ForegroundColor Yellow
 }

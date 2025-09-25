@@ -2,7 +2,7 @@
 
 This comprehensive guide provides all technical specifications needed for LLMs and developers to build external agent systems that integrate with SwAIvyn. It covers networking, data formats, API structures, and implementation patterns for seamless agent integration.
 
-## 🎯 Overview
+##  Overview
 
 SwAIvyn's external agent system enables distributed AI task processing while maintaining complete user data isolation and security. This guide provides the complete technical specification for building agents that can seamlessly integrate with SwAIvyn's architecture.
 
@@ -14,7 +14,7 @@ SwAIvyn's external agent system enables distributed AI task processing while mai
 - **Service Discovery**: Automatic capability detection and health monitoring
 - **Scalable Architecture**: Support for multiple concurrent agents and tasks
 
-## 🌐 Network Configuration
+##  Network Configuration
 
 ### Port Requirements
 
@@ -82,7 +82,7 @@ allowed_origins:
   - "*.localhost"                 # Local development subdomains
 ```
 
-## 🔐 Authentication System
+##  Authentication System
 
 ### JWT Token Structure
 
@@ -130,7 +130,7 @@ Content-Type: application/json
 
 #### Method 2: Frontend API Key Generation
 1. Login to SwAIvyn UI
-2. Navigate to Settings → API Keys  
+2. Navigate to Settings -> API Keys  
 3. Click "Generate New Key"
 4. Copy the generated JWT token
 
@@ -144,7 +144,7 @@ Content-Type: application/json
 X-Agent-ID: <your-agent-id>  # Optional: Agent identification
 ```
 
-## 📊 API Structure
+##  API Structure
 
 ### Core SwAIvyn API Endpoints
 
@@ -376,7 +376,7 @@ metadata: {
 }
 ```
 
-## 📁 Data Format Standards
+##  Data Format Standards
 
 ### Text Data Format
 
@@ -545,7 +545,7 @@ For complex structured data (JSON, CSV, databases):
 }
 ```
 
-## 🤖 Agent Registration Process
+##  Agent Registration Process
 
 ### Step 1: Agent Service Implementation
 
@@ -705,7 +705,7 @@ async def process_task_async(task):
         await update_task_status(task_id, "failed", error=str(e))
 ```
 
-## 🔧 Service Registration
+##  Service Registration
 
 ### Service Discovery Pattern
 
@@ -807,7 +807,7 @@ async def detailed_health():
     return health_data
 ```
 
-## 📥 Data Ingestion Patterns
+##  Data Ingestion Patterns
 
 ### Real-time Data Streaming
 
@@ -1028,7 +1028,7 @@ async def ingest_images(task_id: str, images: list):
                 raise Exception(f"Image ingestion failed: {response.text}")
 ```
 
-## 🧪 Testing and Validation
+##  Testing and Validation
 
 ### Agent Testing Framework
 
@@ -1155,7 +1155,7 @@ class AgentTestClient:
             )
 ```
 
-## 📈 Performance Optimization
+##  Performance Optimization
 
 ### Caching Strategies
 
@@ -1269,7 +1269,7 @@ async def process_large_document(document_data: bytes):
         return result
 ```
 
-## 🔍 Monitoring and Debugging
+##  Monitoring and Debugging
 
 ### Comprehensive Logging
 
@@ -1388,7 +1388,7 @@ async def process_task_with_logging(task_id: str, task_data: dict):
         raise
 ```
 
-## 🚀 Deployment Patterns
+##  Deployment Patterns
 
 ### Docker Container Deployment
 

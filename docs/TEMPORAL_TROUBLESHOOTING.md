@@ -8,7 +8,7 @@ Your BFF and Orchestrator are hitting Temporal through Swarm's routing mesh on p
 
 ## Applied Fixes
 
-### ✅ 1. Host Network Mode for Temporal
+### [OK] 1. Host Network Mode for Temporal
 **Status: IMPLEMENTED**
 
 Temporal port is published with `mode: host` in `docker-stack.yml`:
@@ -24,7 +24,7 @@ temporal:
 
 This bypasses Docker Swarm's routing mesh entirely, eliminating h2c connection issues.
 
-### ✅ 2. Force IPv4 Localhost
+### [OK] 2. Force IPv4 Localhost
 **Status: IMPLEMENTED**
 
 In `scripts/dev-run.ps1`, services are configured to use IPv4:
@@ -37,7 +37,7 @@ $serviceEnv = @{
 
 This avoids IPv6 or DNS resolver issues.
 
-### ✅ 3. Optional Traefik h2c Support
+### [OK] 3. Optional Traefik h2c Support
 **Status: IMPLEMENTED**
 
 Traefik labels added with h2c scheme support:
@@ -55,7 +55,7 @@ temporal:
 
 If you prefer using Traefik, clients can connect to `temporal.localhost:80`.
 
-### ✅ 4. Enhanced Healthcheck
+### [OK] 4. Enhanced Healthcheck
 **Status: IMPLEMENTED**
 
 Added proper healthcheck to avoid "ready port, unready service" issues:
@@ -69,7 +69,7 @@ temporal:
     retries: 10
 ```
 
-### ✅ 5. PowerShell UTF-8 Fix
+### [OK] 5. PowerShell UTF-8 Fix
 **Status: IMPLEMENTED**
 
 Fixed the mojibake error in `scripts/dev-run.ps1` by setting UTF-8 encoding before emoji output.
@@ -200,10 +200,10 @@ environment:
 ## Summary
 
 The key fixes implemented:
-1. ✅ **Host mode networking** - bypasses Swarm routing mesh
-2. ✅ **IPv4 forced addressing** - eliminates resolver issues  
-3. ✅ **Enhanced healthchecks** - prevents ready-port-but-not-ready-service issues
-4. ✅ **UTF-8 encoding fix** - resolves PowerShell mojibake error
-5. ✅ **Traefik h2c support** - provides alternative routing option
+1. [OK] **Host mode networking** - bypasses Swarm routing mesh
+2. [OK] **IPv4 forced addressing** - eliminates resolver issues  
+3. [OK] **Enhanced healthchecks** - prevents ready-port-but-not-ready-service issues
+4. [OK] **UTF-8 encoding fix** - resolves PowerShell mojibake error
+5. [OK] **Traefik h2c support** - provides alternative routing option
 
 These changes should eliminate the gRPC broken pipe errors and provide stable Temporal connectivity.

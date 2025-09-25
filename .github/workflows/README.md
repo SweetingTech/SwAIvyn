@@ -4,27 +4,27 @@ This directory contains GitHub Actions workflows for automating the SwAIvyn buil
 
 ## Workflows
 
-### 🔄 CI (`ci.yml`)
+###  CI (`ci.yml`)
 **Triggers:** Push to main/develop, Pull Requests
 - **Lint and Test Job**: Runs ESLint on frontend, builds both frontend and backend
 - **Build Job**: Creates production builds for both win-x64 and win-arm64 architectures
 - **Artifacts**: Uploads build artifacts for each platform
 
-### 🚀 Release (`release.yml`)
+###  Release (`release.yml`)
 **Triggers:** Git tags (v*), Manual dispatch
 - Builds release packages for both architectures
 - Creates zip packages with all necessary files
 - Automatically creates GitHub releases with assets
 - Supports manual version specification
 
-### ✅ PR Validation (`pr-validation.yml`)
+### [OK] PR Validation (`pr-validation.yml`)
 **Triggers:** Pull Request events
 - Fast validation of PRs without full builds
 - Checks for common issues and syntax errors
 - Posts validation results as PR comments
 - Includes concurrency control to cancel outdated runs
 
-### 🔧 Dependencies (`dependencies.yml`)
+###  Dependencies (`dependencies.yml`)
 **Triggers:** Weekly schedule, Manual dispatch
 - **Dependency Updates**: Checks for outdated .NET and npm packages
 - **Security Audit**: Scans for security vulnerabilities
@@ -51,7 +51,7 @@ Consider setting up branch protection rules for `main`:
    git push origin v1.0.0
    ```
 
-2. **Manual**: Go to Actions → Release → Run workflow
+2. **Manual**: Go to Actions -> Release -> Run workflow
    - Specify version (e.g., `v1.0.0`)
    - Choose whether to create GitHub release
 

@@ -4,21 +4,21 @@ To connect a computer to your **Weaviate stack running on `stabled`**, you just 
 http://stabled:8080
 ```
 
-That’s your Weaviate brain’s **base URL**. The rest depends on what you’re using to talk to it:
+That's your Weaviate brain's **base URL**. The rest depends on what you're using to talk to it:
 
 ---
 
-## ✅ 1. **Testing from terminal (any machine on LAN)**
+## [OK] 1. **Testing from terminal (any machine on LAN)**
 
 ```bash
 curl http://stabled:8080/v1/schema
 ```
 
-Returns schema if it’s up.
+Returns schema if it's up.
 
 ---
 
-## ✅ 2. **C# / .NET Backend**
+## [OK] 2. **C# / .NET Backend**
 
 If you're using `HttpClient`:
 
@@ -28,11 +28,11 @@ var response = await client.GetAsync("http://stabled:8080/v1/schema");
 var json = await response.Content.ReadAsStringAsync();
 ```
 
-If you're using a Weaviate SDK (e.g., C#, Node, Python) — just set the host.
+If you're using a Weaviate SDK (e.g., C#, Node, Python) - just set the host.
 
 ---
 
-## ✅ 3. **Node.js + TypeScript**
+## [OK] 3. **Node.js + TypeScript**
 
 ```ts
 import weaviate from 'weaviate-ts-client';
@@ -48,7 +48,7 @@ console.log(schema);
 
 ---
 
-## ✅ 4. **Python (`weaviate-client`)**
+## [OK] 4. **Python (`weaviate-client`)**
 
 ```python
 import weaviate
@@ -59,7 +59,7 @@ print(client.schema.get())
 
 ---
 
-## 🔒 Pro Tips
+##  Pro Tips
 
 * If `stabled` fails to resolve, try `stabled.local` (especially on Mac/Linux)
 * If you get timeout errors:
@@ -69,7 +69,7 @@ print(client.schema.get())
 
 ---
 
-## 🎯 TL;DR
+##  TL;DR
 
 Tell any machine:
 

@@ -2,7 +2,7 @@
 
 This guide explains how to develop and connect external AI agents to SwAIvyn. The external agent system enables you to build specialized AI services that can be invoked by SwAIvyn users while maintaining complete data isolation and security.
 
-## 🎯 Overview
+##  Overview
 
 SwAIvyn's external agent system provides:
 
@@ -12,26 +12,26 @@ SwAIvyn's external agent system provides:
 - **Status Polling**: Efficient task status monitoring with polling endpoints
 - **Flexible Integration**: Support for any type of external service
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   SwAIvyn UI    │    │  SwAIvyn BFF    │    │ External Agent  │
-│                 │    │                 │    │    Service      │
-├─────────────────┤    ├─────────────────┤    ├─────────────────┤
-│ • Agent Mgmt    │◄──►│ • Authentication│◄──►│ • Task Processor│
-│ • Task Monitor  │    │ • Agent Registry│    │ • Result Handler│
-│ • Results View  │    │ • Task Routing  │    │ • Health Check  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+-----------------    -----------------    -----------------
+   SwAIvyn UI          SwAIvyn BFF         External Agent  
+                                              Service      
++-----------------    +-----------------    +-----------------
+ -  Agent Mgmt    -- -  Authentication-- -  Task Processor
+ -  Task Monitor       -  Agent Registry     -  Result Handler
+ -  Results View       -  Task Routing       -  Health Check  
++-----------------    +-----------------    +-----------------
 ```
 
-## 🔑 Authentication
+##  Authentication
 
 All external agent communications require JWT authentication. Each user's API token is scoped to their data only.
 
 ### Obtaining an API Token
 
-1. **Via Frontend**: Login to SwAIvyn → Settings → API Keys → Generate New Key
+1. **Via Frontend**: Login to SwAIvyn -> Settings -> API Keys -> Generate New Key
 2. **Via API**: `POST /api/auth/login` with valid credentials
 
 **Login Request:**
@@ -65,7 +65,7 @@ Include the JWT token in all API requests:
 Authorization: Bearer <your-jwt-token>
 ```
 
-## 📋 Database Schema
+##  Database Schema
 
 SwAIvyn maintains three core tables for external agent management:
 
@@ -120,7 +120,7 @@ CREATE TABLE agent_results (
 );
 ```
 
-## 🚀 SwAIvyn API Endpoints
+##  SwAIvyn API Endpoints
 
 ### Agent Registry Management
 
@@ -245,7 +245,7 @@ Authorization: Bearer <jwt-token>
 
 Note: To get all results, query your tasks and then fetch individual task results via `/api/agents/tasks/{task_id}/results`.
 
-## 🔨 Building External Agent Services
+##  Building External Agent Services
 
 ### Required Endpoints
 
@@ -498,7 +498,7 @@ Always respect the `user_id` field and ensure:
 - Results are returned only to the task owner
 - No cross-user data leakage occurs
 
-## 📊 Monitoring & Logging
+##  Monitoring & Logging
 
 ### Health Monitoring
 SwAIvyn will periodically check your agent's `/health` endpoint. Ensure it returns quickly and accurately reflects your service status.
@@ -532,7 +532,7 @@ Track key metrics:
 - Resource utilization
 - Queue depths
 
-## 🚨 Error Handling
+##  Error Handling
 
 ### Common Error Scenarios
 
@@ -572,7 +572,7 @@ Track key metrics:
 - Provide clear error messages for user feedback
 - Support task retry mechanisms where appropriate
 
-## 🔧 Testing Your Agent
+##  Testing Your Agent
 
 ### Unit Testing
 ```python
@@ -626,14 +626,14 @@ curl -X POST http://localhost:5000/api/agent-tasks \
   }'
 ```
 
-## 📚 Additional Resources
+##  Additional Resources
 
 - [SwAIvyn API Documentation](../README.md#api-endpoints)
 - [Authentication Guide](./AUTHENTICATION.md)
 - [Deployment Guide](./DEPLOYMENT.md)
 - [Example Agents Repository](https://github.com/SweetingTech/SwAIvyn-Agents)
 
-## 🆘 Support
+##  Support
 
 For technical support:
 1. Check the [troubleshooting guide](./TROUBLESHOOTING.md)
@@ -641,6 +641,6 @@ For technical support:
 3. Join the [community Discord](https://discord.gg/swaivy)
 4. File an issue on [GitHub](https://github.com/SweetingTech/SwAIvyn/issues)
 
-## 📄 License
+##  License
 
 External agents connecting to SwAIvyn must comply with the [MIT License](../LICENSE) terms.

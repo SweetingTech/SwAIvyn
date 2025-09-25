@@ -65,7 +65,7 @@ scripts/dev-stop.ps1 -Down      # full teardown (remove containers/networks)
 
 ### Compose Profiles
 
-- Orchestrator, TTS, and the 11Labs adapter are behind profiles so they don’t build/run by default:
+- Orchestrator, TTS, and the 11Labs adapter are behind profiles so they don't build/run by default:
   - `orchestrator`: app worker image
   - `tts`: Fish Speech TTS container
   - `tts-adapter`: ElevenLabs adapter
@@ -91,7 +91,7 @@ scripts/dev-stop.ps1 -Down      # full teardown (remove containers/networks)
   - admin / admin1234
   - Mari / mari1234
   - DJay / djay1234
-- “Remember me” persists login across reloads via localStorage.
+- "Remember me" persists login across reloads via localStorage.
 
 ## Environment
 
@@ -104,17 +104,17 @@ The BFF and Orchestrator scripts auto-load `.env` from repo root. Important keys
 
 ## Dataflow (per user)
 
-- Settings → Chat Settings (per user)
+- Settings -> Chat Settings (per user)
   - Engine/Model saves to `PUT /api/chat/settings/{userId}`
   - Connections (LM Studio/Ollama/OpenAI/Claude/vLLM endpoints/keys) save to `PUT /api/settings/connections`
-- Chat → Send
+- Chat -> Send
   - Client includes `engine` + `model` in `POST /api/conversation/chat`
-  - BFF resolves per‑user connections and launches the engine‑specific workflow
-  - Workflows (one per engine) call only that engine with the selected model — no cycling
+  - BFF resolves per-user connections and launches the engine-specific workflow
+  - Workflows (one per engine) call only that engine with the selected model - no cycling
   - TTS synthesis uses host TTS (http://localhost:8081) or adapter URLs based on env
 
-Per‑user isolation:
-- All reads/writes for chat settings, connections, and conversations are authorized per user; only admin can access others’ settings/data.
+Per-user isolation:
+- All reads/writes for chat settings, connections, and conversations are authorized per user; only admin can access others' settings/data.
 
 ## Update & Maintenance
 
@@ -128,10 +128,10 @@ scripts/update.ps1 -FrontendDeps -BackendDeps -InfraPull
 
 ## Troubleshooting
 
-- Frontend shows splash “Waiting for backend”
+- Frontend shows splash "Waiting for backend"
   - Ensure host BFF is listening on 5000; `Invoke-WebRequest http://localhost:5000/api/readyz`
   - Restart Vite to pick up latest bundle
 - 401 /api/auth/me
   - Expected before login; go to `/login` and use seeded credentials
 - Slow Docker builds (Windows)
-  - Prefer host apps + `scripts/infra-up.ps1` in dev. If you must build, build specific services and avoid the all‑services tar export path.
+  - Prefer host apps + `scripts/infra-up.ps1` in dev. If you must build, build specific services and avoid the all-services tar export path.

@@ -1,6 +1,6 @@
 # Bare-Metal Deployment Guide
 
-This guide describes how to run SwAIvyn without Docker. You’ll run databases and services directly on the host and manage the app tiers as native processes or services.
+This guide describes how to run SwAIvyn without Docker. You'll run databases and services directly on the host and manage the app tiers as native processes or services.
 
 > Recommendation: Use the hybrid dev setup for day-to-day development. Bare metal is best for long-running deployments where Docker is not desired.
 

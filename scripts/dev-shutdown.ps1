@@ -72,7 +72,7 @@ function Stop-FromStateFile {
                         Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
                         Write-Host ("  [OK] Stopped {0} (PID {1})" -f $serviceName, $procId) -ForegroundColor Green
                     } catch {
-                        Write-Host ("  ⚠ Process {0} (PID {1}) not found" -f $serviceName, $procId) -ForegroundColor DarkGray
+                        Write-Host ("   Process {0} (PID {1}) not found" -f $serviceName, $procId) -ForegroundColor DarkGray
                     }
                 }
             }
@@ -182,7 +182,7 @@ function Cleanup-Networks {
 }
 
 # --- MAIN EXECUTION ---
-Write-Host "🛑 Shutting down SwAIvyn development environment..." -ForegroundColor Cyan
+Write-Host " Shutting down SwAIvyn development environment..." -ForegroundColor Cyan
 Write-Host ("Stack name: {0}" -f $StackName) -ForegroundColor DarkGray
 Write-Host ""
 
@@ -208,14 +208,14 @@ if ($Aggressive -and (Test-Command 'docker')) {
 
 Write-Host ""
 Write-Host "="*60 -ForegroundColor Yellow
-Write-Host "🏁 SwAIvyn shutdown complete!" -ForegroundColor Green
+Write-Host " SwAIvyn shutdown complete!" -ForegroundColor Green
 Write-Host "="*60 -ForegroundColor Yellow
 Write-Host ""
-Write-Host "💡 All services stopped:" -ForegroundColor Cyan
-Write-Host "• Frontend (React/Vite)" -ForegroundColor White
-Write-Host "• Backend BFF (FastAPI)" -ForegroundColor White  
-Write-Host "• Orchestrator (Temporal worker)" -ForegroundColor White
-Write-Host "• All Docker containers (databases, TTS, etc.)" -ForegroundColor White
+Write-Host " All services stopped:" -ForegroundColor Cyan
+Write-Host "-  Frontend (React/Vite)" -ForegroundColor White
+Write-Host "-  Backend BFF (FastAPI)" -ForegroundColor White  
+Write-Host "-  Orchestrator (Temporal worker)" -ForegroundColor White
+Write-Host "-  All Docker containers (databases, TTS, etc.)" -ForegroundColor White
 Write-Host ""
 Write-Host "To restart everything, run: .\scripts\dev-run.ps1" -ForegroundColor Yellow
 Write-Host ""

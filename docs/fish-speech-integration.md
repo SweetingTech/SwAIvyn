@@ -67,10 +67,10 @@ python test_fish_speech_integration.py
 Example:
 ```
 voices/
-├── john_doe.wav
-├── john_doe.txt
-├── jane_smith.wav
-└── jane_smith.txt
++-- john_doe.wav
++-- john_doe.txt
++-- jane_smith.wav
++-- jane_smith.txt
 ```
 
 ### Pre-generating Voice Embeddings
@@ -87,7 +87,7 @@ This creates a `john_doe.pt` file containing the speaker embedding.
 
 The frontend automatically detects available TTS providers. When Fish Speech is running:
 
-1. Go to Settings → Voice Settings
+1. Go to Settings -> Voice Settings
 2. Select "FishSpeech" as the TTS Provider
 3. Choose from available voices (including custom voices)
 4. Test synthesis with the preview button
@@ -195,8 +195,8 @@ curl -X POST "http://localhost:8000/tts/clone" \
 
 ## Recent Updates
 
-- ✅ Added automatic Fish Speech API startup
-- ✅ Integrated with SwAIvyn settings page
-- ✅ Added comprehensive error handling
-- ✅ Created integration tests
-- ✅ Added voice management features
+- [OK] Added automatic Fish Speech API startup
+- [OK] Integrated with SwAIvyn settings page
+- [OK] Added comprehensive error handling
+- [OK] Created integration tests
+- [OK] Added voice management features

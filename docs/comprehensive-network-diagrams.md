@@ -2,7 +2,7 @@
 
 This document provides comprehensive dataflow and API call flow diagrams for the SwAIvyn system, covering all deployment scenarios and detailed API interactions.
 
-## 🌐 Complete System Architecture Overview
+##  Complete System Architecture Overview
 
 ```mermaid
 graph TB
@@ -118,7 +118,7 @@ graph TB
     class TRAEFIK,DOCKER,BARE_METAL infra
 ```
 
-## 🔄 Hybrid Development Architecture
+##  Hybrid Development Architecture
 
 ```mermaid
 flowchart TD
@@ -186,7 +186,7 @@ flowchart TD
     class U,BROWSER client
 ```
 
-## 📊 Complete API Call Flow Diagram
+##  Complete API Call Flow Diagram
 
 ```mermaid
 sequenceDiagram
@@ -203,7 +203,7 @@ sequenceDiagram
     participant VDB as Vector DB
     participant NEO as Neo4j
     
-    Note over U,NEO: 🔐 Authentication Flow
+    Note over U,NEO:  Authentication Flow
     U->>FE: Login (username/password)
     FE->>BFF: POST /api/auth/login
     BFF->>MW: Validate request
@@ -215,7 +215,7 @@ sequenceDiagram
     BFF-->>FE: JWT token + user info
     FE->>FE: Store token in Zustand
     
-    Note over U,NEO: 👤 User Data Flow
+    Note over U,NEO:  User Data Flow
     U->>FE: Load dashboard
     FE->>BFF: GET /api/user/{user_id} (with JWT)
     BFF->>MW: Validate JWT
@@ -227,7 +227,7 @@ sequenceDiagram
     BFF-->>FE: User data
     FE->>FE: Update Zustand state
     
-    Note over U,NEO: 💬 Chat Settings Flow
+    Note over U,NEO:  Chat Settings Flow
     U->>FE: Configure chat settings
     FE->>BFF: PUT /api/chat/settings/{user_id}
     BFF->>MW: Validate request + JWT
@@ -246,7 +246,7 @@ sequenceDiagram
     BFF-->>FE: Settings data
     FE->>FE: Display settings
     
-    Note over U,NEO: 📂 Conversation Management Flow
+    Note over U,NEO:  Conversation Management Flow
     U->>FE: Load conversations
     FE->>BFF: GET /api/conversation/user/{user_id}
     BFF->>MW: Validate JWT
@@ -256,7 +256,7 @@ sequenceDiagram
     BFF-->>FE: Conversations
     FE->>FE: Display conversation list
     
-    Note over U,NEO: 🤖 Character Management Flow
+    Note over U,NEO:  Character Management Flow
     U->>FE: Load characters
     FE->>BFF: GET /api/characters
     BFF->>MW: Validate JWT
@@ -266,7 +266,7 @@ sequenceDiagram
     BFF-->>FE: Characters data
     FE->>FE: Display characters
     
-    Note over U,NEO: 🔧 Settings Management Flow
+    Note over U,NEO:  Settings Management Flow
     U->>FE: Update LLM settings
     FE->>BFF: PUT /api/chat/settings/{user_id}
     BFF->>MW: Validate JWT
@@ -276,7 +276,7 @@ sequenceDiagram
     BFF-->>FE: Success response
     FE->>FE: Update UI state
     
-    Note over U,NEO: 📤 Agent Catalog Flow
+    Note over U,NEO:  Agent Catalog Flow
     U->>FE: View available agents
     FE->>BFF: GET /api/agents/catalog
     BFF->>MW: Validate JWT
@@ -286,7 +286,7 @@ sequenceDiagram
     BFF-->>FE: Available agents
     FE->>FE: Display agent list
     
-    Note over U,NEO: 🔧 LLM Settings Flow
+    Note over U,NEO:  LLM Settings Flow
     U->>FE: Get LLM settings
     FE->>BFF: GET /api/settings/llm
     BFF->>MW: Validate JWT
@@ -304,7 +304,7 @@ sequenceDiagram
     BFF-->>FE: Success response
 ```
 
-## 🖥️ Deployment Architecture Comparison
+##  Deployment Architecture Comparison
 
 ```mermaid
 graph TB
@@ -356,7 +356,7 @@ graph TB
     class CD_USER,CD_FE,CD_BE,CD_PG,CD_LLM cloud
 ```
 
-## 📱 Frontend Authentication & State Flow
+##  Frontend Authentication & State Flow
 
 ```mermaid
 stateDiagram-v2
@@ -396,7 +396,7 @@ stateDiagram-v2
     Authenticated --> Unauthenticated : Token expired
 ```
 
-## 🔄 Status Polling Flow
+##  Status Polling Flow
 
 ```mermaid
 sequenceDiagram
@@ -426,7 +426,7 @@ sequenceDiagram
     end
 ```
 
-## 📊 Performance Monitoring Flow
+##  Performance Monitoring Flow
 
 ```mermaid
 flowchart TD
@@ -487,7 +487,7 @@ flowchart TD
 
 ---
 
-## 📋 Summary
+##  Summary
 
 These comprehensive diagrams provide a complete view of SwAIvyn's hybrid architecture including:
 
@@ -498,7 +498,7 @@ These comprehensive diagrams provide a complete view of SwAIvyn's hybrid archite
 5. **Status Polling Flow** - Real-time dashboard updates via polling
 6. **Performance Monitoring** - System health and metrics collection
 
-## 🚧 Known Architecture Notes
+##  Known Architecture Notes
 
 - **SignalR Frontend Code**: The frontend contains `useChatHub.ts` with SignalR client code, but no corresponding SignalR hubs exist in the FastAPI backend. This appears to be leftover from earlier architecture or planned future feature.
 - **Current Communication**: All real-time updates use REST API polling rather than WebSocket/SignalR connections.

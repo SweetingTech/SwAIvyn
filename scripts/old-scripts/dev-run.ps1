@@ -413,10 +413,10 @@ if (-not $FrontendOnly) {
 
 # --- FINALIZATION ---
 Write-Host "`n" + "="*60 -ForegroundColor Yellow
-Write-Host "🚀 SwAIvyn Development Environment Ready!" -ForegroundColor Green
+Write-Host " SwAIvyn Development Environment Ready!" -ForegroundColor Green
 Write-Host "="*60 -ForegroundColor Yellow
 
-Write-Host "`n📱 APPLICATION ACCESS:" -ForegroundColor Cyan
+Write-Host "`n APPLICATION ACCESS:" -ForegroundColor Cyan
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host "Backend API: http://localhost:5000" -ForegroundColor White
 
@@ -429,7 +429,7 @@ if ($UseTraefik) {
     Write-Host "Backend API (via Traefik): http://bff.localhost:$TraefikPort" -ForegroundColor White
 }
 
-Write-Host "`n🔧 INFRASTRUCTURE SERVICES:" -ForegroundColor Cyan
+Write-Host "`n INFRASTRUCTURE SERVICES:" -ForegroundColor Cyan
 Write-Host "Traefik Dashboard: http://traefik.localhost:$TraefikPort" -ForegroundColor White
 Write-Host "Qdrant Vector DB: http://qdrant.localhost:$TraefikPort" -ForegroundColor White
 Write-Host "Neo4j Graph DB: http://graph.localhost:$TraefikPort" -ForegroundColor White
@@ -441,7 +441,7 @@ try {
         Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
         ForEach-Object { $_.IPAddressToString }
     if ($lanIPs) {
-        Write-Host "`n🌍 REMOTE ACCESS (for other devices on your network):" -ForegroundColor Cyan
+        Write-Host "`n REMOTE ACCESS (for other devices on your network):" -ForegroundColor Cyan
         foreach ($ip in $lanIPs) {
             Write-Host "Frontend: http://${ip}:5173" -ForegroundColor White
             Write-Host "Backend API: http://${ip}:5000" -ForegroundColor White
@@ -452,11 +452,11 @@ try {
     }
 } catch {}
 
-Write-Host "`n💡 TIPS:" -ForegroundColor Yellow
-Write-Host "• Frontend supports hot reloading - changes will refresh automatically" -ForegroundColor White
-Write-Host "• Use Traefik URLs for testing production-like routing" -ForegroundColor White
-Write-Host "• Check individual PowerShell windows for service-specific logs" -ForegroundColor White
-Write-Host "• Press Ctrl+C in service windows to stop individual services" -ForegroundColor White
+Write-Host "`n TIPS:" -ForegroundColor Yellow
+Write-Host "-  Frontend supports hot reloading - changes will refresh automatically" -ForegroundColor White
+Write-Host "-  Use Traefik URLs for testing production-like routing" -ForegroundColor White
+Write-Host "-  Check individual PowerShell windows for service-specific logs" -ForegroundColor White
+Write-Host "-  Press Ctrl+C in service windows to stop individual services" -ForegroundColor White
 
 Write-Host "`n" + "="*60 -ForegroundColor Yellow
 

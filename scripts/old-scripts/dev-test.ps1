@@ -22,7 +22,7 @@ function Record-Test {
         $script:overallSuccess = $false
     }
     
-    $status = if ($Success) { "✅ PASS" } else { "❌ FAIL" }
+    $status = if ($Success) { "[OK] PASS" } else { " FAIL" }
     $color = if ($Success) { "Green" } else { "Red" }
     Write-Host "$status - $TestName" -ForegroundColor $color
     if ($Details) {
@@ -60,11 +60,11 @@ function Test-HttpEndpoint {
     }
 }
 
-Write-Host "🧪 SwAIvyn Development Environment Test Suite" -ForegroundColor Cyan
+Write-Host " SwAIvyn Development Environment Test Suite" -ForegroundColor Cyan
 Write-Host "=" * 50 -ForegroundColor Cyan
 
 # Test 1: Prerequisites
-Write-Host "`n📋 Testing Prerequisites..." -ForegroundColor Yellow
+Write-Host "`n Testing Prerequisites..." -ForegroundColor Yellow
 
 $dockerExists = Test-Command 'docker'
 Record-Test "Docker CLI Available" $dockerExists
@@ -97,7 +97,7 @@ if (-not $pythonExists) {
 Record-Test "Python Available" $pythonExists
 
 # Test 2: File Structure
-Write-Host "`n📁 Testing File Structure..." -ForegroundColor Yellow
+Write-Host "`n Testing File Structure..." -ForegroundColor Yellow
 
 $requiredFiles = @(
     'docker-stack.yml',
@@ -116,7 +116,7 @@ foreach ($file in $requiredFiles) {
 }
 
 # Test 3: Docker Stack Services
-Write-Host "`n🐳 Testing Docker Stack Services..." -ForegroundColor Yellow
+Write-Host "`n Testing Docker Stack Services..." -ForegroundColor Yellow
 
 if ($dockerExists) {
     try {
@@ -146,7 +146,7 @@ if ($dockerExists) {
 }
 
 # Test 4: Network Connectivity
-Write-Host "`n🌐 Testing Network Connectivity..." -ForegroundColor Yellow
+Write-Host "`n Testing Network Connectivity..." -ForegroundColor Yellow
 
 $criticalPorts = @{
     'Traefik HTTP' = $TraefikPort
@@ -163,7 +163,7 @@ foreach ($service in $criticalPorts.Keys) {
 }
 
 # Test 5: HTTP Health Checks
-Write-Host "`n🩺 Testing HTTP Health Endpoints..." -ForegroundColor Yellow
+Write-Host "`n Testing HTTP Health Endpoints..." -ForegroundColor Yellow
 
 $healthEndpoints = @{
     'Traefik Dashboard' = "http://traefik.localhost:$TraefikPort"
@@ -178,7 +178,7 @@ foreach ($endpoint in $healthEndpoints.Keys) {
 }
 
 # Test 6: Individual Service Scripts
-Write-Host "`n⚙️  Testing Individual Service Scripts..." -ForegroundColor Yellow
+Write-Host "`n  Testing Individual Service Scripts..." -ForegroundColor Yellow
 
 if (-not $SkipServiceTests) {
     $serviceScripts = @{
@@ -206,7 +206,7 @@ if (-not $SkipServiceTests) {
 }
 
 # Test 7: Environment Variables
-Write-Host "`n🔧 Testing Environment Configuration..." -ForegroundColor Yellow
+Write-Host "`n Testing Environment Configuration..." -ForegroundColor Yellow
 
 $envFile = Join-Path $rootDir '.env'
 $envExists = Test-Path $envFile
@@ -226,7 +226,7 @@ if ($envExists) {
 }
 
 # Test 8: Python Virtual Environments
-Write-Host "`n🐍 Testing Python Virtual Environments..." -ForegroundColor Yellow
+Write-Host "`n Testing Python Virtual Environments..." -ForegroundColor Yellow
 
 $pythonServices = @('Services/bff', 'Services/orchestrator')
 foreach ($serviceDir in $pythonServices) {
@@ -245,7 +245,7 @@ foreach ($serviceDir in $pythonServices) {
 }
 
 # Test 9: Frontend Dependencies
-Write-Host "`n📦 Testing Frontend Dependencies..." -ForegroundColor Yellow
+Write-Host "`n Testing Frontend Dependencies..." -ForegroundColor Yellow
 
 $frontendDir = Join-Path $rootDir 'frontend'
 if (Test-Path $frontendDir) {
@@ -259,7 +259,7 @@ if (Test-Path $frontendDir) {
 }
 
 # Test 10: Docker Images
-Write-Host "`n🖼️  Testing Docker Images..." -ForegroundColor Yellow
+Write-Host "`n  Testing Docker Images..." -ForegroundColor Yellow
 
 if ($dockerExists) {
     $expectedImages = @(
@@ -278,7 +278,7 @@ if ($dockerExists) {
 }
 
 # Generate Test Report
-Write-Host "`n📊 Test Results Summary" -ForegroundColor Cyan
+Write-Host "`n Test Results Summary" -ForegroundColor Cyan
 Write-Host "=" * 50 -ForegroundColor Cyan
 
 $totalTests = $testResults.Count
@@ -292,11 +292,11 @@ Write-Host "Failed: $failedTests" -ForegroundColor Red
 Write-Host "Success Rate: $successRate%" -ForegroundColor $(if($successRate -ge 80) { "Green" } else { "Yellow" })
 
 if ($failedTests -gt 0) {
-    Write-Host "`n❌ Failed Tests:" -ForegroundColor Red
+    Write-Host "`n Failed Tests:" -ForegroundColor Red
     foreach ($test in $testResults.Keys) {
         $result = $testResults[$test]
         if (-not $result.Success) {
-            Write-Host "  • $test" -ForegroundColor Red
+            Write-Host "  -  $test" -ForegroundColor Red
             if ($result.Details) {
                 Write-Host "    $($result.Details)" -ForegroundColor DarkGray
             }
@@ -304,19 +304,19 @@ if ($failedTests -gt 0) {
     }
 }
 
-Write-Host "`n🏁 Overall Result: " -NoNewline
+Write-Host "`n Overall Result: " -NoNewline
 if ($overallSuccess -and $successRate -ge 90) {
-    Write-Host "EXCELLENT ✅" -ForegroundColor Green
+    Write-Host "EXCELLENT [OK]" -ForegroundColor Green
     Write-Host "Your development environment is ready to go!" -ForegroundColor Green
 } elseif ($successRate -ge 70) {
-    Write-Host "GOOD ✅" -ForegroundColor Yellow
+    Write-Host "GOOD [OK]" -ForegroundColor Yellow
     Write-Host "Most components are working. Check failed tests above." -ForegroundColor Yellow
 } else {
-    Write-Host "NEEDS WORK ❌" -ForegroundColor Red
+    Write-Host "NEEDS WORK " -ForegroundColor Red
     Write-Host "Several issues need to be resolved before the environment is ready." -ForegroundColor Red
 }
 
-Write-Host "`n💡 Next Steps:" -ForegroundColor Cyan
+Write-Host "`n Next Steps:" -ForegroundColor Cyan
 if ($failedTests -gt 0) {
     Write-Host "1. Address the failed tests listed above" -ForegroundColor White
     Write-Host "2. Run the test again to verify fixes" -ForegroundColor White

@@ -1,6 +1,6 @@
 # Dataflow & Architecture Diagrams
 
-This document captures the hybrid dev topology and the per‑user request flows. Diagrams use Mermaid and render on GitHub and most Markdown viewers.
+This document captures the hybrid dev topology and the per-user request flows. Diagrams use Mermaid and render on GitHub and most Markdown viewers.
 
 ## Hybrid Dev Topology
 
@@ -38,11 +38,11 @@ flowchart LR
 ```
 
 Notes
-- Apps run on host with hot‑reload; infra runs in Docker.
+- Apps run on host with hot-reload; infra runs in Docker.
 - TTS can run on host (`-UseHostTTS`) or in Docker (profile `tts`).
 - Compose profiles keep app-tier images optional: `orchestrator`, `tts`, `tts-adapter`.
 
-## Per‑User Chat Message Flow
+## Per-User Chat Message Flow
 
 ```mermaid
 sequenceDiagram
@@ -65,7 +65,7 @@ sequenceDiagram
   U->>FE: Send Message
   FE->>B: POST /api/conversation/chat\n{ message, engine, model }
   B->>B: Resolve per-user connections\n(Connections + DB)
-  B->>T: Start per‑engine workflow\n(ReplyWorkflow_Engine)
+  B->>T: Start per-engine workflow\n(ReplyWorkflow_Engine)
   T->>W: Execute generate_reply(engine, model, conn)
   W->>E: HTTP call to selected engine\n(no cycling/fallback)
   E-->>W: LLM reply
@@ -78,7 +78,7 @@ sequenceDiagram
 
 Guarantees
 - Strict routing: only the selected engine/model is called (no cycling).
-- Per‑user isolation enforced in BFF for settings, connections, and conversations; admin can access all.
+- Per-user isolation enforced in BFF for settings, connections, and conversations; admin can access all.
 
 ## Settings Save & Rehydrate (UI)
 
@@ -98,18 +98,18 @@ sequenceDiagram
 ```
 
 ## Environment Keys (dev highlights)
-- `FISHSPEECH_URL` — set to `http://localhost:8081` for host TTS or `http://tts:8081` for container TTS
-- `OLLAMA_HOST`, `LMSTUDIO_HOST` — host URLs for engines when running worker on host
-- `OPENAI_API_KEY`, `CLAUDE_API_KEY` — required to enable those engines
+- `FISHSPEECH_URL` - set to `http://localhost:8081` for host TTS or `http://tts:8081` for container TTS
+- `OLLAMA_HOST`, `LMSTUDIO_HOST` - host URLs for engines when running worker on host
+- `OPENAI_API_KEY`, `CLAUDE_API_KEY` - required to enable those engines
 
 ## Profiles / Scripts
 - Compose profiles: `orchestrator`, `tts`, `tts-adapter`
 - Scripts:
-  - `scripts/infra-up.ps1` — start only infra (with optional profiles)
-  - `scripts/dev-start.ps1 -UseHostTTS` — start host apps + host TTS
-  - `scripts/dev-tts.ps1` — run Fish Speech on host
-  - `scripts/dev-stop.ps1` — stop host apps (and host TTS)
-  - `scripts/update.ps1` — update deps/images
+  - `scripts/infra-up.ps1` - start only infra (with optional profiles)
+  - `scripts/dev-start.ps1 -UseHostTTS` - start host apps + host TTS
+  - `scripts/dev-tts.ps1` - run Fish Speech on host
+  - `scripts/dev-stop.ps1` - stop host apps (and host TTS)
+  - `scripts/update.ps1` - update deps/images
 
 ## Authentication (Login) Flow
 
@@ -148,10 +148,10 @@ sequenceDiagram
     B-->>FE: 200 {user}
     FE->>B: GET /api/settings/llm?userId
     FE->>B: GET /api/character/user/{userId}
-    FE->>FE: isInitialized=true → render app
+    FE->>FE: isInitialized=true -> render app
   else Unauthenticated
     B-->>FE: 401
-    FE->>FE: isInitialized=true → redirect /login
+    FE->>FE: isInitialized=true -> redirect /login
   end
 ```
 
@@ -159,12 +159,12 @@ sequenceDiagram
 
 | Resource/Action                          | User (self) | Admin |
 |------------------------------------------|-------------|-------|
-| GET/PUT /api/chat/settings/{userId}      | ✓ (self)    | ✓ any |
-| GET/POST/PUT /api/settings/connections   | ✓ (self)    | ✓ any |
-| GET /api/conversation/user/{userId}      | ✓ (self)    | ✓ any |
-| GET/PUT /api/conversation/{id}/(title|folder|messages) | ✓ owner | ✓ any |
-| POST /api/conversation/message           | ✓ owner     | ✓ any |
-| GET /api/llm/models (userId)            | ✓ (self)    | ✓ override |
+| GET/PUT /api/chat/settings/{userId}      | [CHECK] (self)    | [CHECK] any |
+| GET/POST/PUT /api/settings/connections   | [CHECK] (self)    | [CHECK] any |
+| GET /api/conversation/user/{userId}      | [CHECK] (self)    | [CHECK] any |
+| GET/PUT /api/conversation/{id}/(title|folder|messages) | [CHECK] owner | [CHECK] any |
+| POST /api/conversation/message           | [CHECK] owner     | [CHECK] any |
+| GET /api/llm/models (userId)            | [CHECK] (self)    | [CHECK] override |
 
 ## Network Boundaries & Ports
 
@@ -196,7 +196,7 @@ flowchart TB
   VITE --> TTS
 ```
 
-## LLM Routing (Strict, Per‑Engine)
+## LLM Routing (Strict, Per-Engine)
 
 ```mermaid
 flowchart LR
@@ -231,7 +231,7 @@ sequenceDiagram
   FE->>FE: audio.play(tts_url)
 ```
 
-## STT Ingestion (Voice Room – current + hooks)
+## STT Ingestion (Voice Room - current + hooks)
 
 ```mermaid
 sequenceDiagram
@@ -266,7 +266,7 @@ sequenceDiagram
 
 - Frontend:
   - Initialization: `/api/readyz` with backoff, `fetchWithRetry`
-  - Settings saves: toast on success, “Save failed” on errors
+  - Settings saves: toast on success, "Save failed" on errors
 - Backend:
   - `/api/llm/models`: returns 200 with `{models: []}` on discovery failure (UI stays responsive)
   - `/api/conversation/chat`: 400 when engine/model invalid; 503 when Temporal not ready; 500 on workflow error

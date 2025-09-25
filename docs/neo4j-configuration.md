@@ -68,15 +68,15 @@ SwAIvyn creates and manages the following Neo4j directory structure:
 
 ```
 %AppData%\SwAIvyn\neo4j\
-├── bin/                  # Neo4j binaries
-├── conf/                 # Configuration files
-│   ├── neo4j.conf        # Main Neo4j configuration
-│   ├── auth              # Authentication file
-│   └── ...               # Other Neo4j config files
-├── data/                 # Database files
-├── lib/                  # Neo4j libraries
-├── logs/                 # Neo4j log files
-└── plugins/              # Neo4j plugins
++-- bin/                  # Neo4j binaries
++-- conf/                 # Configuration files
+   +-- neo4j.conf        # Main Neo4j configuration
+   +-- auth              # Authentication file
+   +-- ...               # Other Neo4j config files
++-- data/                 # Database files
++-- lib/                  # Neo4j libraries
++-- logs/                 # Neo4j log files
++-- plugins/              # Neo4j plugins
 ```
 
 ## Starting Neo4j

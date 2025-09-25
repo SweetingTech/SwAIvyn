@@ -13,10 +13,6 @@ volumes:
   weaviate_data_fresh: {}
   weaviate_data_v2: {}
 
-configs:
-  weaviate_wait_sh:
-    file: ./scripts/weaviate-wait.sh
-
 services:
   traefik:
     image: traefik:v3.1
@@ -40,7 +36,7 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8088/ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -65,8 +61,8 @@ services:
   tts:
     image: swai/tts-proxy:local
     environment:
-      - UPSTREAM_TTS=http://fishspeech-runtime:8000
-      - UPSTREAM_TTS_LIST=http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime:8000
+      - UPSTREAM_TTS=http://fishspeech-runtime-cpu:8000
+      - UPSTREAM_TTS_LIST=http://fishspeech-runtime-gpu:8000,http://fishspeech-runtime-cpu:8000
 
       - VOICES_DIR=/app/voices
     volumes:
@@ -89,13 +85,10 @@ services:
         - traefik.http.services.tts.loadbalancer.server.port=8081
 
 
-  fishspeech-runtime:
+  fishspeech-runtime-cpu:
     image: swai/fish-speech:cuda
     command: >
-      python tools/api_server.py --listen 0.0.0.0:8000 --device cuda --half
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      python tools/api_server.py --listen 0.0.0.0:8000 --device cpu --half
     volumes:
       - type: bind
         source: D:/project/SwAIvyn/speech/TTS/openaudio-s1-mini/fish_speech_model
@@ -177,7 +170,7 @@ services:
         - traefik.http.services.neo4j.loadbalancer.server.port=7474
 
   temporal:
-    image: temporalio/server:1.23
+    image: temporalio/server:1.26.3
     environment:
       - DB=postgresql
       - DB_PORT=5432

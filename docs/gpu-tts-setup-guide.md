@@ -27,7 +27,7 @@ If this fails, your Docker Desktop doesn't have proper GPU support configured.
 cd D:/project/SwAIvyn
 
 # Remove the fishspeech service from the stack (keep others running)
-docker service rm swaivyn_fishspeech-runtime
+docker service rm swaivyn_fishspeech-runtime-cpu
 ```
 
 ## Step 3: Create GPU-Enabled Fish Speech Container
@@ -86,7 +86,7 @@ curl -X POST "http://localhost:8000/v1/tts" \
 
 ## Step 6: Update TTS Proxy Configuration
 
-The existing TTS proxy service should automatically connect to the new container since it's on the same network and using the same hostname (`fishspeech-runtime`). However, if needed, you can update the proxy:
+The existing TTS proxy service should automatically connect to the new container since it's on the same network and using the same hostname (`fishspeech-runtime-cpu`). However, if needed, you can update the proxy:
 
 ```powershell
 # Check if TTS proxy can reach the new service
@@ -136,7 +136,7 @@ You should see GPU utilization spike during TTS generation.
 ### Issue: "NVIDIA Driver was not detected"
 **Solution**: Ensure Docker Desktop has GPU support enabled:
 1. Open Docker Desktop Settings
-2. Go to Resources → WSL Integration
+2. Go to Resources -> WSL Integration
 3. Enable integration with your WSL distro
 4. Restart Docker Desktop
 
@@ -156,7 +156,7 @@ ls "D:/project/SwAIvyn/speech/TTS/openaudio-s1-mini/fish_speech_model"
 **Solution**: The old Swarm service might still be running:
 ```powershell
 docker service ls | grep fishspeech
-docker service rm swaivyn_fishspeech-runtime
+docker service rm swaivyn_fishspeech-runtime-cpu
 ```
 
 ## Container Management Commands

@@ -27,7 +27,7 @@ if (-not (Test-Path $script:LogFile)) { New-Item -ItemType File -Path $script:Lo
 $script:TranscriptActive = $false
 $script:ShutdownInvoked = $false
 
-Write-Host ("📄 Detailed startup logs will be written to {0}" -f $script:LogFile) -ForegroundColor DarkGray
+Write-Host ("[DOC] Detailed startup logs will be written to {0}" -f $script:LogFile) -ForegroundColor DarkGray
 
 function Write-Log {
     param(
@@ -377,6 +377,7 @@ function Wait-StackConverged {
       $parts = $entry -split '\|'
       if ($parts.Count -lt 2) { continue }
       $serviceName = $parts[0]
+      if ([string]::IsNullOrWhiteSpace($serviceName)) { continue }
       $replicaField = ($parts[1] -split '\s+')[0]
       $currentStatus[$serviceName] = $replicaField
 
@@ -724,14 +725,14 @@ function Wait-TemporalService {
         $healthResult = & cmd /c $healthCmd 2>$null
 
         if ($LASTEXITCODE -eq 0) {
-          Write-Host "✅ Temporal cluster health check passed!" -ForegroundColor Green
+          Write-Host "[OK] Temporal cluster health check passed!" -ForegroundColor Green
           return $true
         } else {
           # Try fallback tctl check
           $fallbackCmd = "docker exec $($containerCheck | Select-Object -First 1) tctl --address 127.0.0.1:7233 cluster health"
           $fallbackResult = & cmd /c $fallbackCmd 2>$null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Temporal cluster health check passed (via tctl)!" -ForegroundColor Green
+            Write-Host "[OK] Temporal cluster health check passed (via tctl)!" -ForegroundColor Green
             return $true
           }
         }
@@ -754,8 +755,8 @@ function Wait-TemporalService {
   }
 
   # If health check fails after 5 minutes, show logs and fail hard
-  Write-Error "❌ Temporal cluster health check failed after 5 minutes!"
-  Write-Host "📋 Checking Temporal service logs for errors..." -ForegroundColor Yellow
+  Write-Error "[FAIL] Temporal cluster health check failed after 5 minutes!"
+  Write-Host "[CLIPBOARD] Checking Temporal service logs for errors..." -ForegroundColor Yellow
   try {
     & docker service logs swaivyn_temporal --tail 50 2>$null
   } catch {
@@ -981,7 +982,7 @@ if (-not $env:POSTGRES_PASSWORD) {
     Write-Warning "POSTGRES_PASSWORD not found in environment. Temporal may fail to initialize."
     Write-Host "Please ensure your .env file contains POSTGRES_PASSWORD=<your-password>" -ForegroundColor Yellow
 } else {
-    Write-Host "✅ POSTGRES_PASSWORD is set" -ForegroundColor Green
+    Write-Host "[OK] POSTGRES_PASSWORD is set" -ForegroundColor Green
 }
 
 # Bootstrap Temporal DB schema (idempotent; handled via scripts/setup.ps1)
@@ -1003,7 +1004,7 @@ if ($setupScript -and (Test-Path $setupScript)) {
 }
 
 # Wait for critical infrastructure services with endpoint polling
-Write-Host "🔍 Checking infrastructure service health..." -ForegroundColor Cyan
+Write-Host " Checking infrastructure service health..." -ForegroundColor Cyan
 
 # Check Traefik with retry logic
 $traefikReady = $false
@@ -1014,7 +1015,7 @@ for ($i = 1; $i -le 20; $i++) {
         $response = Invoke-WebRequest -Uri $traefikUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
             $traefikReady = $true
-            Write-Host "✅ Traefik is ready (attempt $i)" -ForegroundColor Green
+            Write-Host "[OK] Traefik is ready (attempt $i)" -ForegroundColor Green
             break
         }
     } catch {
@@ -1037,7 +1038,7 @@ for ($i = 1; $i -le 15; $i++) {
         $response = Invoke-WebRequest -Uri $qdrantUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
             $qdrantReady = $true
-            Write-Host "✅ Qdrant is ready (attempt $i)" -ForegroundColor Green
+            Write-Host "[OK] Qdrant is ready (attempt $i)" -ForegroundColor Green
             break
         }
     } catch {
@@ -1057,11 +1058,11 @@ Write-Host "Checking Temporal cluster health..." -ForegroundColor DarkGray
 for ($i = 1; $i -le 100; $i++) {
     try {
         # Use admin-tools container to check health over the stack network
-        $dockerArgs = @('run','--rm','--network',"${StackName}_default",'temporalio/admin-tools:1.23','temporal','operator','cluster','health','--address','temporal:7233')
+        $dockerArgs = @('run','--rm','--network',"${StackName}_default",'temporalio/admin-tools:1.23.1','temporal','operator','cluster','health','--address','temporal:7233')
         $healthResult = & docker @dockerArgs 2>$null
         if ($LASTEXITCODE -eq 0 -and $healthResult -match 'SERVING') {
             $temporalReady = $true
-            Write-Host "✅ Temporal cluster is healthy (attempt $i)" -ForegroundColor Green
+            Write-Host "[OK] Temporal cluster is healthy (attempt $i)" -ForegroundColor Green
             break
         }
         if ($i % 10 -eq 0) {
@@ -1147,8 +1148,8 @@ if (-not $FrontendOnly) {
 if ($temporalReady) {
     # Ensure Temporal default namespace exists (idempotent)
     try {
-        $nsArgs = @('run','--rm','--network',"${StackName}_default",'temporalio/admin-tools:1.23','bash','-lc',
-            "temporal operator namespace describe --namespace default --address temporal:7233 || temporal operator namespace create --namespace default --address temporal:7233 --retention 3d --yes")
+        $nsArgs = @('run','--rm','--network',"${StackName}_default",'temporalio/admin-tools:1.23.1','bash','-lc',
+            'temporal operator namespace describe --namespace default --address temporal:7233; if [ $? -ne 0 ]; then temporal operator namespace create --namespace default --address temporal:7233 --retention 3d --yes; fi')
         & docker @nsArgs | Out-Null
     } catch {
         Write-Warning ("Failed to ensure Temporal default namespace: {0}" -f $_.Exception.Message)
@@ -1157,10 +1158,10 @@ if ($temporalReady) {
 
 # --- FINALIZATION ---
 Write-Host ("`n" + "="*60) -ForegroundColor Yellow
-Write-Host "🚀 SwAIvyn Development Environment Ready!" -ForegroundColor Green
+Write-Host "[READY] SwAIvyn Development Environment Ready!" -ForegroundColor Green
 Write-Host ("="*60) -ForegroundColor Yellow
 
-Write-Host "`n📱 APPLICATION ACCESS:" -ForegroundColor Cyan
+Write-Host "`n[APP] APPLICATION ACCESS:" -ForegroundColor Cyan
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host "Backend API: http://localhost:5000" -ForegroundColor White
 
@@ -1172,7 +1173,7 @@ if ($UseTraefik) {
     Write-Host "Backend API (via Traefik): http://bff.localhost:$TraefikPort" -ForegroundColor White
 }
 
-Write-Host "`n🔧 INFRASTRUCTURE SERVICES:" -ForegroundColor Cyan
+Write-Host "`n[TOOLS] INFRASTRUCTURE SERVICES:" -ForegroundColor Cyan
 Write-Host "Traefik Dashboard: http://traefik.localhost:$TraefikPort" -ForegroundColor White
 Write-Host "Qdrant Vector DB: http://qdrant.localhost:$TraefikPort" -ForegroundColor White
 Write-Host "Neo4j Graph DB: http://graph.localhost:$TraefikPort" -ForegroundColor White
@@ -1184,7 +1185,7 @@ try {
         Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
         ForEach-Object { $_.IPAddressToString }
     if ($lanIPs) {
-        Write-Host "`n🌍 REMOTE ACCESS (for other devices on your network):" -ForegroundColor Cyan
+        Write-Host "`n[LAN] REMOTE ACCESS (for other devices on your network):" -ForegroundColor Cyan
         foreach ($ip in $lanIPs) {
             Write-Host "Frontend: http://${ip}:5173" -ForegroundColor White
             Write-Host "Backend API: http://${ip}:5000" -ForegroundColor White
@@ -1195,11 +1196,11 @@ try {
     }
 } catch {}
 
-Write-Host "`n💡 TIPS:" -ForegroundColor Yellow
-Write-Host "• Frontend supports hot reloading - changes will refresh automatically" -ForegroundColor White
-Write-Host "• Use Traefik URLs for testing production-like routing" -ForegroundColor White
-Write-Host "• Check individual PowerShell windows for service-specific logs" -ForegroundColor White
-Write-Host "• Press Ctrl+C in service windows to stop individual services" -ForegroundColor White
+Write-Host "`n[TIP] TIPS:" -ForegroundColor Yellow
+Write-Host "- Frontend supports hot reloading - changes will refresh automatically" -ForegroundColor White
+Write-Host "- Use Traefik URLs for testing production-like routing" -ForegroundColor White
+Write-Host "- Check individual PowerShell windows for service-specific logs" -ForegroundColor White
+Write-Host "- Press Ctrl+C in service windows to stop individual services" -ForegroundColor White
 
 Write-Host ("`n" + "="*60) -ForegroundColor Yellow
 
@@ -1214,7 +1215,7 @@ function Test-Url {
     }
 }
 
-Write-Host "`n🌐 Opening web browser..." -ForegroundColor Cyan
+Write-Host "`n[BROWSER] Opening web browser..." -ForegroundColor Cyan
 
 # Determine the best URL to open
 $primaryUrl = if ($UseTraefik) { "http://app.localhost:$TraefikPort" } else { "http://localhost:5173" }
@@ -1247,7 +1248,7 @@ if (-not $appReady -and $fallbackUrl -ne $primaryUrl) {
 if ($appReady) {
     try {
         Start-Process $primaryUrl
-        Write-Host "✅ Browser opened to $primaryUrl" -ForegroundColor Green
+        Write-Host "[OK] Browser opened to $primaryUrl" -ForegroundColor Green
     } catch {
         Write-Warning "Could not open browser automatically. Please visit: $primaryUrl"
     }

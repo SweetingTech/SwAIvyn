@@ -17,9 +17,9 @@ if (-not $SkipGPUTest) {
     try {
         $gpuTest = docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu20.04 nvidia-smi 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✓ GPU access confirmed in Docker" -ForegroundColor Green
+            Write-Host "[CHECK] GPU access confirmed in Docker" -ForegroundColor Green
         } else {
-            Write-Host "✗ GPU test failed. Docker may not have NVIDIA runtime support." -ForegroundColor Red
+            Write-Host " GPU test failed. Docker may not have NVIDIA runtime support." -ForegroundColor Red
             Write-Host "Error: $gpuTest" -ForegroundColor Red
             if (-not $Force) {
                 Write-Host "Use -Force to continue anyway, or configure Docker Desktop GPU support first." -ForegroundColor Yellow
@@ -27,7 +27,7 @@ if (-not $SkipGPUTest) {
             }
         }
     } catch {
-        Write-Host "✗ Could not test GPU access: $_" -ForegroundColor Red
+        Write-Host " Could not test GPU access: $_" -ForegroundColor Red
         if (-not $Force) {
             Write-Host "Use -Force to continue anyway." -ForegroundColor Yellow
             exit 1
@@ -40,9 +40,9 @@ if (-not $SkipGPUTest) {
 # Step 2: Check if model path exists
 Write-Host "`n[Step 2] Verifying model files..." -ForegroundColor Yellow
 if (Test-Path $ModelPath) {
-    Write-Host "✓ Model path exists: $ModelPath" -ForegroundColor Green
+    Write-Host "[CHECK] Model path exists: $ModelPath" -ForegroundColor Green
 } else {
-    Write-Host "✗ Model path not found: $ModelPath" -ForegroundColor Red
+    Write-Host " Model path not found: $ModelPath" -ForegroundColor Red
     Write-Host "Please ensure the Fish Speech model is downloaded and extracted to the correct location." -ForegroundColor Yellow
     if (-not $Force) {
         exit 1
@@ -56,7 +56,7 @@ if ($existingContainer) {
     Write-Host "Found existing container. Removing..." -ForegroundColor Yellow
     docker stop fishspeech-runtime-gpu 2>$null
     docker rm fishspeech-runtime-gpu 2>$null
-    Write-Host "✓ Existing container removed" -ForegroundColor Green
+    Write-Host "[CHECK] Existing container removed" -ForegroundColor Green
 }
 
 # Step 4: Stop existing Swarm service
@@ -65,7 +65,7 @@ try {
     $swarmService = docker service ls --format "{{.Name}}" | Where-Object { $_ -match "fishspeech-runtime" }
     if ($swarmService) {
         docker service rm $swarmService
-        Write-Host "✓ Removed Swarm service: $swarmService" -ForegroundColor Green
+        Write-Host "[CHECK] Removed Swarm service: $swarmService" -ForegroundColor Green
         Start-Sleep -Seconds 5  # Wait for service to fully stop
     } else {
         Write-Host "No Fish Speech Swarm service found" -ForegroundColor Yellow
@@ -81,12 +81,12 @@ if (-not $networkExists) {
     Write-Host "Creating swaivyn_default network..." -ForegroundColor Yellow
     docker network create --driver overlay --attachable swaivyn_default
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✓ Created swaivyn_default network" -ForegroundColor Green
+        Write-Host "[CHECK] Created swaivyn_default network" -ForegroundColor Green
     } else {
-        Write-Host "✗ Failed to create network. Continuing anyway..." -ForegroundColor Red
+        Write-Host " Failed to create network. Continuing anyway..." -ForegroundColor Red
     }
 } else {
-    Write-Host "✓ swaivyn_default network exists" -ForegroundColor Green
+    Write-Host "[CHECK] swaivyn_default network exists" -ForegroundColor Green
 }
 
 # Step 6: Create GPU-enabled Fish Speech container
@@ -111,12 +111,12 @@ Write-Host "Running command: $($dockerCommand -join ' ')" -ForegroundColor Gray
 try {
     & $dockerCommand[0] $dockerCommand[1..($dockerCommand.Length-1)]
 } catch {
-    Write-Host "✗ Error creating container: $_" -ForegroundColor Red
+    Write-Host " Error creating container: $_" -ForegroundColor Red
     exit 1
 }
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ GPU TTS container created successfully" -ForegroundColor Green
+    Write-Host "[CHECK] GPU TTS container created successfully" -ForegroundColor Green
 
     # Wait for container to start
     Write-Host "Waiting for container to initialize..." -ForegroundColor Yellow
@@ -125,12 +125,12 @@ if ($LASTEXITCODE -eq 0) {
     # Check container status
     $containerStatus = docker ps --format "{{.Status}}" -f name=fishspeech-runtime-gpu
     if ($containerStatus -match "Up") {
-        Write-Host "✓ Container is running: $containerStatus" -ForegroundColor Green
+        Write-Host "[CHECK] Container is running: $containerStatus" -ForegroundColor Green
     } else {
-        Write-Host "✗ Container may have issues. Status: $containerStatus" -ForegroundColor Red
+        Write-Host " Container may have issues. Status: $containerStatus" -ForegroundColor Red
     }
 } else {
-    Write-Host "✗ Failed to create container" -ForegroundColor Red
+    Write-Host " Failed to create container" -ForegroundColor Red
     exit 1
 }
 
@@ -143,10 +143,10 @@ $cudaAvailable = $logs | Select-String "CUDA is.*available" | Select-Object -Fir
 $nvidiaWarning = $logs | Select-String "NVIDIA Driver was not detected"
 
 if ($nvidiaWarning) {
-    Write-Host "✗ WARNING: NVIDIA Driver not detected in container" -ForegroundColor Red
+    Write-Host " WARNING: NVIDIA Driver not detected in container" -ForegroundColor Red
     Write-Host "The container is running on CPU. Check Docker Desktop GPU configuration." -ForegroundColor Yellow
 } elseif ($cudaAvailable) {
-    Write-Host "✓ CUDA detected in container!" -ForegroundColor Green
+    Write-Host "[CHECK] CUDA detected in container!" -ForegroundColor Green
     Write-Host "  $($cudaAvailable.Line.Trim())" -ForegroundColor Gray
 } else {
     Write-Host "? GPU detection status unclear. Container may still be initializing..." -ForegroundColor Yellow
@@ -159,9 +159,9 @@ if ($ttsService) {
     Write-Host "Found TTS service: $ttsService" -ForegroundColor Gray
     docker service update --env-rm UPSTREAM_TTS --env-add UPSTREAM_TTS=http://fishspeech-runtime-gpu:8000 $ttsService
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✓ Updated TTS proxy to use GPU container" -ForegroundColor Green
+        Write-Host "[CHECK] Updated TTS proxy to use GPU container" -ForegroundColor Green
     } else {
-        Write-Host "✗ Failed to update TTS proxy. You may need to update manually." -ForegroundColor Yellow
+        Write-Host " Failed to update TTS proxy. You may need to update manually." -ForegroundColor Yellow
     }
 } else {
     Write-Host "No TTS proxy service found in Swarm" -ForegroundColor Yellow
@@ -191,11 +191,11 @@ Write-Host "  Test TTS:     curl -X POST http://localhost:8081/tts -d 'text=Hell
 Write-Host ""
 
 if ($nvidiaWarning) {
-    Write-Host "⚠️  IMPORTANT: GPU was not detected in the container." -ForegroundColor Yellow
+    Write-Host "  IMPORTANT: GPU was not detected in the container." -ForegroundColor Yellow
     Write-Host "   The service will run on CPU, which is much slower." -ForegroundColor Yellow
     Write-Host "   Please check Docker Desktop GPU configuration and try again." -ForegroundColor Yellow
 } else {
-    Write-Host "🚀 GPU acceleration should now be active!" -ForegroundColor Green
+    Write-Host " GPU acceleration should now be active!" -ForegroundColor Green
     Write-Host "   Expected performance: 5-10x faster TTS generation" -ForegroundColor Green
     Write-Host "   Monitor GPU usage with: nvidia-smi -l 1" -ForegroundColor Green
 }

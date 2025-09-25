@@ -13,47 +13,47 @@
 
 </div>
 
-## 📋 Overview
+##  Overview
 
 SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on your local network. It features both traditional text-based chat and an immersive voice-first interface where your AI lives in a customizable virtual space.
 
 ### Key Features
 
 - **Dual Interfaces**
-  - 💬 **Text Chat**: Traditional keyboard-first interface
-  - 🎤 **AI Room**: Voice-first Tamagotchi-style interface with virtual living space
+  -  **Text Chat**: Traditional keyboard-first interface
+  -  **AI Room**: Voice-first Tamagotchi-style interface with virtual living space
   
 - **Complete Privacy**
-  - 🔒 Runs entirely on your closed network
-  - 🔐 No data sent to external servers
-  - 📂 Local storage of all conversations and memories
+  -  Runs entirely on your closed network
+  -  No data sent to external servers
+  -  Local storage of all conversations and memories
   
 - **Federated Experience**
-  - 🔄 AI-to-AI communication across instances
-  - 💌 Message passing between users
-  - 🧠 Selective memory sharing between AIs
+  -  AI-to-AI communication across instances
+  -  Message passing between users
+  -  Selective memory sharing between AIs
   
 - **Personalization**
-  - 🎭 Import character cards or create custom personalities
-  - 🖼️ Customizable avatars (2D now, 3D planned)
-  - 🏠 Decorable virtual living space
+  -  Import character cards or create custom personalities
+  -  Customizable avatars (2D now, 3D planned)
+  -  Decorable virtual living space
 
 - **Advanced Features**
-  - 🔗 **External Agent Integration** - Connect specialized AI workers on separate servers
-  - 📧 Email and calendar integration
-  - 🔍 Web browsing capabilities via Browsh
-  - 💾 Automated backup to NAS or cloud
-  - 🧩 Modular plugin architecture
-  - 🎙️ Fish Speech TTS with API token authentication
+  -  **External Agent Integration** - Connect specialized AI workers on separate servers
+  -  Email and calendar integration
+  -  Web browsing capabilities via Browsh
+  -  Automated backup to NAS or cloud
+  -  Modular plugin architecture
+  -  Fish Speech TTS with API token authentication
 
-## 🖥️ Screenshots
+##  Screenshots
 
 <div align="center">
   <img src="https://via.placeholder.com/400x250.png?text=Text+Chat+UI" alt="Text Chat UI" width="45%">
   <img src="https://via.placeholder.com/400x250.png?text=AI+Room+UI" alt="AI Room UI" width="45%">
 </div>
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 
@@ -64,7 +64,7 @@ SwAIvyn is a privacy-focused, self-contained AI assistant that runs entirely on 
 
 ### Installation
 
-#### Option 1: Bare Metal Installation (Windows) 🆕
+#### Option 1: Bare Metal Installation (Windows) 
 
 For the complete SwAIvyn experience without Docker complexity:
 
@@ -78,11 +78,11 @@ For the complete SwAIvyn experience without Docker complexity:
 ```
 
 **What You Get:**
-- ✅ **All Services Running Natively**: PostgreSQL, Neo4j, Qdrant, Temporal, TTS, Frontend, Backend
-- ✅ **No Docker Overhead**: Direct Windows performance
-- ✅ **Simple Management**: Easy start/stop scripts
-- ✅ **Process Tracking**: Clean service management and monitoring
-- ✅ **Custom Configuration**: All services optimized for local deployment
+- [OK] **All Services Running Natively**: PostgreSQL, Neo4j, Qdrant, Temporal, TTS, Frontend, Backend
+- [OK] **No Docker Overhead**: Direct Windows performance
+- [OK] **Simple Management**: Easy start/stop scripts
+- [OK] **Process Tracking**: Clean service management and monitoring
+- [OK] **Custom Configuration**: All services optimized for local deployment
 
 **Access Your Application:**
 - **Frontend**: http://localhost:5000
@@ -104,7 +104,7 @@ For the complete SwAIvyn experience without Docker complexity:
 
 SwAIvyn uses a hybrid architecture for optimal development experience:
 
-**🎯 Hybrid Architecture Benefits:**
+** Hybrid Architecture Benefits:**
 - **Hot Reload**: Frontend, Backend, and Orchestrator run on host for instant code changes
 - **Infrastructure Stability**: Databases and services run in Docker containers
 - **Best of Both**: Development speed + production-like infrastructure
@@ -130,12 +130,12 @@ SwAIvyn uses a hybrid architecture for optimal development experience:
 .\scripts\dev-run.ps1 -DisableTraefik
 ```
 
-**🏠 Host Services (Hot Reload):**
+** Host Services (Hot Reload):**
 - **Frontend** (React/Vite) - http://localhost:5173 (local) / :5000 (Replit)
 - **Backend/BFF** (FastAPI) - http://localhost:5000 (local) / :8000 (Replit)
 - **Orchestrator** (Temporal worker) - runs in background
 
-**🐳 Docker Infrastructure Services:**
+** Docker Infrastructure Services:**
 - **PostgreSQL** database - localhost:5432
 - **Temporal** workflow service - localhost:7233  
 - **Qdrant** vector database - localhost:6333
@@ -146,13 +146,13 @@ SwAIvyn uses a hybrid architecture for optimal development experience:
 - **Traefik** reverse proxy - localhost:80
 
 **Key Features:**
-✅ **One-Command Setup** - Start everything with `.\scripts\dev-run.ps1`
-✅ **Clean Shutdown** - Stop everything with `.\scripts\dev-shutdown.ps1`
-✅ **Health Checks** - Waits for services to be ready before proceeding
-✅ **Service Coordination** - Ensures dependencies are ready before starting dependent services
-✅ **Remote Access Support** - Services accessible from other devices on your network
-✅ **Traefik Integration** - Full routing with *.localhost domains
-✅ **Process Management** - Tracks all running services for easy cleanup
+[OK] **One-Command Setup** - Start everything with `.\scripts\dev-run.ps1`
+[OK] **Clean Shutdown** - Stop everything with `.\scripts\dev-shutdown.ps1`
+[OK] **Health Checks** - Waits for services to be ready before proceeding
+[OK] **Service Coordination** - Ensures dependencies are ready before starting dependent services
+[OK] **Remote Access Support** - Services accessible from other devices on your network
+[OK] **Traefik Integration** - Full routing with *.localhost domains
+[OK] **Process Management** - Tracks all running services for easy cleanup
 
 **Available URLs:**
 - **Frontend**: http://localhost:5173 (local) / http://localhost:5000 (Replit) or http://app.localhost:80
@@ -169,7 +169,7 @@ Both scripts configure services to be accessible from other devices on your netw
 
 SwAIvyn runs seamlessly in cloud development environments like Replit:
 
-**✅ Replit Environment Features:**
+**[OK] Replit Environment Features:**
 - **Simplified Architecture**: FastAPI backend + React frontend + PostgreSQL
 - **Automatic Configuration**: Environment detection and CORS setup
 - **Authentication Consistency**: Robust multi-user authentication across all pages
@@ -254,71 +254,71 @@ netsh advfirewall firewall add rule name="SwAIvyn Frontend Replit" dir=in action
 netsh advfirewall firewall add rule name="SwAIvyn Backend Replit" dir=in action=allow protocol=TCP localport=8000
 ```
 
-## 🔧 Recent Improvements (September 2025)
+##  Recent Improvements (September 2025)
 
-### 🖥️ Bare Metal Deployment Support 🆕
+###  Bare Metal Deployment Support 
 - **Complete Windows setup script** for Docker-free deployment with automatic dependency installation
 - **Native service orchestration** managing 15+ services without containers
 - **Optimized performance** with direct Windows process execution
 - **Simplified deployment** with one-command setup and easy service management
 - **Production-ready configuration** for PostgreSQL, Neo4j, Qdrant, Temporal, and TTS services
 
-### 🛡️ Authentication Consistency
+###  Authentication Consistency
 - **Fixed authentication bugs** where characters/agents showed on dashboard but not in settings/chat pages
 - **Unified authentication pattern** across all frontend pages using `useEffectiveUser()` hook
 - **Comprehensive auth audit** ensuring all API calls include proper JWT headers
 - **Multi-user support verified** for all users (admin, mari, djay)
 
-### 🔀 Hybrid Development Architecture
+###  Hybrid Development Architecture
 - **Optimized development workflow** with host services (Frontend, Backend, Orchestrator) for hot reload
 - **Docker infrastructure services** for databases and AI services providing production-like environment
 - **Fixed Temporal configuration** removing problematic BIND_ON_IP environment overrides that caused hangs
 - **Improved service startup reliability** with proper health checks and dependency ordering
 
-### 🖥️ Environment Detection & Dashboard
+###  Environment Detection & Dashboard
 - **Smart environment detection** (Replit vs localhost vs production)
 - **Adaptive dashboard** showing environment-appropriate information
 - **Traefik integration** for local development, environment info for cloud deployment
 - **TypeScript cleanup** with zero LSP diagnostics across the codebase
 
-### 🌐 Cloud Development Support
+###  Cloud Development Support
 - **Replit optimization** with automatic environment configuration
 - **Port binding** properly configured for cloud development constraints
 - **CORS enhancement** supporting both `*.repl.co` and localhost origins
 - **Development workflow** streamlined for both local and cloud environments
 
-### 📚 Documentation & Organization
+###  Documentation & Organization
 - **Agent Stack Integration Guide** (800+ lines) with complete technical specifications
 - **Consolidated documentation** with consistent kebab-case naming conventions  
 - **Scripts folder cleanup** with redundant files moved to old-scripts archive
 - **Comprehensive setup guides** for bare metal, Docker, and cloud deployments
 
-## 🚧 Known Architecture Notes
+##  Known Architecture Notes
 
 - **SignalR Frontend Code Removed**: Earlier SignalR client remnants have been deleted, and the frontend now exclusively uses REST APIs for chat updates.
 - **Current Communication**: All real-time updates rely on REST API polling rather than WebSocket/SignalR connections.
 - **Development Ports**: Local development uses Frontend :5173 + Backend :5000; Replit/cloud environments use Frontend :5000 + Backend :8000.
 
-## 🧾 Required Environment Variables
+##  Required Environment Variables
 
 ### FastAPI BFF
 
-- `DATABASE_URL` – PostgreSQL connection string used for all persistence.
-- `JWT_SECRET` – Secret key for signing and verifying access tokens.
-- `ALLOWED_ORIGINS` *(optional)* – Comma-delimited list of origins allowed via CORS. Defaults to common localhost ports for development.
+- `DATABASE_URL` - PostgreSQL connection string used for all persistence.
+- `JWT_SECRET` - Secret key for signing and verifying access tokens.
+- `ALLOWED_ORIGINS` *(optional)* - Comma-delimited list of origins allowed via CORS. Defaults to common localhost ports for development.
 
 ### Temporal Orchestrator Worker
 
-- `TEMPORAL_HOST` – Temporal frontend host:port that the worker connects to.
-- `ACTIVITY_THREADS` *(optional)* – Number of worker threads for activities (must be a positive integer, defaults to 8).
-- `ORCHESTRATOR_HEALTH_PORT` *(optional)* – Port for the worker health endpoint (defaults to 8088).
+- `TEMPORAL_HOST` - Temporal frontend host:port that the worker connects to.
+- `ACTIVITY_THREADS` *(optional)* - Number of worker threads for activities (must be a positive integer, defaults to 8).
+- `ORCHESTRATOR_HEALTH_PORT` *(optional)* - Port for the worker health endpoint (defaults to 8088).
 
 ### Frontend (Vite)
 
-- `VITE_API_BASE_URL` – Base URL for the BFF API. Required in production builds; optional during development where Vite proxying is used.
-- `VITE_STAGEWISE_ENABLED` *(optional)* – Enable the Stagewise toolbar integration when set to `true`.
+- `VITE_API_BASE_URL` - Base URL for the BFF API. Required in production builds; optional during development where Vite proxying is used.
+- `VITE_STAGEWISE_ENABLED` *(optional)* - Enable the Stagewise toolbar integration when set to `true`.
 
-## 🧩 Features in Detail
+##  Features in Detail
 
 ### Text Chat Interface
 
@@ -373,16 +373,16 @@ Seed the default workflow with: `SwAIvyn/scripts/dev-seed-workflows.ps1 -Yes`.
 
 ### TTS/Voice Configuration
 
-SwAIvyn defaults to Fish Speech for TTS (local, privacy‑friendly). A minimal proxy container is deployed behind Traefik and serves `/health`, `/voices`, `/tts`, and `/tts/clone`:
+SwAIvyn defaults to Fish Speech for TTS (local, privacy-friendly). A minimal proxy container is deployed behind Traefik and serves `/health`, `/voices`, `/tts`, and `/tts/clone`:
 
 - Start via dev script: `SwAIvyn\scripts\run_dev.ps1`
 - Build images: `SwAIvyn\scripts\build-stack.ps1 -Target tts -Pull`
-- Voices directory (bind‑mounted): `SwAIvyn/speech/TTS/openaudio-s1-mini/voices`
+- Voices directory (bind-mounted): `SwAIvyn/speech/TTS/openaudio-s1-mini/voices`
   - Supported layouts:
     - `voices.json` (either `["name"]` or `{ "voices": [{"name":"jazzy"}, ...] }`)
     - `*.wav` directly under `voices/`
-    - One‑level subfolders containing `*.wav` (folder name used as voice id)
-- Upstream pass‑through: set `UPSTREAM_TTS` (defaults to `http://host.docker.internal:8080`) to forward synth to a full Fish Speech server if available.
+    - One-level subfolders containing `*.wav` (folder name used as voice id)
+- Upstream pass-through: set `UPSTREAM_TTS` (defaults to `http://host.docker.internal:8080`) to forward synth to a full Fish Speech server if available.
 
 ### Build Targets (Swarm)
 
@@ -398,7 +398,7 @@ Groups:
 - `infra`: postgres, qdrant, neo4j, temporal (pulls remote)
 - `kanban`: wekan, mongo, postgres:15 (pulls remote)
 - `app`: bff, frontend, orchestrator, workers (local Dockerfiles)
-- The Settings → Voice tab lists voices from `/voices`, lets you test, and saves per‑user voice.
+- The Settings -> Voice tab lists voices from `/voices`, lets you test, and saves per-user voice.
 
 ### Federation
 
@@ -407,7 +407,7 @@ Groups:
 - Pass messages between users
 - Maintain appropriate privacy boundaries
 
-## 🔧 Configuration
+##  Configuration
 
 All settings can be configured through the Settings UI, including:
 
@@ -418,7 +418,7 @@ All settings can be configured through the Settings UI, including:
 - LLM engine selection and configuration
 - Backup locations and schedule
 
-## 🛣️ Roadmap
+##  Roadmap
 
 - [x] Core chat functionality
 - [x] Multi-user authentication system
@@ -434,7 +434,7 @@ All settings can be configured through the Settings UI, including:
 
 See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for detailed progress.
 
-## 💻 Technical Architecture
+##  Technical Architecture
 
 SwAIvyn features a flexible architecture supporting multiple deployment scenarios:
 
@@ -447,31 +447,31 @@ SwAIvyn features a flexible architecture supporting multiple deployment scenario
 
 ### Deployment Architectures
 
-**🖥️ Bare Metal (Windows)**
+** Bare Metal (Windows)**
 - Native Windows services with Chocolatey dependency management
 - Direct process execution for optimal performance
 - Simplified networking without containerization overhead
 - Ports: Frontend (5000), Backend (8000), PostgreSQL (5432), Neo4j (7474), etc.
 
-**🐳 Hybrid Development (Cross-platform)**
+** Hybrid Development (Cross-platform)**
 - Host services (Frontend :5173, Backend :5000, Orchestrator) for hot reload
 - Docker infrastructure (databases, TTS, Traefik) for stability
 - Best development experience with production-like infrastructure
 - Automatic service orchestration and health monitoring
 
-**☁️ Cloud Development (Replit/etc)**
+** Cloud Development (Replit/etc)**
 - Simplified 2-service architecture (Frontend + Backend + Managed DB)
 - Automatic environment detection and configuration
 - Optimized for development and prototyping
 
-### Per‑User LLM Dataflow
+### Per-User LLM Dataflow
 
 - Settings (per user)
   - Save Engine/Model: `PUT /api/chat/settings/{userId}`
   - Save Connections: `PUT /api/settings/connections`
-- Chat → Send
+- Chat -> Send
   - Calls `POST /api/conversation/chat` with `engine` + `model`
-  - BFF launches the engine‑specific workflow
+  - BFF launches the engine-specific workflow
   - Worker calls only that engine/model; no fallback
   - TTS synthesizes via host TTS or adapter URLs
   - Conversations
@@ -509,11 +509,11 @@ The FastAPI backend stores authentication, character, and conversation data in P
 - Alembic/seed utilities initialize baseline users and settings during application startup.
 - Vector and memory services integrate through dedicated workers; no SQLite components remain in the active stack.
 
-## 📄 License
+##  License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+##  Acknowledgments
 
 - All the open-source AI and NLP communities
 - Character card creators and standards
@@ -525,11 +525,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   <i>SwAIvyn: Your AI companion that lives in your home network</i>
 </div>
 
-## 🤖 External Agent Integration
+##  External Agent Integration
 
 SwAIvyn features a powerful external agent system that allows you to connect specialized AI workers and services running on separate servers. This enables distributed task processing while maintaining secure user data isolation.
 
-### 🔑 Key Features
+###  Key Features
 
 - **Multi-tenant Architecture**: Each user's agents and tasks are completely isolated
 - **Secure Authentication**: JWT-based authentication for all agent operations
@@ -538,7 +538,7 @@ SwAIvyn features a powerful external agent system that allows you to connect spe
 - **Flexible Agent Types**: Support for any type of external AI service or worker
 - **Data Format Support**: Comprehensive support for text, images, vectors, and structured data
 
-### 🚀 Quick Start
+###  Quick Start
 
 1. **Register Your Agent Service**:
    ```bash
@@ -572,7 +572,7 @@ SwAIvyn features a powerful external agent system that allows you to connect spe
    GET /api/agents/tasks/{task_id}/results
    ```
 
-### 📚 Complete Documentation
+###  Complete Documentation
 
 See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for basic integration and the **[Agent Stack Integration Guide](docs/AGENT_STACK_INTEGRATION.md)** for comprehensive technical specifications including:
 
@@ -585,7 +585,7 @@ See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for 
 - **Image Processing**: Format support, metadata, and storage patterns
 - **Service Discovery**: Automatic agent detection and capability reporting
 
-### 🎯 Core API Endpoints
+###  Core API Endpoints
 
 - **Agent Registry**: `/api/agents/register` - Register and manage external agent services
 - **Task Management**: `/api/agents/tasks` - Create and monitor agent tasks
@@ -594,7 +594,7 @@ See the **[External Agent Connection Guide](docs/EXTERNAL_AGENT_GUIDE.md)** for 
 - **Status Polling**: `/api/agents/status` - Monitor agent health and availability
 - **User Isolation**: All endpoints enforce user-scoped data access
 
-### 🖥️ Management Interface
+###  Management Interface
 
 The SwAIvyn frontend provides comprehensive agent management:
 
@@ -649,4 +649,4 @@ SwAIvyn uses a hybrid development approach: application services (BFF, Orchestra
 .\scripts\dev-shutdown.ps1 -DownCompose -Prune
 ```
 
-See `docs/hybrid-development.md` for details, `docs/bare-metal-deployment.md` for a container‑free deployment guide, and `docs/architecture-and-dataflow.md` for architecture diagrams.
+See `docs/hybrid-development.md` for details, `docs/bare-metal-deployment.md` for a container-free deployment guide, and `docs/architecture-and-dataflow.md` for architecture diagrams.

@@ -2,6 +2,12 @@
 
 This directory contains setup scripts to get SwAIvyn running on your system.
 
+## Offline Image Prep (optional)
+
+- Run `./scripts/save-offline-images.ps1` to pull/build all required container images and export them as `.tar` archives (default output: `offline-images/`).
+- Copy the tar files to any machines that need to run SwAIvyn without network access; `scripts/dev-run.ps1` will automatically load images from `offline-images/` if present.
+
+
 ## Quick Start (Recommended)
 
 For most users, start with the quick setup:
@@ -11,10 +17,10 @@ For most users, start with the quick setup:
 ```
 
 This will:
-- ✅ Check prerequisites 
-- 🏗️ Build the application
-- 🚀 Create a start script
-- ⚡ Get you running in ~2 minutes
+- [OK] Check prerequisites 
+-  Build the application
+-  Create a start script
+-  Get you running in ~2 minutes
 
 ### Quick Setup Options
 
@@ -157,17 +163,17 @@ After setup, you'll have:
 
 ```
 SwAIvyn/
-├── start.cmd              # Quick start script
-├── launch.cmd             # Production launcher  
-├── launch-dev.cmd         # Development launcher
-├── dist/                  # Production build
-│   ├── backend/           # Compiled backend
-│   └── frontend/          # Built frontend
-├── data/                  # Application data
-│   ├── swai-vyn.db       # SQLite database
-│   ├── avatars/          # Avatar storage
-│   └── uploads/          # File uploads
-└── logs/                  # Application logs
++-- start.cmd              # Quick start script
++-- launch.cmd             # Production launcher  
++-- launch-dev.cmd         # Development launcher
++-- dist/                  # Production build
+   +-- backend/           # Compiled backend
+   +-- frontend/          # Built frontend
++-- data/                  # Application data
+   +-- swai-vyn.db       # SQLite database
+   +-- avatars/          # Avatar storage
+   +-- uploads/          # File uploads
++-- logs/                  # Application logs
 ```
 
 ## Next Steps
@@ -180,4 +186,4 @@ After setup completes:
 4. **Import AI models:** Configure your preferred AI providers
 5. **Customize:** Set up avatars, personalities, and preferences
 
-Enjoy your privacy-focused AI assistant! 🤖✨
+Enjoy your privacy-focused AI assistant! 

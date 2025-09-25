@@ -1,12 +1,12 @@
-# SwAIvyn Legacy Code Deletion Recommendations 🗑️
+# SwAIvyn Legacy Code Deletion Recommendations 
 
 *Comprehensive analysis of legacy, unused, and obsolete code that can be safely removed*
 
 ---
 
-## 🚨 **High Priority Deletions (Safe to Remove Immediately)**
+##  **High Priority Deletions (Safe to Remove Immediately)**
 
-### 1. **Dead SignalR Implementation** ✅ **REMOVED**
+### 1. **Dead SignalR Implementation** [OK] **REMOVED**
 - **Action Taken**: The unused SignalR hook and dependency were deleted. Chat features now rely solely on REST APIs.
 - **Follow-up**: Documentation updated to remove SignalR references.
 
@@ -41,7 +41,7 @@
 
 ---
 
-## ⚠️ **Medium Priority Deletions (Review Before Removing)**
+##  **Medium Priority Deletions (Review Before Removing)**
 
 ### 6. **Legacy PowerShell Scripts**
 - **Directory to Delete**: `scripts/old-scripts/` containing:
@@ -51,7 +51,7 @@
 - **Justification**: Scripts marked as "old-scripts" with README.txt explaining they're legacy
 - **Impact**: **LOW** - May contain useful reference material, check README.txt first
 
-### 7. **Root-Level Legacy Scripts** ✅ **REMOVED**
+### 7. **Root-Level Legacy Scripts** [OK] **REMOVED**
 - Root-level `dev-run.ps1` and `dev-shutdown.ps1` have been consolidated under `scripts/`.
 - Use `scripts/dev-run.ps1` and `scripts/dev-shutdown.ps1` going forward.
 
@@ -69,11 +69,11 @@
 
 ---
 
-## 🧹 **Code Quality Cleanup (Low Priority)**
+##  **Code Quality Cleanup (Low Priority)**
 
 ### 10. **Console.log Statements** 
 - **Files with Debug Statements**:
-  - `frontend/src/hooks/useChatHub.ts:22,33,46,50,53,62` - ⚠️ **DELETE WITH FILE**
+  - `frontend/src/hooks/useChatHub.ts:22,33,46,50,53,62` -  **DELETE WITH FILE**
   - `frontend/src/contexts/InitializationContext.tsx:143,153,163,170`
   - `frontend/src/hooks/useTranslation.ts:26`
   - `frontend/src/utils/playTts.ts:17` 
@@ -90,13 +90,13 @@
 
 ### 12. **Unused Dependencies** 
 - **Frontend** (`frontend/package.json`):
-  - `@microsoft/signalr: ^8.0.7` - ⚠️ **CAN BE REMOVED** (only used in useChatHub.ts which is unused)
+  - `@microsoft/signalr: ^8.0.7` -  **CAN BE REMOVED** (only used in useChatHub.ts which is unused)
 - **Action**: Remove after confirming SignalR code deletion
 - **Impact**: **BUNDLE SIZE** - Reduces frontend bundle size
 
 ---
 
-## 🔍 **Investigation Required (Don't Delete Yet)**
+##  **Investigation Required (Don't Delete Yet)**
 
 ### 13. **Service Directories to Audit**
 - **Google Workspace Service**: `Services/google_workspace/`
@@ -119,7 +119,7 @@
 
 ---
 
-## 📊 **Deletion Impact Summary**
+##  **Deletion Impact Summary**
 
 ### **Immediate Safe Deletions (37+ files/directories)**:
 - SignalR dead code: 1 file + 1 dependency
@@ -143,7 +143,7 @@
 
 ---
 
-## 🎯 **Recommended Deletion Order**
+##  **Recommended Deletion Order**
 
 ### **Week 1: High Priority Safe Deletions**
 1. Delete `frontend/src/hooks/useChatHub.ts` 
@@ -166,7 +166,7 @@
 
 ---
 
-## ⚠️ **Safety Guidelines**
+##  **Safety Guidelines**
 
 1. **Always backup before mass deletions**
 2. **Test functionality after removing each category**  
