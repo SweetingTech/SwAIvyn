@@ -449,6 +449,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         unauthenticated_paths = [
             "/healthz", "/readyz", "/api/healthz", "/api/readyz", "/api",
             "/api/auth/login",
+            "/api/auth/logout",
         ]
 
         # Allow static files, frontend routes, and OPTIONS requests (CORS preflight)
