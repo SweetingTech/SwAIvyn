@@ -197,7 +197,7 @@ async def ensure_seed(engine: AsyncEngine) -> None:
             {
                 "id": "admin",
                 "username": "admin",
-                "email": "admin@example.com",
+                "email": "douglas.j.sweeting@gmail.com",
                 "password": "admin1234",
                 "role": "admin",
                 "language": "en",

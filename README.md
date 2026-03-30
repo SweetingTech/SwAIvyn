@@ -310,6 +310,13 @@ The personalization layer runs on top of the platform — characters and avatars
 
 ---
 
+## Author
+
+**Douglas J. Sweeting II**
+Glen Burnie, MD · 443-763-7955 · [douglas.j.sweeting@gmail.com](mailto:douglas.j.sweeting@gmail.com) · [github.com/SweetingTech](https://github.com/SweetingTech)
+
+---
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.

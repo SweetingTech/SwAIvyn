@@ -59,7 +59,7 @@ def test_send_email():
     """
     try:
         data = {
-            'to': 'your-email@example.com',
+            'to': 'douglas.j.sweeting@gmail.com',
             'subject': 'Test from SwAIvyn Google Workspace Integration',
             'body': 'This is a test email sent via the SwAIvyn Google Workspace API service.',
             'html': False
