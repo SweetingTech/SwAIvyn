@@ -2619,29 +2619,36 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
             detail=f"File type '{content_type}' is not allowed. Allowed: {', '.join(sorted(_ALLOWED_UPLOAD_TYPES))}",
         )
 
-    # Read with size guard
-    chunks: List[bytes] = []
-    total = 0
-    while True:
-        chunk = await file.read(65536)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > _MAX_UPLOAD_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File too large (max {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB).",
-            )
-        chunks.append(chunk)
-
     uid = u.get("id")
     safe_name = os.path.basename(file.filename or "upload")
     dest_dir = get_user_upload_dir(uid)
     dest_path = os.path.join(dest_dir, f"{uuid.uuid4()}_{safe_name}")
-    with open(dest_path, "wb") as fh:
-        for chunk in chunks:
-            fh.write(chunk)
 
+    # Stream upload to disk with size guard to avoid buffering the entire file in memory
+    total = 0
+    try:
+        with open(dest_path, "wb") as fh:
+            while True:
+                chunk = await file.read(65536)
+                if not chunk:
+                    break
+                new_total = total + len(chunk)
+                if new_total > _MAX_UPLOAD_BYTES:
+                    # Remove partially written file before raising
+                    fh.close()
+                    try:
+                        os.remove(dest_path)
+                    except OSError:
+                        pass
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large (max {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB).",
+                    )
+                fh.write(chunk)
+                total = new_total
+    except HTTPException:
+        # Propagate size errors as-is
+        raise
     logger.info("Document uploaded by user %s: %s (%d bytes)", uid, safe_name, total)
     return {"filename": safe_name, "size": total, "success": True}
 
