@@ -97,11 +97,11 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
             };
           } else {
             // Clear stale/invalid token and auth header so UI returns to login
-            try { logout(); } catch { /* ignore */ }
+            await logout().catch(() => { /* ignore */ });
           }
         } catch {
           // Network/ready errors: treat as unauthenticated and show login
-          try { logout(); } catch { /* ignore */ }
+          await logout().catch(() => { /* ignore */ });
         }
       }
       // No fallback default user; require login

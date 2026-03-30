@@ -45,7 +45,7 @@ const Navigation = () => {
             )}
             <button
               className="px-3 py-1.5 text-sm rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 hidden md:block"
-              onClick={() => { logout(); navigate('/'); }}
+              onClick={async () => { await logout(); navigate('/'); }}
             >
               Logout
             </button>
@@ -139,8 +139,8 @@ const MobileMenu = ({ isOpen, setIsOpen }: MobileMenuProps) => {
               <div className="mt-4 pt-4 border-t border-gray-200">
                 <button
                   className="flex items-center w-full px-4 py-3 text-base font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
-                  onClick={() => { 
-                    logout(); 
+                  onClick={async () => { 
+                    await logout(); 
                     navigate('/'); 
                     setIsOpen(false); 
                   }}

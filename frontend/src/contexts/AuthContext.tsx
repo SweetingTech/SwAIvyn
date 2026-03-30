@@ -5,7 +5,7 @@ interface AuthState {
   token: string | null;
   user: { id: string; username: string; email: string; role?: string } | null;
   login: (identifier: string, password: string, remember?: boolean) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -84,6 +84,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     delete axios.defaults.headers.common['Authorization'];
   }, []);
 
-  const value: AuthState = { token, user, login, logout: logout as unknown as () => void };
+  const value: AuthState = { token, user, login, logout };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
