@@ -192,12 +192,12 @@ async def ensure_seed(engine: AsyncEngine) -> None:
             await seed_agents_from_file(conn)
             return
 
-        # Seed default users: admin, Mari, DJay
+        # Seed default users: admin, user1, user2
         seed_users = [
             {
                 "id": "admin",
                 "username": "admin",
-                "email": "admin@example.com",
+                "email": "douglas.j.sweeting@gmail.com",
                 "password": "admin1234",
                 "role": "admin",
                 "language": "en",
@@ -206,21 +206,21 @@ async def ensure_seed(engine: AsyncEngine) -> None:
                 "is_default": False,
             },
             {
-                "id": "mari",
-                "username": "Mari",
-                "email": "mari@example.com",
-                "password": "mari1234",
+                "id": "user1",
+                "username": "user1",
+                "email": "user1@example.com",
+                "password": "user11234",
                 "role": "user",
-                "language": "ja",
+                "language": "en",
                 "theme": "light",
                 "default_character": "default",
                 "is_default": False,
             },
             {
-                "id": "djay",
-                "username": "DJay",
-                "email": "djay@example.com",
-                "password": "djay1234",
+                "id": "user2",
+                "username": "user2",
+                "email": "user2@example.com",
+                "password": "user21234",
                 "role": "user",
                 "language": "en",
                 "theme": "dark",
