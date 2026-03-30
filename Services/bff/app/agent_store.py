@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +15,7 @@ class AgentStore:
 
     def __init__(self) -> None:
         self._memory: Dict[str, Dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
 
     async def list_agents(
         self,
@@ -25,7 +27,8 @@ class AgentStore:
         """Return agents visible to the given viewer."""
 
         if engine is None:
-            agents = list(self._memory.values())
+            async with self._lock:
+                agents = list(self._memory.values())
             if viewer_is_admin:
                 return [agent.copy() for agent in agents]
             return [agent.copy() for agent in agents if agent.get("userId") == viewer_id]
@@ -64,7 +67,8 @@ class AgentStore:
         """Remove agent record."""
 
         if engine is None:
-            self._memory.pop(agent_id, None)
+            async with self._lock:
+                self._memory.pop(agent_id, None)
             return
 
         async with engine.begin() as conn:
@@ -79,9 +83,10 @@ class AgentStore:
         preserve_started_at: bool = False,
     ) -> Dict[str, Any]:
         if engine is None:
-            existing = self._memory.get(agent_id)
-            merged = self._merge_agent(agent_id, existing, updates, preserve_started_at=preserve_started_at)
-            self._memory[agent_id] = merged
+            async with self._lock:
+                existing = self._memory.get(agent_id)
+                merged = self._merge_agent(agent_id, existing, updates, preserve_started_at=preserve_started_at)
+                self._memory[agent_id] = merged
             return merged.copy()
 
         async with engine.begin() as conn:

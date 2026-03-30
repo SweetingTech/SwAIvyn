@@ -100,7 +100,7 @@ agent_status = Table(
     "agent_status",
     metadata,
     Column("id", String(100), primary_key=True),
-    Column("user_id", String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("user_id", String(64), ForeignKey("users.id"), nullable=True),
     Column("name", String(200), nullable=True),
     Column("status", String(32), nullable=False, server_default=text("'pending'")),
     Column("meta", Text, nullable=True),

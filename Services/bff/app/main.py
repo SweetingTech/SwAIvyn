@@ -1,6 +1,4 @@
 ﻿# -*- coding: utf-8 -*-
-# Merged and fixed: remove conflict markers, restore missing imports, add agent status store and endpoints,
-# and keep clean LLM settings handlers.
 
 import os
 import asyncio
@@ -9,6 +7,10 @@ import ipaddress
 import urllib.parse
 import uuid
 import logging
+import time
+import re
+from contextlib import asynccontextmanager
+from collections import defaultdict
 from typing import Optional, Dict, Any, List, Mapping, Set
 
 import httpx
@@ -23,16 +25,16 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from temporalio.client import Client
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import select, text
 from datetime import timedelta, datetime
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 
 # Local imports
-from .auth import create_access_token, verify_password, get_current_user, require_admin, JWT_SECRET  # JWT_SECRET may be unused if WS disabled
+from .auth import create_access_token, verify_password, get_current_user, require_admin, JWT_SECRET, JWT_EXPIRES_MINUTES
 from .agent_store import AgentStore  # Repo is currently unused but kept for future swap
 from .models import (
     users,
@@ -59,7 +61,7 @@ logger = logging.getLogger("swai.bff")
 # Required environment variables for startup validation (name -> description)
 REQUIRED_ENV_VARS: Mapping[str, str] = {
     "DATABASE_URL": "PostgreSQL connection string",
-    # JWT_SECRET is optional - auth.py generates one automatically if not provided
+    "JWT_SECRET": "JWT signing secret (generate: python -c \"import secrets; print(secrets.token_urlsafe(64))\")",
 }
 
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "127.0.0.1:7233")
@@ -105,14 +107,133 @@ def _load_allowed_origins() -> List[str]:
 
 _temporal_client: Optional[Client] = None
 _engine: Optional[AsyncEngine] = None
+
+# In-memory stores with timestamp for TTL eviction (user_id -> (data, last_access_ts))
 _chat_settings_store: Dict[str, Dict[str, Any]] = {}
+_chat_settings_ts: Dict[str, float] = {}
 _connections_store: Dict[str, Dict[str, Any]] = {}
+_connections_ts: Dict[str, float] = {}
 _folders_store: Dict[str, Dict[str, Any]] = {}
+_CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "3600"))  # 1 hour default
 
 # Agent infra: in-memory store (matches current REST impl)
 _agents_store: Dict[str, Dict[str, Any]] = {}
 # Repo placeholder if you later swap persistence
 _agents_repo = AgentStore()
+
+# ---------------------------------------------------------------------------
+# Rate limiting (login endpoint) — simple in-memory token bucket per IP
+# ---------------------------------------------------------------------------
+_login_attempts: Dict[str, List[float]] = defaultdict(list)
+_LOGIN_RATE_WINDOW = int(os.getenv("LOGIN_RATE_WINDOW_SECONDS", "60"))
+_LOGIN_RATE_MAX = int(os.getenv("LOGIN_RATE_MAX_ATTEMPTS", "10"))
+
+
+def _check_login_rate_limit(ip: str) -> None:
+    """Raise 429 if IP has exceeded allowed login attempts within the window."""
+    now = time.time()
+    window_start = now - _LOGIN_RATE_WINDOW
+    attempts = _login_attempts[ip]
+    # Prune old attempts
+    _login_attempts[ip] = [t for t in attempts if t > window_start]
+    if len(_login_attempts[ip]) >= _LOGIN_RATE_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts. Try again in {_LOGIN_RATE_WINDOW} seconds.",
+        )
+    _login_attempts[ip].append(now)
+
+
+# ---------------------------------------------------------------------------
+# Password complexity validation
+# ---------------------------------------------------------------------------
+_MIN_PASSWORD_LENGTH = int(os.getenv("MIN_PASSWORD_LENGTH", "8"))
+
+
+def _validate_password_complexity(password: str) -> None:
+    """Raise 400 if password doesn't meet complexity requirements."""
+    if len(password) < _MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must be at least {_MIN_PASSWORD_LENGTH} characters.",
+        )
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one uppercase letter.")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one lowercase letter.")
+    if not re.search(r"\d", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one digit.")
+
+
+# ---------------------------------------------------------------------------
+# Input length helpers
+# ---------------------------------------------------------------------------
+_MAX_TITLE_LEN = 300
+_MAX_NAME_LEN = 200
+_MAX_SYSTEM_PROMPT_LEN = 32_000
+_MAX_MESSAGE_LEN = 64_000
+_MAX_YAML_BYTES = 512_000  # 512 KB
+
+
+def _assert_length(value: str, max_len: int, field: str) -> str:
+    if len(value) > max_len:
+        raise HTTPException(status_code=400, detail=f"{field} exceeds maximum length of {max_len} characters.")
+    return value
+
+
+# ---------------------------------------------------------------------------
+# API key field-level encryption (Fernet symmetric encryption)
+# Set FIELD_ENCRYPTION_KEY to a Fernet key to enable.
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# ---------------------------------------------------------------------------
+_FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY", "")
+_fernet = None
+if _FIELD_ENCRYPTION_KEY:
+    try:
+        from cryptography.fernet import Fernet as _Fernet
+        _fernet = _Fernet(_FIELD_ENCRYPTION_KEY.encode())
+        logger.info("Field-level encryption enabled for API keys.")
+    except Exception as _fe:
+        logger.warning("Failed to initialize field encryption (%s). API keys will be stored unencrypted.", _fe)
+else:
+    logger.warning(
+        "FIELD_ENCRYPTION_KEY not set. API keys are stored unencrypted. "
+        "Set this variable to enable at-rest encryption."
+    )
+
+_API_KEY_FIELDS = {"OpenAiApiKey", "ClaudeApiKey"}
+
+
+def _encrypt_api_key(value: Optional[str]) -> Optional[str]:
+    if not value or not _fernet:
+        return value
+    return _fernet.encrypt(value.encode()).decode()
+
+
+def _decrypt_api_key(value: Optional[str]) -> Optional[str]:
+    if not value or not _fernet:
+        return value
+    try:
+        return _fernet.decrypt(value.encode()).decode()
+    except Exception:
+        # Value may be stored unencrypted (migration)
+        return value
+
+
+# ---------------------------------------------------------------------------
+# Cache TTL eviction helper
+# ---------------------------------------------------------------------------
+def _evict_stale_cache_entries() -> None:
+    """Remove in-memory cache entries older than _CACHE_TTL_SECONDS."""
+    cutoff = time.time() - _CACHE_TTL_SECONDS
+    stale_chat = [uid for uid, ts in _chat_settings_ts.items() if ts < cutoff]
+    for uid in stale_chat:
+        _chat_settings_store.pop(uid, None)
+        _chat_settings_ts.pop(uid, None)
+    stale_conn = [uid for uid, ts in _connections_ts.items() if ts < cutoff]
+    for uid in stale_conn:
+        _connections_store.pop(uid, None)
+        _connections_ts.pop(uid, None)
 
 # ------------------------- Models -------------------------
 
@@ -219,46 +340,142 @@ async def _ensure_temporal_connected():
     if _temporal_client is None:
         _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
 
+# ------------------------- Lifespan -------------------------
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Replaces deprecated @app.on_event startup handlers."""
+    global _engine, _temporal_client
+
+    _validate_required_env_vars(REQUIRED_ENV_VARS)
+    os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
+
+    if ENABLE_TEMPORAL:
+        asyncio.create_task(_ensure_temporal_connected())
+
+    if DATABASE_URL:
+        try:
+            from .db import create_engine
+            from .seed import ensure_seed
+            _engine = create_engine()
+            if _engine is not None:
+                await ensure_seed(_engine)
+                logger.info("Database ready and seed complete")
+        except Exception as exc:
+            logger.exception("Database initialization failed: %s", exc)
+
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                res = await conn.execute(select(t_conn_settings))
+                rows = res.fetchall()
+                for row in rows:
+                    m = row._mapping
+                    uid = m["user_id"]
+                    _connections_store[uid] = dict(m)
+                    _connections_ts[uid] = time.time()
+                logger.info("Loaded connection settings for %s users into cache", len(rows))
+        except Exception as exc:
+            logger.exception("Failed to pre-load connection settings: %s", exc)
+
+        try:
+            async with _engine.begin() as conn:
+                await conn.execute(
+                    users.update().where(users.c.id == "admin").values(role="admin")
+                )
+        except Exception as exc:
+            logger.exception("Admin role fix failed: %s", exc)
+
+    yield
+    # Shutdown: dispose DB engine if created
+    if _engine is not None:
+        await _engine.dispose()
+        logger.info("Database engine disposed")
+
+
 # ------------------------- App -------------------------
 
-app = FastAPI(title="SwAIvyn BFF", version="0.1.0")
-os.makedirs(CHAR_UPLOADS_DIR, exist_ok=True)
+app = FastAPI(title="SwAIvyn BFF", version="0.1.0", lifespan=lifespan)
 
 # ------------------------- Security Middleware -------------------------
 
+_MAX_BODY_SIZE = int(os.getenv("MAX_BODY_SIZE_BYTES", str(10 * 1024 * 1024)))  # 10 MB default
+
+
+class RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose Content-Length exceeds MAX_BODY_SIZE_BYTES."""
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                content_length_value = int(content_length)
+            except ValueError:
+                # Malformed Content-Length header; treat as bad request
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header."},
+                )
+            if content_length_value > _MAX_BODY_SIZE:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"Request body too large (max {_MAX_BODY_SIZE} bytes)."},
+                )
+        return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security response headers to every API response."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+        if is_https:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+
 class AuthenticationMiddleware(BaseHTTPMiddleware):
-    """Global authentication middleware to secure all API endpoints"""
+    """Global authentication middleware to secure all API endpoints."""
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Allow unauthenticated access to specific endpoints
         unauthenticated_paths = [
             "/healthz", "/readyz", "/api/healthz", "/api/readyz", "/api",
-            "/api/auth/login"
+            "/api/auth/login",
+            "/api/auth/logout",
         ]
 
         # Allow static files, frontend routes, and OPTIONS requests (CORS preflight)
         if not path.startswith("/api") or path in unauthenticated_paths or request.method == "OPTIONS":
             return await call_next(request)
 
-        # Require authentication for all other /api/* endpoints
+        # Accept token from Authorization header OR HTTPOnly cookie
+        token: Optional[str] = None
         auth_header = request.headers.get("authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+        if not token:
+            token = request.cookies.get("auth_token")
+
+        if not token:
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Authentication required"}
+                content={"detail": "Authentication required"},
             )
 
-        # Validate JWT token
         try:
             from fastapi.security import HTTPAuthorizationCredentials
-            token = auth_header.split(" ")[1]
             creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
             user = await get_current_user(_engine, creds)
             if not user:
                 return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
-            # Attach the user to request.state for downstream handlers
             request.state.user = user
         except Exception:
             return JSONResponse(status_code=401, content={"detail": "Invalid authentication token"})
@@ -272,76 +489,29 @@ try:
 except Exception:
     pass
 
-# Add authentication middleware FIRST (before CORS)
+# Middleware order (outermost → innermost):
+# RequestBodySizeLimit → SecurityHeaders → CORS → Authentication
 app.add_middleware(AuthenticationMiddleware)
 
-# Fix CORS configuration for security
+# Restrict Replit regex to the specific project subdomain when configured
+_replit_dev_domain = os.getenv("REPLIT_DEV_DOMAIN", "")
+_replit_origin_regex: Optional[str] = None
+if _replit_dev_domain:
+    # Escape the specific domain to prevent wildcard matching
+    _escaped = re.escape(_replit_dev_domain)
+    _replit_origin_regex = rf"^https?://{_escaped}$"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_load_allowed_origins(),
-    allow_origin_regex=r"^https?://[a-zA-Z0-9\-]+\.replit\.dev$" if os.getenv("REPLIT_DEV_DOMAIN") else None,
+    allow_origin_regex=_replit_origin_regex,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Agent-ID", "X-Agent-API-Key"],
 )
 
-# ------------------------- Startup -------------------------
-
-
-@app.on_event("startup")
-async def _startup_validate_env() -> None:
-    _validate_required_env_vars(REQUIRED_ENV_VARS)
-
-
-@app.on_event("startup")
-async def _startup_connect_temporal():
-    if ENABLE_TEMPORAL:
-        asyncio.create_task(_ensure_temporal_connected())
-
-@app.on_event("startup")
-async def _startup_db_seed():
-    global _engine
-    if DATABASE_URL:
-        try:
-            from .db import create_engine
-            from .seed import ensure_seed
-            _engine = create_engine()
-            if _engine is not None:
-                await ensure_seed(_engine)
-                logger.info("Database ready and seed complete")
-        except Exception as e:
-            logger.exception("Database initialization failed: %s", e)
-
-@app.on_event("startup")
-async def _startup_load_connection_settings():
-    global _engine
-    if _engine is not None:
-        try:
-            async with _engine.connect() as conn:
-                res = await conn.execute(select(t_conn_settings))
-                rows = res.fetchall()
-                for row in rows:
-                    m = row._mapping
-                    uid = m["user_id"]
-                    _connections_store[uid] = m
-                logger.info(
-                    "Loaded connection settings for %s users into cache",
-                    len(rows),
-                )
-        except Exception as e:
-            logger.exception("Failed to pre-load connection settings: %s", e)
-
-@app.on_event("startup")
-async def _startup_fix_admin_role():
-    global _engine
-    if _engine is not None:
-        try:
-            async with _engine.begin() as conn:
-                await conn.execute(
-                    users.update().where(users.c.id == "admin").values(role="admin")
-                )
-        except Exception as e:
-            logger.exception("Admin role fix failed: %s", e)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestBodySizeLimitMiddleware)
 
 # ------------------------- Health -------------------------
 
@@ -349,13 +519,29 @@ async def _startup_fix_admin_role():
 async def healthz():
     return {"status": "ok"}
 
+
 @app.get("/readyz")
 async def readyz():
-    return {"status": "ready", "temporal": ("connected" if _temporal_client is not None else "connecting")}
+    db_status = "not_configured"
+    if _engine is not None:
+        try:
+            async with _engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            db_status = "ok"
+        except Exception as exc:
+            logger.warning("Readiness DB check failed: %s", exc)
+            db_status = "error"
+    return {
+        "status": "ready" if db_status in ("ok", "not_configured") else "degraded",
+        "db": db_status,
+        "temporal": "connected" if _temporal_client is not None else "connecting",
+    }
+
 
 @app.get("/api/healthz")
 async def api_healthz():
     return await healthz()
+
 
 @app.get("/api/readyz")
 async def api_readyz():
@@ -518,7 +704,7 @@ async def create_conversation(body: dict, request: Request, engine: Optional[Asy
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     uid = u.get("id")
-    title = (body or {}).get("title") or "New Chat"
+    title = _assert_length((body or {}).get("title") or "New Chat", _MAX_TITLE_LEN, "title")
     folder_id = (body or {}).get("folderId")
     conv_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -598,7 +784,7 @@ async def append_message(body: dict, request: Request, engine: Optional[AsyncEng
         raise HTTPException(status_code=401, detail="Authentication required")
     conv_id = (body or {}).get("conversationId")
     role = (body or {}).get("role") or "user"
-    content = (body or {}).get("content") or ""
+    content = _assert_length((body or {}).get("content") or "", _MAX_MESSAGE_LEN, "content")
     if not conv_id:
         raise HTTPException(status_code=400, detail="conversationId required")
     now = datetime.utcnow().isoformat()
@@ -635,7 +821,7 @@ async def update_conversation_title(conv_id: str, body: dict, request: Request, 
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    title = (body or {}).get("title") or ""
+    title = _assert_length((body or {}).get("title") or "", _MAX_TITLE_LEN, "title")
     now = datetime.utcnow().isoformat()
     async with engine.begin() as conn:
         # verify ownership
@@ -719,7 +905,10 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     conv_id = (body or {}).get("conversationId")
-    message = (body or {}).get("message") or (body or {}).get("content") or (body or {}).get("prompt") or ""
+    message = _assert_length(
+        (body or {}).get("message") or (body or {}).get("content") or (body or {}).get("prompt") or "",
+        _MAX_MESSAGE_LEN, "message"
+    )
     if not conv_id or not message:
         raise HTTPException(status_code=400, detail="conversationId and message required")
     now = datetime.utcnow().isoformat()
@@ -741,8 +930,8 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
     uid = u.get("id")
     engine_name = os.getenv("DEFAULT_LLM_ENGINE", "ollama").lower()
     model = os.getenv("LLM_MODEL", "llama3")
-    ollama_url = "http://localhost:11434"
-    lmstudio_url = "http://localhost:1234"
+    ollama_url = OLLAMA_HOST
+    lmstudio_url = LMSTUDIO_HOST
     try:
         async with db.connect() as conn:
             res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == uid).limit(1))
@@ -760,10 +949,17 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
     except Exception:
         pass
 
+    # SSRF guard: validate URLs before making outbound requests
+    if not _validate_url_for_ssrf(ollama_url):
+        ollama_url = None
+    if not _validate_url_for_ssrf(lmstudio_url):
+        lmstudio_url = None
+
     # Call the selected engine
     reply: Optional[str] = None
+    llm_error: Optional[str] = None
     try:
-        if engine_name == "lmstudio":
+        if engine_name == "lmstudio" and lmstudio_url:
             payload = {
                 "model": model or "auto",
                 "messages": [{"role": "user", "content": message}],
@@ -775,18 +971,27 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
                 if r.status_code == 200:
                     j = r.json()
                     reply = (((j.get("choices") or [{}])[0]).get("message") or {}).get("content")
-        elif engine_name == "ollama":
+                else:
+                    llm_error = f"LM Studio returned {r.status_code}"
+        elif engine_name == "ollama" and ollama_url:
             payload = {"model": model or "llama3", "prompt": message, "stream": False}
             async with httpx.AsyncClient(timeout=30.0) as client:
                 r = await client.post(f"{ollama_url.rstrip('/')}/api/generate", json=payload)
                 if r.status_code == 200:
                     j = r.json()
                     reply = j.get("response")
+                else:
+                    llm_error = f"Ollama returned {r.status_code}"
+        else:
+            llm_error = f"Engine '{engine_name}' is unavailable or its URL is not configured"
     except Exception as e:
         logger.exception("LLM call failed (%s): %s", engine_name, e)
+        llm_error = "LLM service error"
 
     if not reply:
-        reply = f"Echo: {message}"
+        error_msg = llm_error or "LLM did not return a response"
+        logger.warning("LLM no reply for conv %s: %s", conv_id, error_msg)
+        raise HTTPException(status_code=502, detail=error_msg)
 
     # Store assistant reply
     async with db.begin() as conn:
@@ -873,8 +1078,8 @@ async def get_llm_models(request: Request, engine: str = Query(), userId: str = 
         raise HTTPException(status_code=403, detail="Forbidden")
 
     eng = (engine or "").strip().lower()
-    ollama_url = "http://localhost:11434"
-    lmstudio_url = "http://localhost:1234"
+    ollama_url = OLLAMA_HOST
+    lmstudio_url = LMSTUDIO_HOST
 
     # Load connection settings
     if db is not None:
@@ -889,15 +1094,21 @@ async def get_llm_models(request: Request, engine: str = Query(), userId: str = 
         except Exception:
             pass
 
+    # SSRF guard
+    if not _validate_url_for_ssrf(ollama_url):
+        ollama_url = None
+    if not _validate_url_for_ssrf(lmstudio_url):
+        lmstudio_url = None
+
     models: List[str] = []
     try:
-        if eng == "ollama":
+        if eng == "ollama" and ollama_url:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.get(f"{ollama_url.rstrip('/')}/api/tags")
                 if r.status_code == 200:
                     j = r.json() or {}
                     models = [m.get("name") for m in (j.get("models") or []) if m.get("name")]
-        elif eng == "lmstudio":
+        elif eng == "lmstudio" and lmstudio_url:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.get(f"{lmstudio_url.rstrip('/')}/v1/models")
                 if r.status_code == 200:
@@ -919,7 +1130,7 @@ async def get_lmstudio_model(request: Request, userId: str = Query(), db: Option
     if userId != u.get("id") and u.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    lmstudio_url = "http://localhost:1234"
+    lmstudio_url = LMSTUDIO_HOST
     if db is not None:
         try:
             async with db.connect() as conn:
@@ -930,6 +1141,9 @@ async def get_lmstudio_model(request: Request, userId: str = Query(), db: Option
                     lmstudio_url = m.get("LmStudioApiUrl") or lmstudio_url
         except Exception:
             pass
+
+    if not _validate_url_for_ssrf(lmstudio_url):
+        return {"model": None}
 
     model = None
     try:
@@ -949,25 +1163,61 @@ class LoginRequest(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
     password: str
+    remember: bool = False
+
 
 @app.post("/api/auth/login")
-async def login(body: LoginRequest, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+async def login(body: LoginRequest, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    _check_login_rate_limit(client_ip)
+
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     identifier = (body.username or body.email or "").strip()
     if not identifier:
         raise HTTPException(status_code=400, detail="username or email required")
+
     async with engine.connect() as conn:
-        stmt = select(users).where((users.c.username == identifier) | (users.c.email == identifier)).limit(1)
+        stmt = select(users).where(
+            (users.c.username == identifier) | (users.c.email == identifier)
+        ).limit(1)
         res = await conn.execute(stmt)
         row = res.first()
         if not row:
+            logger.warning("Login failed: unknown identifier from %s", client_ip)
             raise HTTPException(status_code=401, detail="Invalid credentials")
         r = row._mapping
         if not r["password_hash"] or not verify_password(body.password, r["password_hash"]):
+            logger.warning("Login failed: wrong password for user %s from %s", r["id"], client_ip)
             raise HTTPException(status_code=401, detail="Invalid credentials")
-        token = create_access_token({"sub": r["id"], "role": r["role"]})
-        return {"access_token": token, "token_type": "bearer", "user": {"id": r["id"], "username": r["username"], "email": r["email"], "role": r["role"]}}
+
+    logger.info("Login success: user %s from %s", r["id"], client_ip)
+    token = create_access_token({"sub": r["id"], "role": r["role"]})
+    user_data = {"id": r["id"], "username": r["username"], "email": r["email"], "role": r["role"]}
+    response = JSONResponse(content={"access_token": token, "token_type": "bearer", "user": user_data})
+
+    # Set HTTPOnly cookie so the browser can't access the token via JS
+    cookie_max_age = JWT_EXPIRES_MINUTES * 60 if body.remember else None
+    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    response.set_cookie(
+        key="auth_token",
+        value=token,
+        httponly=True,
+        secure=is_https,
+        samesite="strict",
+        max_age=cookie_max_age,
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+async def logout(request: Request):
+    """Clear the HTTPOnly auth cookie."""
+    response = JSONResponse(content={"success": True})
+    response.delete_cookie(key="auth_token", path="/")
+    logger.info("Logout: user %s", getattr(getattr(request, "state", None), "user", {}).get("id", "unknown"))
+    return response
 
 @app.get("/api/auth/me")
 async def auth_me(request: Request):
@@ -977,6 +1227,7 @@ class PasswordChange(BaseModel):
     old_password: str
     new_password: str
 
+
 @app.post("/api/auth/change-password")
 async def change_password(body: PasswordChange, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     if engine is None:
@@ -984,6 +1235,7 @@ async def change_password(body: PasswordChange, request: Request, engine: Option
     u = getattr(request.state, "user", None)
     if not u or not u.get("id"):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    _validate_password_complexity(body.new_password)
     uid = u.get("id")
     async with engine.begin() as conn:
         res = await conn.execute(select(users).where(users.c.id == uid).limit(1))
@@ -992,10 +1244,12 @@ async def change_password(body: PasswordChange, request: Request, engine: Option
             raise HTTPException(status_code=404, detail="User not found")
         r = row._mapping
         if not r["password_hash"] or not verify_password(body.old_password, r["password_hash"]):
+            logger.warning("Password change failed: wrong old password for user %s", uid)
             raise HTTPException(status_code=401, detail="Invalid credentials")
         import bcrypt as _bcrypt
         pw_hash = _bcrypt.hashpw(body.new_password.encode(), _bcrypt.gensalt()).decode()
         await conn.execute(users.update().where(users.c.id == uid).values(password_hash=pw_hash))
+    logger.info("Password changed for user %s", uid)
     return {"success": True}
 
 # Admin purge: delete conversations/messages
@@ -1014,30 +1268,44 @@ async def admin_purge_conversations(
     if not confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to perform purge")
 
-    where_sql = ""
-    params: Dict[str, Any] = {}
-    if userId:
-        where_sql = "WHERE user_id = :uid"
-        params["uid"] = userId
-    elif legacyOnly:
-        where_sql = (
-            "WHERE user_id IS NULL OR user_id = '' "
-            "OR user_id = '00000000-0000-0000-0000-000000000001' "
-            "OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = conversations.user_id)"
-        )
+    from sqlalchemy import func, not_, exists
 
     async with engine.begin() as conn:
+        # Build ORM-level filter predicate
+        if userId:
+            predicate = t_conversations.c.user_id == userId
+        elif legacyOnly:
+            user_exists = exists().where(users.c.id == t_conversations.c.user_id)
+            predicate = (
+                t_conversations.c.user_id.is_(None)
+                | (t_conversations.c.user_id == "")
+                | (t_conversations.c.user_id == "00000000-0000-0000-0000-000000000001")
+                | not_(user_exists)
+            )
+        else:
+            predicate = None
+
+        count_query = select(func.count()).select_from(t_conversations)
+        if predicate is not None:
+            count_query = count_query.where(predicate)
         try:
-            sel = await conn.execute(text(f"SELECT COUNT(*) FROM conversations {where_sql}").bindparams(**params))
-            conv_count = sel.scalar_one() if hasattr(sel, "scalar_one") else (sel.first()[0] if sel.first() else 0)
+            conv_count = (await conn.execute(count_query)).scalar()
         except Exception:
             conv_count = None
 
-        await conn.execute(text(
-            f"DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations {where_sql})"
-        ).bindparams(**params))
-        await conn.execute(text(f"DELETE FROM conversations {where_sql}").bindparams(**params))
+        # Delete messages for matching conversations first (FK)
+        conv_ids_query = select(t_conversations.c.id)
+        if predicate is not None:
+            conv_ids_query = conv_ids_query.where(predicate)
+        await conn.execute(
+            t_messages.delete().where(t_messages.c.conversation_id.in_(conv_ids_query))
+        )
+        del_query = t_conversations.delete()
+        if predicate is not None:
+            del_query = del_query.where(predicate)
+        await conn.execute(del_query)
 
+    logger.info("Admin %s purged %s conversations (userId=%s, legacyOnly=%s)", u.get("id"), conv_count, userId, legacyOnly)
     return {"success": True, "deletedConversations": conv_count}
 
 class UserCreate(BaseModel):
@@ -1052,16 +1320,23 @@ class UserCreate(BaseModel):
     is_default: bool = False
 
 @app.get("/api/admin/users")
-async def admin_list_users(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+async def admin_list_users(
+    request: Request,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
     u = getattr(request.state, "user", None)
     require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     async with engine.connect() as conn:
-        res = await conn.execute(select(users))
+        res = await conn.execute(select(users).limit(limit).offset(offset))
         rows = [dict(row._mapping) for row in res.fetchall()]
         for r in rows:
             r.pop("password_hash", None)
+            r.pop("recovery_codes_hash", None)
+            r.pop("pin_hash", None)
         return rows
 
 @app.post("/api/admin/users")
@@ -1070,6 +1345,8 @@ async def admin_create_user(body: UserCreate, request: Request, engine: Optional
     require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
+    _validate_password_complexity(body.password)
+    _assert_length(body.username, _MAX_NAME_LEN, "username")
     import bcrypt as _bcrypt
     pw_hash = _bcrypt.hashpw(body.password.encode(), _bcrypt.gensalt()).decode()
     async with engine.begin() as conn:
@@ -1320,6 +1597,9 @@ async def create_character(body: CharacterCreate, request: Request, engine: Opti
     if body.is_shared and not is_admin:
         raise HTTPException(status_code=403, detail="Only admins can create shared characters")
 
+    _assert_length(body.name, _MAX_NAME_LEN, "name")
+    _assert_length(body.system_prompt, _MAX_SYSTEM_PROMPT_LEN, "system_prompt")
+
     # Generate unique ID
     char_id = str(uuid.uuid4())
 
@@ -1526,6 +1806,8 @@ async def create_character_yaml(body: dict, request: Request, engine: Optional[A
     yaml_content = body.get("yamlProfile", "")
     if not yaml_content:
         raise HTTPException(status_code=400, detail="YAML profile required")
+    if len(yaml_content.encode()) > _MAX_YAML_BYTES:
+        raise HTTPException(status_code=400, detail=f"YAML too large (max {_MAX_YAML_BYTES // 1024} KB).")
 
     try:
         import yaml
@@ -1569,6 +1851,8 @@ async def update_character_yaml(character_id: str, body: dict, request: Request,
     yaml_content = body.get("yamlProfile", "")
     if not yaml_content:
         raise HTTPException(status_code=400, detail="YAML profile required")
+    if len(yaml_content.encode()) > _MAX_YAML_BYTES:
+        raise HTTPException(status_code=400, detail=f"YAML too large (max {_MAX_YAML_BYTES // 1024} KB).")
 
     try:
         import yaml
@@ -1621,6 +1905,8 @@ async def import_character_yaml(body: dict, request: Request, engine: Optional[A
     yaml_content = body.get("yaml", "")
     if not yaml_content:
         raise HTTPException(status_code=400, detail="YAML content required")
+    if len(yaml_content.encode()) > _MAX_YAML_BYTES:
+        raise HTTPException(status_code=400, detail=f"YAML too large (max {_MAX_YAML_BYTES // 1024} KB).")
 
     try:
         import yaml
@@ -2310,13 +2596,61 @@ async def get_uploaded_documents(request: Request):
         raise HTTPException(status_code=401, detail="Authentication required")
     return {"documents": []}
 
+_ALLOWED_UPLOAD_TYPES = {
+    "application/pdf", "text/plain", "text/markdown",
+    "application/json", "text/csv",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+}
+_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))  # 20 MB
+
+
 @app.post("/api/upload/documents")
 async def upload_document(request: Request, file: UploadFile = File(...)):
-    """Upload a document"""
+    """Upload a document with type and size validation."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return {"filename": file.filename, "success": True}
+
+    content_type = file.content_type or ""
+    if content_type not in _ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type '{content_type}' is not allowed. Allowed: {', '.join(sorted(_ALLOWED_UPLOAD_TYPES))}",
+        )
+
+    uid = u.get("id")
+    safe_name = os.path.basename(file.filename or "upload")
+    dest_dir = get_user_upload_dir(uid)
+    dest_path = os.path.join(dest_dir, f"{uuid.uuid4()}_{safe_name}")
+
+    # Stream upload to disk with size guard to avoid buffering the entire file in memory
+    total = 0
+    try:
+        with open(dest_path, "wb") as fh:
+            while True:
+                chunk = await file.read(65536)
+                if not chunk:
+                    break
+                new_total = total + len(chunk)
+                if new_total > _MAX_UPLOAD_BYTES:
+                    # Remove partially written file before raising
+                    fh.close()
+                    try:
+                        os.remove(dest_path)
+                    except OSError:
+                        pass
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large (max {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB).",
+                    )
+                fh.write(chunk)
+                total = new_total
+    except HTTPException:
+        # Propagate size errors as-is
+        raise
+    logger.info("Document uploaded by user %s: %s (%d bytes)", uid, safe_name, total)
+    return {"filename": safe_name, "size": total, "success": True}
 
 # ------------------------- Settings Endpoints -------------------------
 
@@ -2340,6 +2674,7 @@ async def get_connection_settings(request: Request, userId: Optional[str] = Quer
         "EnableStreaming": True,
     }
 
+    _evict_stale_cache_entries()
     # Prefer cache; fall back to DB if available
     data = _connections_store.get(requested)
     if not data and engine is not None:
@@ -2349,10 +2684,16 @@ async def get_connection_settings(request: Request, userId: Optional[str] = Quer
                 row = res.first()
                 if row:
                     data = dict(row._mapping)
+                    _connections_store[requested] = data
+                    _connections_ts[requested] = time.time()
         except Exception:
             data = None
 
     result = {**defaults, **(data or {})}
+    # Decrypt API key fields before returning
+    for field in _API_KEY_FIELDS:
+        if result.get(field):
+            result[field] = _decrypt_api_key(result[field])
     return result
 
 @app.put("/api/settings/connections")
@@ -2362,21 +2703,33 @@ async def put_connection_settings(body: dict, request: Request, engine: Optional
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     uid = u.get("id")
-    allowed = {"OpenAiApiKey","ClaudeApiKey","ClaudeApiUrl","OllamaApiUrl","LmStudioApiUrl","EnableStreaming","TtsGpu","SttGpu"}
+    allowed = {"OpenAiApiKey", "ClaudeApiKey", "ClaudeApiUrl", "OllamaApiUrl", "LmStudioApiUrl", "EnableStreaming", "TtsGpu", "SttGpu"}
     values = {k: v for k, v in (body or {}).items() if k in allowed}
 
-    # Update cache
+    # Validate SSRF-sensitive URL fields before storing
+    for url_field in ("OllamaApiUrl", "LmStudioApiUrl", "ClaudeApiUrl"):
+        url_val = values.get(url_field)
+        if url_val and not _validate_url_for_ssrf(url_val):
+            raise HTTPException(status_code=400, detail=f"Invalid or unsafe URL for {url_field}.")
+
+    # Encrypt API key fields before storing
+    db_values = dict(values)
+    for field in _API_KEY_FIELDS:
+        if field in db_values and db_values[field]:
+            db_values[field] = _encrypt_api_key(db_values[field])
+
+    # Update cache with unencrypted values for in-memory use
     existing = dict(_connections_store.get(uid, {}))
     existing.update(values)
     existing["user_id"] = uid
     _connections_store[uid] = existing
+    _connections_ts[uid] = time.time()
 
     if engine is not None:
         async with engine.begin() as conn:
-            res = await conn.execute(t_conn_settings.update().where(t_conn_settings.c.user_id == uid).values(**values))
-            # If no row updated, insert
+            res = await conn.execute(t_conn_settings.update().where(t_conn_settings.c.user_id == uid).values(**db_values))
             if getattr(res, "rowcount", 0) == 0:
-                await conn.execute(t_conn_settings.insert().values(user_id=uid, **values))
+                await conn.execute(t_conn_settings.insert().values(user_id=uid, **db_values))
     return {"success": True}
 
 # This ends the main.py file - all imports and endpoints are complete
