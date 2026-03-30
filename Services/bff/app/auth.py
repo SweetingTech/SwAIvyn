@@ -16,10 +16,10 @@ from .models import users
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
-    import secrets
-    import warnings
-    warnings.warn("JWT_SECRET environment variable not set! Using generated secret. Set JWT_SECRET for production.")
-    JWT_SECRET = secrets.token_urlsafe(32)
+    raise RuntimeError(
+        "JWT_SECRET environment variable is required but not set. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+    )
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "60"))
 
 
@@ -44,6 +44,8 @@ async def get_current_user(engine: Optional[AsyncEngine], creds: Optional[HTTPAu
     if creds is None:
         return None
     token = creds.credentials
+    if not token:
+        return None
     try:
         data = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:

@@ -15,11 +15,16 @@ def create_engine() -> Optional[AsyncEngine]:
     # Convert postgresql:// to postgresql+asyncpg:// for async support
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://")
-    # Remove sslmode parameter for asyncpg compatibility (we don't use SSL in dev)
+    # Remove sslmode parameter for asyncpg compatibility (asyncpg uses connect_args instead)
     if "sslmode=" in url:
         url = url.replace("?sslmode=require", "").replace("&sslmode=require", "")
-    # Disable SSL by default for local/dev Postgres; enable only if explicitly asked via DB_SSL=true
-    use_ssl = os.getenv("DB_SSL", "false").lower() in ("1","true","yes")
+    # Enable SSL by default for production safety. Set DB_SSL=false only for local dev.
+    use_ssl = os.getenv("DB_SSL", "true").lower() not in ("0", "false", "no")
+    if not use_ssl:
+        import logging as _logging
+        _logging.getLogger("swai.db").warning(
+            "Database SSL is DISABLED (DB_SSL=false). Do not use this setting in production."
+        )
     connect_args = {"ssl": True} if use_ssl else {}
     
     # Connection pool configuration to prevent timeout issues

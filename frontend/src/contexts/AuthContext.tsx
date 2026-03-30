@@ -17,34 +17,49 @@ export function useAuth() {
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Hydrate from localStorage to persist across reloads when "Remember me" was chosen
-  const initialToken = (() => {
-    try { return localStorage.getItem('auth_token'); } catch { return null; }
-  })();
-  const initialUser = (() => {
-    try {
-      const s = localStorage.getItem('auth_user');
-      return s ? JSON.parse(s) as AuthState['user'] : null;
-    } catch { return null; }
-  })();
-  const [token, setToken] = useState<string | null>(initialToken);
-  const [user, setUser] = useState<AuthState['user']>(initialUser);
+  // Token and user are kept in memory only — the HTTPOnly cookie handles persistence.
+  // localStorage is intentionally NOT used to prevent XSS token theft.
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthState['user']>(null);
 
-  // Keep axios Authorization header in sync
+  // On mount, try to restore session from the server using the HTTPOnly cookie.
   useEffect(() => {
-    if (token) {
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.id) {
+          setUser(data as AuthState['user']);
+          // Token is managed by the HTTPOnly cookie; set a placeholder so
+          // other parts of the app know we are authenticated.
+          setToken('cookie');
+          axios.defaults.withCredentials = true;
+        }
+      })
+      .catch(() => {/* not logged in */});
+  }, []);
+
+  // Keep axios Authorization header in sync when a Bearer token is available.
+  useEffect(() => {
+    if (token && token !== 'cookie') {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } else {
+    } else if (!token) {
       delete axios.defaults.headers.common['Authorization'];
     }
+    axios.defaults.withCredentials = true;
   }, [token]);
 
   const login = useMemo(() => async (identifier: string, password: string, remember?: boolean) => {
     try {
       const resp = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: identifier, email: identifier.includes('@') ? identifier : undefined, password }),
+        body: JSON.stringify({
+          username: identifier,
+          email: identifier.includes('@') ? identifier : undefined,
+          password,
+          remember: !!remember,
+        }),
       });
       if (!resp.ok) return false;
       const data = await resp.json();
@@ -52,26 +67,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const usr = data.user as { id: string; username: string; email: string; role?: string };
       setToken(tok);
       setUser(usr);
-      if (remember) {
-        localStorage.setItem('auth_token', tok);
-        localStorage.setItem('auth_user', JSON.stringify(usr));
-      } else {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
-      }
+      axios.defaults.headers.common['Authorization'] = `Bearer ${tok}`;
+      axios.defaults.withCredentials = true;
       return true;
     } catch {
       return false;
     }
   }, []);
 
-  const logout = useMemo(() => () => {
+  const logout = useMemo(() => async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch { /* ignore */ }
     setToken(null);
     setUser(null);
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    delete axios.defaults.headers.common['Authorization'];
   }, []);
 
-  const value: AuthState = { token, user, login, logout };
+  const value: AuthState = { token, user, login, logout: logout as unknown as () => void };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
