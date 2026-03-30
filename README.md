@@ -64,7 +64,7 @@ SwAIvyn is a self-hosted AI platform designed for multi-user teams. It runs enti
 
 **Seed default users, characters, and the chat workflow:**
 ```powershell
-.\scripts\dev-seed-accounts.ps1 -Yes    # admin / mari / djay
+.\scripts\dev-seed-accounts.ps1 -Yes    # admin / user1 / user2
 .\scripts\dev-seed-characters.ps1 -Yes  # Sam & Sherlock (global characters)
 .\scripts\dev-seed-workflows.ps1 -Yes   # Default Chat workflow
 ```
@@ -74,8 +74,8 @@ SwAIvyn is a self-hosted AI platform designed for multi-user teams. It runs enti
 | Username | Password  | Role  |
 |----------|-----------|-------|
 | admin    | admin1234 | Admin |
-| mari     | mari1234  | User  |
-| djay     | djay1234  | User  |
+| user1    | user11234 | User  |
+| user2    | user21234 | User  |
 
 **Development endpoints:**
 

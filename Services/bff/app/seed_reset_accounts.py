@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 """
-Force-seed the core user accounts (admin, djay, mari) and the default character.
+Force-seed the core user accounts (admin, user1, user2) and the default character.
 
 Safe to run multiple times. It will:
  - Ensure tables exist
- - Upsert (delete+insert) users with IDs: admin, mari, djay
+ - Upsert (delete+insert) users with IDs: admin, user1, user2
  - Upsert the shared default character
 
 Environment:
@@ -43,21 +43,21 @@ SEED_USERS = [
         "is_default": False,
     },
     {
-        "id": "mari",
-        "username": "Mari",
-        "email": "mari@example.com",
-        "password": "mari1234",
+        "id": "user1",
+        "username": "user1",
+        "email": "user1@example.com",
+        "password": "user11234",
         "role": "user",
-        "language": "ja",
+        "language": "en",
         "theme": "light",
         "default_character": "default",
         "is_default": False,
     },
     {
-        "id": "djay",
-        "username": "DJay",
-        "email": "djay@example.com",
-        "password": "djay1234",
+        "id": "user2",
+        "username": "user2",
+        "email": "user2@example.com",
+        "password": "user21234",
         "role": "user",
         "language": "en",
         "theme": "dark",
@@ -130,7 +130,7 @@ async def force_seed_accounts() -> None:
             )
 
     await engine.dispose()
-    print("Seeded users: admin, mari, djay (passwords reset) and default character.")
+    print("Seeded users: admin, user1, user2 (passwords reset) and default character.")
 
 
 def main() -> None:
