@@ -14,10 +14,9 @@ export default function AdminUsersPage() {
   const [error, setError] = useState('');
   const { token } = useAuth();
 
-  // Prefer in-memory token from AuthContext; fall back to localStorage for compatibility
+  // Use token from AuthContext (memory-only — never localStorage)
   const authHeader = useMemo(() => {
-    const tk = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null);
-    return tk ? { 'Authorization': `Bearer ${tk}` as string } : undefined;
+    return token ? { 'Authorization': `Bearer ${token}` as string } : undefined;
   }, [token]);
 
   const load = async () => {

@@ -39,12 +39,9 @@ const isExternalUrl = (url: string): boolean => {
 /**
  * Base API service for making HTTP requests
  */
-const authHeader = (): Record<string, string> => {
-  try {
-    const t = localStorage.getItem('auth_token');
-    return t ? { Authorization: `Bearer ${t}` } : {};
-  } catch { return {}; }
-};
+// Auth header is managed via axios.defaults.headers.common set by AuthContext.
+// Do not read from localStorage — tokens are memory-only to prevent XSS theft.
+const authHeader = (): Record<string, string> => ({});
 
 const apiService = {
   /**

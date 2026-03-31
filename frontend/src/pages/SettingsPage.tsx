@@ -222,9 +222,7 @@ const VoiceSettings = () => {
     // fallback: try /api/auth/me if token exists
     (async () => {
       try {
-        const tok = token || localStorage.getItem('auth_token') || '';
-        if (!tok) return;
-        const resp = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${tok}` } });
+        const resp = await fetch('/api/auth/me', { credentials: 'include' });
         if (resp.ok) {
           const me = await resp.json();
           if (me?.id) setEffectiveUserId(me.id);

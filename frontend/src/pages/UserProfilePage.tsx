@@ -83,10 +83,9 @@ const UserProfilePage = () => {;
 
       void fetchWithRetry('/healthz', {}, 1, 0, 8000).catch(() => {});
 
-      const authToken = (() => { try { return localStorage.getItem('auth_token'); } catch { return null; } })();
       const response = await fetchWithRetry(
         `/api/user/${encodeURIComponent(effectiveUserId)}`,
-        authToken ? { headers: { 'Authorization': `Bearer ${authToken}` } } : {},
+        { credentials: 'include' },
         6,
         500,
         8000

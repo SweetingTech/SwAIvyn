@@ -13,24 +13,23 @@ export default function useEffectiveUser(): EffectiveUser {
   const { user: initUser } = useInitialization();
   const { user: authUser, token: authToken } = useAuth();
   const [userId, setUserId] = useState<string | null>(authUser?.id || initUser?.id || null);
-  const [token, setToken] = useState<string | null>(authToken || ((): string | null => { try { return localStorage.getItem('auth_token'); } catch { return null; } })());
+  const [token, setToken] = useState<string | null>(authToken);
   const [resolved, setResolved] = useState<boolean>(Boolean(authUser?.id || initUser?.id));
   const fetchedRef = useRef<boolean>(false);
 
   useEffect(() => {
     const uid = authUser?.id || initUser?.id || null;
     setUserId(uid);
-    const t = authToken || ((): string | null => { try { return localStorage.getItem('auth_token'); } catch { return null; } })();
-    setToken(t);
+    setToken(authToken);
     if (uid) {
       setResolved(true);
       return;
     }
-    if (!fetchedRef.current && t) {
+    if (!fetchedRef.current && authToken) {
       fetchedRef.current = true;
       (async () => {
         try {
-          const resp = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${t}` } });
+          const resp = await fetch('/api/auth/me', { credentials: 'include' });
           if (resp.ok) {
             const me = await resp.json();
             if (me?.id) {
