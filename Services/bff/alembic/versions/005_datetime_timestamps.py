@@ -21,71 +21,71 @@ def upgrade():
     # conversations
     op.alter_column('conversations', 'created_at',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='created_at::timestamp')
+                    postgresql_using='created_at::timestamptz')
     op.alter_column('conversations', 'last_updated',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='last_updated::timestamp')
+                    postgresql_using='last_updated::timestamptz')
 
     # messages
     op.alter_column('messages', 'timestamp',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='timestamp::timestamp')
+                    postgresql_using='timestamp::timestamptz')
 
     # agents
     op.alter_column('agents', 'created_at',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='created_at::timestamp')
+                    postgresql_using='created_at::timestamptz')
     op.alter_column('agents', 'updated_at',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='updated_at::timestamp')
+                    postgresql_using='updated_at::timestamptz')
 
     # agent_registry
     op.alter_column('agent_registry', 'last_heartbeat',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=True,
-                    postgresql_using='last_heartbeat::timestamp')
+                    postgresql_using='last_heartbeat::timestamptz')
     op.alter_column('agent_registry', 'created_at',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='created_at::timestamp')
+                    postgresql_using='created_at::timestamptz')
     op.alter_column('agent_registry', 'updated_at',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='updated_at::timestamp')
+                    postgresql_using='updated_at::timestamptz')
 
     # agent_tasks
     for col in ('created_at', 'updated_at'):
         op.alter_column('agent_tasks', col,
                         existing_type=sa.String(40),
-                        type_=sa.DateTime(),
+                        type_=sa.DateTime(timezone=True),
                         existing_nullable=False,
-                        postgresql_using=f'{col}::timestamp')
+                        postgresql_using=f'{col}::timestamptz')
     for col in ('started_at', 'completed_at', 'estimated_completion'):
         op.alter_column('agent_tasks', col,
                         existing_type=sa.String(40),
-                        type_=sa.DateTime(),
+                        type_=sa.DateTime(timezone=True),
                         existing_nullable=True,
-                        postgresql_using=f'{col}::timestamp')
+                        postgresql_using=f'{col}::timestamptz')
 
     # agent_results
     op.alter_column('agent_results', 'created_at',
                     existing_type=sa.String(40),
-                    type_=sa.DateTime(),
+                    type_=sa.DateTime(timezone=True),
                     existing_nullable=False,
-                    postgresql_using='created_at::timestamp')
+                    postgresql_using='created_at::timestamptz')
 
 
 def downgrade():
@@ -107,7 +107,7 @@ def downgrade():
         ('conversations', 'created_at', False),
     ]:
         op.alter_column(table, col,
-                        existing_type=sa.DateTime(),
+                        existing_type=sa.DateTime(timezone=True),
                         type_=sa.String(40),
                         existing_nullable=nullable,
                         postgresql_using=f"{col}::text")

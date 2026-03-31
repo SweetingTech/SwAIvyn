@@ -25,7 +25,7 @@ export default function useEffectiveUser(): EffectiveUser {
       setResolved(true);
       return;
     }
-    if (!fetchedRef.current && authToken) {
+    if (!fetchedRef.current) {
       fetchedRef.current = true;
       (async () => {
         try {
@@ -46,7 +46,7 @@ export default function useEffectiveUser(): EffectiveUser {
 
   const headers = useMemo(() => {
     const h: Record<string, string> = {};
-    if (token) h['Authorization'] = `Bearer ${token}`;
+    if (token && token !== 'cookie') h['Authorization'] = `Bearer ${token}`;
     return h;
   }, [token]);
 

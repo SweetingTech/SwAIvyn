@@ -41,7 +41,7 @@ from sqlalchemy import func, not_, exists
 from temporalio.client import Client
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import select, text
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Local imports
@@ -310,7 +310,7 @@ async def _validate_url_for_ssrf(url: str) -> bool:
             return True if is_development else False
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             try:
                 ip = await loop.run_in_executor(None, socket.gethostbyname, hostname)
             except Exception:
@@ -728,7 +728,7 @@ async def create_conversation(body: dict, request: Request, engine: Optional[Asy
     title = _assert_length((body or {}).get("title") or "New Chat", _MAX_TITLE_LEN, "title")
     folder_id = (body or {}).get("folderId")
     conv_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         await conn.execute(t_conversations.insert().values(
             id=conv_id,
@@ -820,7 +820,7 @@ async def append_message(body: dict, request: Request, engine: Optional[AsyncEng
     content = _assert_length((body or {}).get("content") or "", _MAX_MESSAGE_LEN, "content")
     if not conv_id:
         raise HTTPException(status_code=400, detail="conversationId required")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership before appending
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -855,7 +855,7 @@ async def update_conversation_title(conv_id: str, body: dict, request: Request, 
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     title = _assert_length((body or {}).get("title") or "", _MAX_TITLE_LEN, "title")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -875,7 +875,7 @@ async def update_conversation_folder(conv_id: str, body: dict, request: Request,
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     folder_id = (body or {}).get("folderId")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -894,7 +894,7 @@ async def update_last_open(conv_id: str, request: Request, engine: Optional[Asyn
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -944,7 +944,7 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
     )
     if not conv_id or not message:
         raise HTTPException(status_code=400, detail="conversationId and message required")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with db.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -1116,9 +1116,9 @@ async def update_chat_settings(user_id: str, settings: dict, request: Request, d
                 "tts_voice_id": tts_voice_id,
             }
             if enabled_engines is not None:
-                values["enabled_engines"] = json.dumps(enabled_engines) if isinstance(enabled_engines, dict) else enabled_engines
+                values["enabled_engines"] = json.dumps(enabled_engines) if not isinstance(enabled_engines, str) else enabled_engines
             if engine_models is not None:
-                values["engine_models"] = json.dumps(engine_models) if isinstance(engine_models, dict) else engine_models
+                values["engine_models"] = json.dumps(engine_models) if not isinstance(engine_models, str) else engine_models
             async with db.begin() as conn:
                 res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == user_id).limit(1))
                 if res.first() is not None:
@@ -1924,8 +1924,8 @@ async def create_character_yaml(body: dict, request: Request, engine: Optional[A
                     "user_id": u["id"],  # Enforce server-side user ownership
                     "name": name,
                     "yaml_profile": yaml_content,
-                    "created_at": datetime.utcnow(),
-                    "last_modified": datetime.utcnow()
+                    "created_at": datetime.now(timezone.utc),
+                    "last_modified": datetime.now(timezone.utc)
                 }
             )
 
@@ -1980,7 +1980,7 @@ async def update_character_yaml(character_id: str, body: dict, request: Request,
                 {
                     "name": name,
                     "yaml_profile": yaml_content,
-                    "last_modified": datetime.utcnow()
+                    "last_modified": datetime.now(timezone.utc)
                 }
             )
 
@@ -2077,8 +2077,8 @@ class ResultCreate(BaseModel):
     metadata: Optional[dict] = None
 
 def current_timestamp():
-    """Get current timestamp as ISO string"""
-    return datetime.utcnow().isoformat() + "Z"
+    """Get current UTC timestamp as a timezone-aware datetime object"""
+    return datetime.now(timezone.utc)
 
 def _hash_api_key(api_key: str) -> str:
     """Hash API key for secure storage"""
