@@ -1,0 +1,255 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Create Roadmap Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — print issue titles without creating them'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-roadmap-issues:
+    runs-on: ubuntu-latest
+    name: Create GitHub Issues from README Roadmap
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create roadmap labels
+        if: ${{ inputs.dry_run == 'false' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "roadmap"            --color "0075ca" --description "Tracked roadmap item"                      --force || true
+          gh label create "enhancement"        --color "a2eeef" --description "New feature or request"                    --force || true
+          gh label create "federation"         --color "e4e669" --description "Cross-instance AI federation"              --force || true
+          gh label create "memory"             --color "d4edda" --description "Memory management and persistence"         --force || true
+          gh label create "plugin-system"      --color "fef3c7" --description "Plugin architecture and extensibility"    --force || true
+          gh label create "avatar-3d"          --color "fde8d8" --description "3D avatar and room customization"         --force || true
+          gh label create "mobile"             --color "e8d5f5" --description "Mobile companion application"             --force || true
+
+      # ── Issue 1: Cross-instance AI federation ─────────────────────────────
+      - name: "[1/5] Cross-instance AI federation"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: |
+            ## Overview
+
+            Enable SwAIvyn instances to discover each other, exchange tasks, and communicate — both AI-to-AI and user-to-user — across a LAN or the internet.
+
+            This corresponds to **Phase 4: Federation & Advanced Features** in the detailed project roadmap (`docs/roadmap.md`).
+
+            ---
+
+            ## Acceptance Criteria
+
+            - [ ] **Peer discovery** — Instances on the same local network auto-discover each other without manual configuration.
+            - [ ] **P2P communication protocol** — Encrypted, authenticated, connection-managed channel between instances.
+            - [ ] **AI-to-AI communication** — Structured message types, response handling, and context sharing between AI workers on different instances.
+            - [ ] **User-to-user messaging** — Users can send messages across instances with forwarding and conversation history.
+            - [ ] **IMAP client integration** — Access and mirror email accounts within the platform.
+            - [ ] **Calendar integration** — Read/write iCal/CalDAV calendars.
+            - [ ] **Web browsing integration** — Browsh-backed text-based browsing with history management.
+
+            ---
+
+            ## References
+
+            - `docs/roadmap.md` — Phase 4: Federation & Advanced Features
+            - `README.md` — Architecture section, External Agent Registry
+            - `docs/external-agent-guide.md`
+            - `docs/agent-stack-integration.md`
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN: Would create issue 'Cross-instance AI federation'"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "Cross-instance AI federation" \
+              --body "$BODY" \
+              --label "roadmap,enhancement,federation"
+          fi
+
+      # ── Issue 2: Memory management UI enhancements ────────────────────────
+      - name: "[2/5] Memory management UI enhancements"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: |
+            ## Overview
+
+            Improve the user-facing memory management experience. Each user already has a dedicated memory space across Qdrant (vector), Neo4j (graph), and PostgreSQL (structured history). This issue tracks the UI work needed to surface, explore, and control that memory.
+
+            ---
+
+            ## Acceptance Criteria
+
+            - [ ] **Memory browser** — Users can list, search, and paginate their stored memory items (vector entries and graph nodes).
+            - [ ] **Memory editor** — Users can view the full content of a memory item and edit or annotate it.
+            - [ ] **Selective memory sharing** — Users can mark specific memories as shareable with other users or with agents.
+            - [ ] **Memory deletion** — Users can delete individual memory items or bulk-clear a memory store.
+            - [ ] **Admin visibility panel** — Admins can view memory stats (item counts, last-updated) per user without reading memory content, and can force-delete items if required.
+            - [ ] **Memory search** — Full-text and semantic search across a user's stored memories from the UI.
+            - [ ] **Memory import / export** — Export a user's memories to JSON; import from a compatible JSON backup.
+
+            ---
+
+            ## References
+
+            - `README.md` — "Per-user isolated memory with admin visibility controls"
+            - `docs/architecture-and-dataflow.md`
+            - `docs/database-implementation.md`
+            - `docs/neo4j-configuration.md`
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN: Would create issue 'Memory management UI enhancements'"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "Memory management UI enhancements" \
+              --body "$BODY" \
+              --label "roadmap,enhancement,memory"
+          fi
+
+      # ── Issue 3: Plugin system expansion ──────────────────────────────────
+      - name: "[3/5] Plugin system expansion"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: |
+            ## Overview
+
+            Build a first-class plugin system so third-party developers (and power users) can extend SwAIvyn with new capabilities without forking the codebase.
+
+            This corresponds to **Phase 5: Plugin System & Customization** in the detailed project roadmap (`docs/roadmap.md`).
+
+            ---
+
+            ## Acceptance Criteria
+
+            - [ ] **Plugin interface spec** — Define a versioned plugin manifest format (JSON/YAML) describing entry points, permissions, and metadata.
+            - [ ] **Plugin manager service** — Backend service for plugin discovery, installation, upgrade, and removal. Plugins are sandboxed and cannot access other users' data.
+            - [ ] **Plugin management UI** — Admin panel page to browse available plugins, install/uninstall, and view plugin health/logs.
+            - [ ] **Plugin SDK / developer guide** — Minimal SDK (or documented HTTP contract) so external developers can build compatible plugins.
+            - [ ] **Plugin marketplace stub** — `GET /api/agents/catalog` (currently a stub) wired to the plugin registry.
+            - [ ] **At least one reference plugin** — A bundled example plugin (e.g., a simple tool-use extension) that exercises the full plugin lifecycle.
+
+            ---
+
+            ## References
+
+            - `README.md` — "Agent catalog" note under Architecture Notes
+            - `docs/roadmap.md` — Phase 5: Plugin System & Customization
+            - `docs/external-agent-guide.md`
+            - `Services/bff/app/main.py` — `/api/agents/catalog` stub
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN: Would create issue 'Plugin system expansion'"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "Plugin system expansion" \
+              --body "$BODY" \
+              --label "roadmap,enhancement,plugin-system"
+          fi
+
+      # ── Issue 4: 3D avatar support ─────────────────────────────────────────
+      - name: "[4/5] 3D avatar support"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: |
+            ## Overview
+
+            Upgrade the AI Room from a 2D flat avatar to a real-time 3D character with an interactive environment. This includes a Tamagotchi-style stat/mood system, decorable room space, and voice profile training.
+
+            This corresponds to **Phase 5: Plugin System & Customization** (avatar sub-items) in the detailed project roadmap (`docs/roadmap.md`).
+
+            ---
+
+            ## Acceptance Criteria
+
+            - [ ] **3D avatar renderer** — Replace or augment the 2D avatar in the AI Room with a 3D model (e.g., VRM or glTF). The model should animate in response to TTS playback (lip sync / idle animations).
+            - [ ] **3D avatar space UI** — Full 3D room environment rendered in the browser (Three.js or Babylon.js). The avatar occupies the room and reacts to interactions.
+            - [ ] **Tamagotchi-like stat system** — Track and display AI persona stats (e.g., energy, mood, relationship score) that evolve based on interaction history.
+            - [ ] **Room customization** — Users can place and arrange virtual items (furniture, decorations) in their AI Room. Item persistence in user settings.
+            - [ ] **Voice profile training UI** — Interface for users to record reference audio and fine-tune the TTS voice associated with a character.
+            - [ ] **Wake word detection** — Background audio monitoring that triggers voice interaction without pressing a button (previously listed as incomplete in Phase 3).
+            - [ ] **Character avatar upload** — Accept 3D model uploads (VRM/glTF) in addition to existing 2D image uploads.
+
+            ---
+
+            ## References
+
+            - `README.md` — "Personalization Layer" section, "Avatars — Upload custom 2D avatars (3D support planned)"
+            - `docs/roadmap.md` — Phase 3 (wake word detection), Phase 5 (3D avatar & room customization)
+            - `docs/voice-management.md`
+            - `docs/TTS.md`
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN: Would create issue '3D avatar support'"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "3D avatar support" \
+              --body "$BODY" \
+              --label "roadmap,enhancement,avatar-3d"
+          fi
+
+      # ── Issue 5: Mobile companion app ──────────────────────────────────────
+      - name: "[5/5] Mobile companion app"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: |
+            ## Overview
+
+            Build a native (or PWA) mobile companion application that gives users access to their SwAIvyn instance from a phone or tablet. The app should support text chat, voice interaction, and push notifications for agent task results.
+
+            ---
+
+            ## Acceptance Criteria
+
+            - [ ] **Technology decision** — Evaluate and document choice between React Native, Flutter, Expo (React Native), or Progressive Web App (PWA). Record the decision and rationale in `docs/`.
+            - [ ] **Authentication** — Mobile app authenticates against the existing JWT-based BFF; tokens stored securely on device (Keychain / Keystore).
+            - [ ] **Text chat** — Full conversation history, markdown rendering, send/receive messages, and conversation switching.
+            - [ ] **Voice interaction** — Microphone capture → STT (Whisper) → LLM → TTS playback pipeline, mirroring the AI Room voice-first flow.
+            - [ ] **Push notifications** — Receive notifications when an agent task completes or a scheduled workflow fires.
+            - [ ] **Settings sync** — User LLM engine/model selection and character preferences sync between desktop and mobile sessions.
+            - [ ] **Offline graceful degradation** — App displays last-known conversation history when the SwAIvyn instance is unreachable.
+            - [ ] **App distribution** — CI pipeline builds the app and publishes artifacts (APK / IPA / hosted PWA URL) to the Releases page.
+
+            ---
+
+            ## References
+
+            - `README.md` — Roadmap item "Mobile companion app"
+            - `docs/architecture-and-dataflow.md`
+            - `Services/bff/app/main.py` — existing API endpoints available for mobile consumption
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN: Would create issue 'Mobile companion app'"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "Mobile companion app" \
+              --body "$BODY" \
+              --label "roadmap,enhancement,mobile"
+          fi
+
+      - name: Summary
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "### Dry run complete"
+            echo "Re-run the workflow with dry_run=false to create the issues."
+          else
+            echo "### Issues created successfully"
+            echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap"
+          fi
