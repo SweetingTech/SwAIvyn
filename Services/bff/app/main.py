@@ -795,7 +795,7 @@ async def get_messages(
         res = await conn.execute(
             select(t_messages)
             .where(t_messages.c.conversation_id == conv_id)
-            .order_by(t_messages.c.timestamp)
+            .order_by(t_messages.c.timestamp, t_messages.c.id)
             .limit(limit)
             .offset(offset)
         )
