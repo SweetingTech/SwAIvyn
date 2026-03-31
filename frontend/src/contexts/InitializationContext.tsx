@@ -79,30 +79,23 @@ export const InitializationProvider: React.FC<InitializationProviderProps> = ({ 
     safeSetState({ isLoading: true, error: null });
 
     try {
-      // Step 0: determine auth first to avoid blocking login on backend readiness
+      // Step 0: determine auth via HTTPOnly cookie (no localStorage — tokens are memory-only)
       safeSetState({ currentStep: 'Checking session…' });
       let loadedUser: User | null = null;
-      const token = localStorage.getItem('auth_token');
-      if (token) {
-        try {
-          const meResp = await fetch('/api/auth/me', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (meResp.ok) {
-            const me = await meResp.json();
+      try {
+        const meResp = await fetch('/api/auth/me', { credentials: 'include' });
+        if (meResp.ok) {
+          const me = await meResp.json();
+          if (me?.id) {
             loadedUser = {
               id: me.id || 'unknown',
               username: me.username || 'User',
               email: me.email || 'user@example.com'
             };
-          } else {
-            // Clear stale/invalid token and auth header so UI returns to login
-            await logout().catch(() => { /* ignore */ });
           }
-        } catch {
-          // Network/ready errors: treat as unauthenticated and show login
-          await logout().catch(() => { /* ignore */ });
         }
+      } catch {
+        // Network error — treat as unauthenticated, show login
       }
       // No fallback default user; require login
       safeSetState({ user: loadedUser });

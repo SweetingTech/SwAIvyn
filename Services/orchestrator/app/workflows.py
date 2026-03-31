@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from datetime import timedelta
+from typing import Optional, Dict, Any
 
 from temporalio import workflow
 
@@ -55,8 +56,6 @@ class ReplyWorkflow:
         )
 
         return {"reply_text": reply.get("reply_text"), "tts_url": tts_url}
-
-from datetime import timedelta
 
 
 # Engine-specific workflows for explicit routing

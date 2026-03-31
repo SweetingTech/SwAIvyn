@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, text, ForeignKey
+from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey
 
 
 metadata = MetaData()
@@ -70,8 +70,8 @@ conversations = Table(
     Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     Column("title", String(300), nullable=False),
     Column("folder_id", String(64), nullable=True),
-    Column("created_at", String(40), nullable=False),
-    Column("last_updated", String(40), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("last_updated", DateTime(timezone=True), nullable=False),
 )
 
 # Messages
@@ -82,7 +82,7 @@ messages = Table(
     Column("conversation_id", String(64), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False),
     Column("role", String(32), nullable=False),
     Column("content", Text, nullable=False),
-    Column("timestamp", String(40), nullable=False),
+    Column("timestamp", DateTime(timezone=True), nullable=False),
 )
 
 # Workflow definitions (global)
@@ -120,8 +120,8 @@ agents = Table(
     Column("status", String(32), nullable=False, server_default=text("'pending'")),
     Column("agent_type", String(100), nullable=True),
     Column("config", Text, nullable=True),  # JSON configuration
-    Column("created_at", String(40), nullable=False),
-    Column("updated_at", String(40), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
 # External agent registry - tracks available agent services
@@ -135,10 +135,10 @@ agent_registry = Table(
     Column("version", String(32), nullable=True),
     Column("health_endpoint", String(500), nullable=True),
     Column("api_key", String(200), nullable=True),  # For agent authentication
-    Column("last_heartbeat", String(40), nullable=True),
+    Column("last_heartbeat", DateTime(timezone=True), nullable=True),
     Column("status", String(32), nullable=False, server_default=text("'available'")),
-    Column("created_at", String(40), nullable=False),
-    Column("updated_at", String(40), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
 # Agent tasks - user-scoped tasks for proper isolation
@@ -157,11 +157,11 @@ agent_tasks = Table(
     Column("output_data", Text, nullable=True),  # JSON
     Column("error_message", Text, nullable=True),
     Column("priority", String(16), nullable=False, server_default=text("'normal'")),
-    Column("created_at", String(40), nullable=False),
-    Column("started_at", String(40), nullable=True), 
-    Column("completed_at", String(40), nullable=True),
-    Column("estimated_completion", String(40), nullable=True),
-    Column("updated_at", String(40), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("estimated_completion", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
 # Agent results - user-scoped results storage
@@ -179,5 +179,5 @@ agent_results = Table(
     Column("file_size", String(16), nullable=True),  # File size in bytes
     Column("mime_type", String(100), nullable=True),  # MIME type for files
     Column("metadata", Text, nullable=True),  # Additional JSON metadata
-    Column("created_at", String(40), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
 )

@@ -1,17 +1,26 @@
 ﻿# -*- coding: utf-8 -*-
 
-import os
-import asyncio
+import io
 import json
 import ipaddress
+import logging
+import math
+import os
+import asyncio
+import re
+import secrets
+import socket
+import string
+import struct
+import time
 import urllib.parse
 import uuid
-import logging
-import time
-import re
 from contextlib import asynccontextmanager
 from collections import defaultdict
 from typing import Optional, Dict, Any, List, Mapping, Set
+
+import bcrypt
+import yaml
 
 import httpx
 from fastapi import (
@@ -24,13 +33,15 @@ from fastapi import (
     Depends,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import func, not_, exists
 from temporalio.client import Client
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import select, text
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Local imports
@@ -252,6 +263,15 @@ class ChatResponse(BaseModel):
 
 # ------------------------- Helpers -------------------------
 
+def _dt_str(value: Any) -> str:
+    """Serialize a datetime or string timestamp to ISO 8601 string."""
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def get_user_upload_dir(user_id: str) -> str:
     d = os.path.join(UPLOADS_DIR, "users", user_id)
     os.makedirs(d, exist_ok=True)
@@ -271,7 +291,7 @@ def _default_chat_settings(uid: str) -> Dict[str, Any]:
         "ttsVoiceId": os.getenv("DEFAULT_TTS_VOICE", "glados"),
     }
 
-def _validate_url_for_ssrf(url: str) -> bool:
+async def _validate_url_for_ssrf(url: str) -> bool:
     """Basic SSRF guard with dev localhost allowance."""
     try:
         parsed = urllib.parse.urlparse(url)
@@ -283,15 +303,18 @@ def _validate_url_for_ssrf(url: str) -> bool:
 
         is_development = (
             os.getenv("REPLIT_DEV_DOMAIN")
-            or os.getenv("DATABASE_URL", "").startswith("postgresql://")
+            or os.getenv("ENVIRONMENT", "production").lower() in ("development", "dev", "local")
             or os.getenv("ENABLE_DEV_LOCALHOST", "false").lower() == "true"
         )
         if hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
             return True if is_development else False
 
         try:
-            import socket
-            ip = socket.gethostbyname(hostname)
+            loop = asyncio.get_running_loop()
+            try:
+                ip = await loop.run_in_executor(None, socket.gethostbyname, hostname)
+            except Exception:
+                return False
             ip_obj = ipaddress.ip_address(ip)
             private_networks = [
                 ipaddress.ip_network("10.0.0.0/8"),
@@ -319,7 +342,10 @@ async def get_engine_dep() -> Optional[AsyncEngine]:
     return _engine
 
 
-async def _connect_with_retry(addr: str) -> Client:
+_TEMPORAL_MAX_RETRIES = int(os.getenv("TEMPORAL_CONNECT_MAX_RETRIES", "20"))
+
+
+async def _connect_with_retry(addr: str, max_attempts: int = _TEMPORAL_MAX_RETRIES) -> Client:
     delay, attempt = 1, 0
     while True:
         attempt += 1
@@ -327,11 +353,15 @@ async def _connect_with_retry(addr: str) -> Client:
             return await Client.connect(addr)
         except Exception as e:
             logger.warning(
-                "Temporal connect failed (attempt %s) to %s: %s",
+                "Temporal connect failed (attempt %s/%s) to %s: %s",
                 attempt,
+                max_attempts,
                 addr,
                 e,
             )
+            if attempt >= max_attempts:
+                logger.error("Temporal connect gave up after %s attempts to %s", max_attempts, addr)
+                raise
             await asyncio.sleep(delay)
             delay = min(delay * 2, 5)
 
@@ -377,14 +407,6 @@ async def lifespan(application: FastAPI):
                 logger.info("Loaded connection settings for %s users into cache", len(rows))
         except Exception as exc:
             logger.exception("Failed to pre-load connection settings: %s", exc)
-
-        try:
-            async with _engine.begin() as conn:
-                await conn.execute(
-                    users.update().where(users.c.id == "admin").values(role="admin")
-                )
-        except Exception as exc:
-            logger.exception("Admin role fix failed: %s", exc)
 
     yield
     # Shutdown: dispose DB engine if created
@@ -471,7 +493,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
 
         try:
-            from fastapi.security import HTTPAuthorizationCredentials
             creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
             user = await get_current_user(_engine, creds)
             if not user:
@@ -566,10 +587,10 @@ async def llm_health(request: Request):
     ollama_base = user_conn.get("OllamaApiUrl") or OLLAMA_HOST
     lmstudio_base = user_conn.get("LmStudioApiUrl") or LMSTUDIO_HOST
 
-    if not _validate_url_for_ssrf(ollama_base):
+    if not await _validate_url_for_ssrf(ollama_base):
         status["ollama"] = {"ok": False, "error": "Invalid or unsafe Ollama URL"}
         ollama_base = None
-    if not _validate_url_for_ssrf(lmstudio_base):
+    if not await _validate_url_for_ssrf(lmstudio_base):
         status["lmstudio"] = {"ok": False, "error": "Invalid or unsafe LM Studio URL"}
         lmstudio_base = None
 
@@ -690,8 +711,8 @@ async def get_user_conversations(user_id: str, request: Request, engine: Optiona
                 "userId": m["user_id"],
                 "title": m["title"],
                 "folderId": m["folder_id"],
-                "createdAt": m["created_at"],
-                "lastUpdated": m["last_updated"],
+                "createdAt": _dt_str(m["created_at"]),
+                "lastUpdated": _dt_str(m["last_updated"]),
             })
         return out
 
@@ -707,7 +728,7 @@ async def create_conversation(body: dict, request: Request, engine: Optional[Asy
     title = _assert_length((body or {}).get("title") or "New Chat", _MAX_TITLE_LEN, "title")
     folder_id = (body or {}).get("folderId")
     conv_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         await conn.execute(t_conversations.insert().values(
             id=conv_id,
@@ -722,8 +743,8 @@ async def create_conversation(body: dict, request: Request, engine: Optional[Asy
         "userId": uid,
         "title": title,
         "folderId": folder_id,
-        "createdAt": now,
-        "lastUpdated": now,
+        "createdAt": now.isoformat(),
+        "lastUpdated": now.isoformat(),
     }
 
 @app.get("/api/conversation/{conv_id}")
@@ -751,7 +772,13 @@ async def get_conversation(conv_id: str, request: Request, engine: Optional[Asyn
         }
 
 @app.get("/api/conversation/{conv_id}/messages")
-async def get_messages(conv_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+async def get_messages(
+    conv_id: str,
+    request: Request,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -765,14 +792,20 @@ async def get_messages(conv_id: str, request: Request, engine: Optional[AsyncEng
             return []
         if u.get("role") != "admin" and conv_row._mapping["user_id"] != u.get("id"):
             raise HTTPException(status_code=403, detail="Forbidden")
-        res = await conn.execute(select(t_messages).where(t_messages.c.conversation_id == conv_id))
+        res = await conn.execute(
+            select(t_messages)
+            .where(t_messages.c.conversation_id == conv_id)
+            .order_by(t_messages.c.timestamp, t_messages.c.id)
+            .limit(limit)
+            .offset(offset)
+        )
         rows = res.fetchall()
         return [{
             "id": r._mapping["id"],
             "conversationId": r._mapping["conversation_id"],
             "role": r._mapping["role"],
             "content": r._mapping["content"],
-            "timestamp": r._mapping["timestamp"],
+            "timestamp": _dt_str(r._mapping["timestamp"]),
         } for r in rows]
 
 @app.post("/api/conversation/message")
@@ -787,7 +820,7 @@ async def append_message(body: dict, request: Request, engine: Optional[AsyncEng
     content = _assert_length((body or {}).get("content") or "", _MAX_MESSAGE_LEN, "content")
     if not conv_id:
         raise HTTPException(status_code=400, detail="conversationId required")
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership before appending
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -811,7 +844,7 @@ async def append_message(body: dict, request: Request, engine: Optional[AsyncEng
         "conversationId": conv_id,
         "role": role,
         "content": content,
-        "timestamp": now,
+        "timestamp": now.isoformat(),
     }
 
 @app.put("/api/conversation/{conv_id}/title")
@@ -822,7 +855,7 @@ async def update_conversation_title(conv_id: str, body: dict, request: Request, 
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     title = _assert_length((body or {}).get("title") or "", _MAX_TITLE_LEN, "title")
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -842,7 +875,7 @@ async def update_conversation_folder(conv_id: str, body: dict, request: Request,
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
     folder_id = (body or {}).get("folderId")
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -861,7 +894,7 @@ async def update_last_open(conv_id: str, request: Request, engine: Optional[Asyn
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -911,7 +944,7 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
     )
     if not conv_id or not message:
         raise HTTPException(status_code=400, detail="conversationId and message required")
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc)
     async with db.begin() as conn:
         # verify ownership
         conv = await conn.execute(select(t_conversations.c.user_id).where(t_conversations.c.id == conv_id).limit(1))
@@ -950,9 +983,9 @@ async def conversation_chat(body: dict, request: Request, db: Optional[AsyncEngi
         pass
 
     # SSRF guard: validate URLs before making outbound requests
-    if not _validate_url_for_ssrf(ollama_url):
+    if not await _validate_url_for_ssrf(ollama_url):
         ollama_url = None
-    if not _validate_url_for_ssrf(lmstudio_url):
+    if not await _validate_url_for_ssrf(lmstudio_url):
         lmstudio_url = None
 
     # Call the selected engine
@@ -1026,17 +1059,16 @@ async def get_chat_settings(user_id: str, request: Request, db: Optional[AsyncEn
                     s["ttsProvider"] = m.get("tts_provider") or s.get("ttsProvider")
                     s["ttsVoiceId"] = m.get("tts_voice_id") or s.get("ttsVoiceId")
                     # Merge JSON fields if present
-                    import json as _json
                     try:
                         ee = m.get("enabled_engines")
                         if ee:
-                            s["enabledEngines"] = _json.loads(ee)
+                            s["enabledEngines"] = json.loads(ee)
                     except Exception:
                         pass
                     try:
                         em = m.get("engine_models")
                         if em:
-                            s["engineModels"] = _json.loads(em)
+                            s["engineModels"] = json.loads(em)
                     except Exception:
                         pass
                 # Enable engines based on connection URLs presence
@@ -1056,7 +1088,7 @@ async def get_chat_settings(user_id: str, request: Request, db: Optional[AsyncEn
     return s
 
 @app.put("/api/chat/settings/{user_id}")
-async def update_chat_settings(user_id: str, settings: dict, request: Request):
+async def update_chat_settings(user_id: str, settings: dict, request: Request, db: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Update chat settings endpoint that frontend calls"""
     u = getattr(request.state, "user", None)
     if not u:
@@ -1064,8 +1096,38 @@ async def update_chat_settings(user_id: str, settings: dict, request: Request):
     if u.get("id") != user_id and u.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # Store chat settings in memory for now
+    # Update in-memory cache
     _chat_settings_store[user_id] = settings
+    _chat_settings_ts[user_id] = time.time()
+
+    # Persist to DB
+    if db is not None:
+        try:
+            engine_name = (settings.get("llmEngine") or settings.get("llm_engine") or "ollama").lower()
+            model = settings.get("llmModel") or settings.get("llm_model") or ""
+            tts_provider = settings.get("ttsProvider") or settings.get("tts_provider") or ""
+            tts_voice_id = settings.get("ttsVoiceId") or settings.get("tts_voice_id") or ""
+            enabled_engines = settings.get("enabledEngines") or settings.get("enabled_engines")
+            engine_models = settings.get("engineModels") or settings.get("engine_models")
+            values: Dict[str, Any] = {
+                "llm_engine": engine_name,
+                "llm_model": model,
+                "tts_provider": tts_provider,
+                "tts_voice_id": tts_voice_id,
+            }
+            if enabled_engines is not None:
+                values["enabled_engines"] = json.dumps(enabled_engines) if not isinstance(enabled_engines, str) else enabled_engines
+            if engine_models is not None:
+                values["engine_models"] = json.dumps(engine_models) if not isinstance(engine_models, str) else engine_models
+            async with db.begin() as conn:
+                res = await conn.execute(select(t_chat_settings).where(t_chat_settings.c.user_id == user_id).limit(1))
+                if res.first() is not None:
+                    await conn.execute(t_chat_settings.update().where(t_chat_settings.c.user_id == user_id).values(**values))
+                else:
+                    await conn.execute(t_chat_settings.insert().values(user_id=user_id, **values))
+        except Exception as e:
+            logger.exception("Failed to persist chat settings for user %s: %s", user_id, e)
+
     return {"success": True}
 
 @app.get("/api/llm/models")
@@ -1095,9 +1157,9 @@ async def get_llm_models(request: Request, engine: str = Query(), userId: str = 
             pass
 
     # SSRF guard
-    if not _validate_url_for_ssrf(ollama_url):
+    if not await _validate_url_for_ssrf(ollama_url):
         ollama_url = None
-    if not _validate_url_for_ssrf(lmstudio_url):
+    if not await _validate_url_for_ssrf(lmstudio_url):
         lmstudio_url = None
 
     models: List[str] = []
@@ -1142,7 +1204,7 @@ async def get_lmstudio_model(request: Request, userId: str = Query(), db: Option
         except Exception:
             pass
 
-    if not _validate_url_for_ssrf(lmstudio_url):
+    if not await _validate_url_for_ssrf(lmstudio_url):
         return {"model": None}
 
     model = None
@@ -1246,8 +1308,7 @@ async def change_password(body: PasswordChange, request: Request, engine: Option
         if not r["password_hash"] or not verify_password(body.old_password, r["password_hash"]):
             logger.warning("Password change failed: wrong old password for user %s", uid)
             raise HTTPException(status_code=401, detail="Invalid credentials")
-        import bcrypt as _bcrypt
-        pw_hash = _bcrypt.hashpw(body.new_password.encode(), _bcrypt.gensalt()).decode()
+        pw_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
         await conn.execute(users.update().where(users.c.id == uid).values(password_hash=pw_hash))
     logger.info("Password changed for user %s", uid)
     return {"success": True}
@@ -1267,8 +1328,6 @@ async def admin_purge_conversations(
         raise HTTPException(status_code=503, detail="Database not configured")
     if not confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to perform purge")
-
-    from sqlalchemy import func, not_, exists
 
     async with engine.begin() as conn:
         # Build ORM-level filter predicate
@@ -1347,8 +1406,7 @@ async def admin_create_user(body: UserCreate, request: Request, engine: Optional
         raise HTTPException(status_code=503, detail="Database not configured")
     _validate_password_complexity(body.password)
     _assert_length(body.username, _MAX_NAME_LEN, "username")
-    import bcrypt as _bcrypt
-    pw_hash = _bcrypt.hashpw(body.password.encode(), _bcrypt.gensalt()).decode()
+    pw_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     async with engine.begin() as conn:
         await conn.execute(users.insert().values(
             id=body.id,
@@ -1369,7 +1427,6 @@ class UserUpdate(BaseModel):
     language: Optional[str] = None
     theme: Optional[str] = None
     default_character: Optional[str] = None
-    pin: Optional[str] = None
 
 class PinUpdate(BaseModel):
     pin: str
@@ -1438,8 +1495,7 @@ async def update_user_pin(user_id: str, body: PinUpdate, request: Request, engin
         raise HTTPException(status_code=403, detail="Forbidden")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    import bcrypt as _bcrypt
-    pin_hash = _bcrypt.hashpw(body.pin.encode(), _bcrypt.gensalt()).decode()
+    pin_hash = bcrypt.hashpw(body.pin.encode(), bcrypt.gensalt()).decode()
     async with engine.begin() as conn:
         await conn.execute(users.update().where(users.c.id == user_id).values(pin_hash=pin_hash))
     return {"success": True}
@@ -1451,12 +1507,53 @@ async def generate_recovery_codes(user_id: str, request: Request, engine: Option
         raise HTTPException(status_code=403, detail="Forbidden")
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    import secrets, string, bcrypt as _bcrypt
-    codes = ["-".join(secrets.choice(string.ascii_lowercase) for _ in range(12)) for _ in range(5)]
-    codes_hash = _bcrypt.hashpw("\n".join(codes).encode(), _bcrypt.gensalt()).decode()
+    # Generate 5 codes in XXXX-XXXX-XXXX format (12 hex chars each)
+    codes = [
+        f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
+        for _ in range(5)
+    ]
+    # Hash each code independently so individual codes can be verified and consumed
+    hashes = [bcrypt.hashpw(c.encode(), bcrypt.gensalt()).decode() for c in codes]
+    codes_hash = json.dumps(hashes)
     async with engine.begin() as conn:
         await conn.execute(users.update().where(users.c.id == user_id).values(recovery_codes_hash=codes_hash))
     return RecoveryCode(codes=codes)
+
+
+class RecoveryCodeVerify(BaseModel):
+    code: str
+
+
+@app.post("/api/user/{user_id}/verify-recovery-code")
+async def verify_recovery_code(user_id: str, body: RecoveryCodeVerify, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Verify a single recovery code and consume it (one-time use)."""
+    u = getattr(request.state, "user", None)
+    if not u or (u.get("id") != user_id and u.get("role") != "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    async with engine.begin() as conn:
+        res = await conn.execute(select(users.c.recovery_codes_hash).where(users.c.id == user_id).limit(1).with_for_update())
+        row = res.first()
+        if not row or not row.recovery_codes_hash:
+            raise HTTPException(status_code=404, detail="No recovery codes found")
+        try:
+            hashes: List[str] = json.loads(row.recovery_codes_hash)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="Recovery codes in invalid format; regenerate codes")
+        matched_idx = None
+        for i, h in enumerate(hashes):
+            if bcrypt.checkpw(body.code.encode(), h.encode()):
+                matched_idx = i
+                break
+        if matched_idx is None:
+            raise HTTPException(status_code=401, detail="Invalid recovery code")
+        # Consume the matched code so it cannot be reused
+        remaining = [h for i, h in enumerate(hashes) if i != matched_idx]
+        await conn.execute(users.update().where(users.c.id == user_id).values(
+            recovery_codes_hash=json.dumps(remaining) if remaining else None
+        ))
+    return {"success": True, "remaining_codes": len(remaining)}
 
 # ------------------------- Chat settings -------------------------
 
@@ -1810,7 +1907,6 @@ async def create_character_yaml(body: dict, request: Request, engine: Optional[A
         raise HTTPException(status_code=400, detail=f"YAML too large (max {_MAX_YAML_BYTES // 1024} KB).")
 
     try:
-        import yaml
         data = yaml.safe_load(yaml_content)
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Invalid YAML format")
@@ -1828,16 +1924,18 @@ async def create_character_yaml(body: dict, request: Request, engine: Optional[A
                     "user_id": u["id"],  # Enforce server-side user ownership
                     "name": name,
                     "yaml_profile": yaml_content,
-                    "created_at": datetime.utcnow(),
-                    "last_modified": datetime.utcnow()
+                    "created_at": datetime.now(timezone.utc),
+                    "last_modified": datetime.now(timezone.utc)
                 }
             )
-            await conn.commit()
 
         return {"id": character_id, "name": name, "success": True}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to create character: {str(e)}")
+        logger.exception("create_character_yaml failed for user %s: %s", u.get("id"), e)
+        raise HTTPException(status_code=400, detail="Failed to create character")
 
 @app.put("/api/character/{character_id}/yaml")
 async def update_character_yaml(character_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
@@ -1855,7 +1953,6 @@ async def update_character_yaml(character_id: str, body: dict, request: Request,
         raise HTTPException(status_code=400, detail=f"YAML too large (max {_MAX_YAML_BYTES // 1024} KB).")
 
     try:
-        import yaml
         data = yaml.safe_load(yaml_content)
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Invalid YAML format")
@@ -1883,15 +1980,17 @@ async def update_character_yaml(character_id: str, body: dict, request: Request,
                 {
                     "name": name,
                     "yaml_profile": yaml_content,
-                    "last_modified": datetime.utcnow()
+                    "last_modified": datetime.now(timezone.utc)
                 }
             )
-            await conn.commit()
 
         return {"id": character_id, "name": name, "success": True}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to update character: {str(e)}")
+        logger.exception("update_character_yaml failed for character %s: %s", character_id, e)
+        raise HTTPException(status_code=400, detail="Failed to update character")
 
 @app.post("/api/character/import-yaml")
 async def import_character_yaml(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
@@ -1909,7 +2008,6 @@ async def import_character_yaml(body: dict, request: Request, engine: Optional[A
         raise HTTPException(status_code=400, detail=f"YAML too large (max {_MAX_YAML_BYTES // 1024} KB).")
 
     try:
-        import yaml
         data = yaml.safe_load(yaml_content)
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Invalid YAML format")
@@ -1936,8 +2034,11 @@ async def import_character_yaml(body: dict, request: Request, engine: Optional[A
 
         return await create_character(char_create, request, engine)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse YAML: {str(e)}")
+        logger.exception("import_character_yaml failed for user %s: %s", u.get("id"), e)
+        raise HTTPException(status_code=400, detail="Failed to parse YAML")
 
 # ------------------------- External Agent Management -------------------------
 
@@ -1976,18 +2077,15 @@ class ResultCreate(BaseModel):
     metadata: Optional[dict] = None
 
 def current_timestamp():
-    """Get current timestamp as ISO string"""
-    from datetime import datetime
-    return datetime.utcnow().isoformat() + "Z"
+    """Get current UTC timestamp as a timezone-aware datetime object"""
+    return datetime.now(timezone.utc)
 
 def _hash_api_key(api_key: str) -> str:
     """Hash API key for secure storage"""
-    import bcrypt
     return bcrypt.hashpw(api_key.encode(), bcrypt.gensalt()).decode()
 
 def _verify_api_key(api_key: str, hashed: str) -> bool:
     """Verify API key against hash"""
-    import bcrypt
     return bcrypt.checkpw(api_key.encode(), hashed.encode())
 
 async def _validate_agent_auth(agent_id: str, api_key: str, engine: AsyncEngine) -> bool:
@@ -2528,7 +2626,6 @@ async def tts_synthesize(request: Request, body: Optional[dict] = None):
 
     tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
     try:
-        from fastapi.responses import Response as _Response
         async with httpx.AsyncClient(timeout=90) as client:
             if provider.startswith("fish") and voice_id:
                 r = await client.post(f"{tts_url}/tts/clone", data={"text": text, "voice_name": voice_id})
@@ -2536,12 +2633,11 @@ async def tts_synthesize(request: Request, body: Optional[dict] = None):
                 r = await client.post(f"{tts_url}/tts", data={"text": text})
             if r.status_code == 200 and r.content:
                 ctype = r.headers.get("content-type", "audio/wav")
-                return _Response(content=r.content, media_type=ctype)
+                return Response(content=r.content, media_type=ctype)
     except Exception as e:
         logger.exception("tts_synthesize proxy error: %s", e)
 
     # Fallback: generate a 0.25s 440Hz sine wave WAV so the UI can complete successfully.
-    import io, math, struct
     sample_rate = 22050
     duration_s = 0.25
     freq = 440.0
@@ -2561,8 +2657,7 @@ async def tts_synthesize(request: Request, body: Optional[dict] = None):
         val = int(32767 * 0.2 * math.sin(2 * math.pi * freq * t))
         wav.write(struct.pack('<h', val))
     audio_bytes = wav.getvalue()
-    from fastapi.responses import Response as _Response
-    return _Response(content=audio_bytes, media_type="audio/wav")
+    return Response(content=audio_bytes, media_type="audio/wav")
 
 # ------------------------- Memory Endpoints -------------------------
 
@@ -2709,7 +2804,7 @@ async def put_connection_settings(body: dict, request: Request, engine: Optional
     # Validate SSRF-sensitive URL fields before storing
     for url_field in ("OllamaApiUrl", "LmStudioApiUrl", "ClaudeApiUrl"):
         url_val = values.get(url_field)
-        if url_val and not _validate_url_for_ssrf(url_val):
+        if url_val and not await _validate_url_for_ssrf(url_val):
             raise HTTPException(status_code=400, detail=f"Invalid or unsafe URL for {url_field}.")
 
     # Encrypt API key fields before storing
