@@ -133,6 +133,6 @@ instance from a phone or tablet, with text chat, voice interaction, and push not
 
 ---
 
-*This file is auto-generated / maintained alongside
-`.github/workflows/create-roadmap-issues.yml`. Update both files together when the roadmap
-changes.*
+*This file is a human-maintained reference intended to stay in sync with
+`.github/workflows/create-roadmap-issues.yml` and the `README.md` roadmap. When the roadmap
+changes, update this file and the workflow together.*
