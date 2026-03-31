@@ -31,13 +31,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh label create "roadmap"            --color "0075ca" --description "Tracked roadmap item"                      --force || true
-          gh label create "enhancement"        --color "a2eeef" --description "New feature or request"                    --force || true
-          gh label create "federation"         --color "e4e669" --description "Cross-instance AI federation"              --force || true
-          gh label create "memory"             --color "d4edda" --description "Memory management and persistence"         --force || true
-          gh label create "plugin-system"      --color "fef3c7" --description "Plugin architecture and extensibility"    --force || true
-          gh label create "avatar-3d"          --color "fde8d8" --description "3D avatar and room customization"         --force || true
-          gh label create "mobile"             --color "e8d5f5" --description "Mobile companion application"             --force || true
+          gh label create "roadmap"            --color "0075ca" --description "Tracked roadmap item"                      --force
+          gh label create "enhancement"        --color "a2eeef" --description "New feature or request"                    --force
+          gh label create "federation"         --color "e4e669" --description "Cross-instance AI federation"              --force
+          gh label create "memory"             --color "d4edda" --description "Memory management and persistence"         --force
+          gh label create "plugin-system"      --color "fef3c7" --description "Plugin architecture and extensibility"    --force
+          gh label create "avatar-3d"          --color "fde8d8" --description "3D avatar and room customization"         --force
+          gh label create "mobile"             --color "e8d5f5" --description "Mobile companion application"             --force
 
       # ── Issue 1: Cross-instance AI federation ─────────────────────────────
       - name: "[1/5] Cross-instance AI federation"
