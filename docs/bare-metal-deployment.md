@@ -1,161 +1,86 @@
-# Bare-Metal Deployment Guide
+# Bare-Metal Deployment Guide (No Docker)
 
-This guide describes how to run SwAIvyn without Docker. You'll run databases and services directly on the host and manage the app tiers as native processes or services.
+This guide documents the **container-free** deployment path using native host services.
 
-> Recommendation: Use the hybrid dev setup for day-to-day development. Bare metal is best for long-running deployments where Docker is not desired.
+> For daily development, use `scripts/dev-run.ps1` (hybrid mode). Bare-metal is best for operators who do not want Docker in production.
 
 ## Components
 
-- App tiers (host):
-  - BFF (FastAPI)
-  - Orchestrator (Temporal worker)
-  - Frontend (static build served by nginx or any static server)
-- Infra (host):
-  - Postgres 16
-  - Temporal Server
-  - Qdrant
-  - Neo4j 5
-  - STT (Whisper service) [optional]
-  - ElevenLabs adapter (FastAPI) [optional]
-  - Local TTS (heavy) [optional]
+### App tiers (host)
 
-## System Requirements
+- BFF (FastAPI)
+- Orchestrator worker (Temporal worker process)
+- Frontend (static files served by nginx/Caddy or a Node static host)
 
-- Windows 10/11 or Linux
-- Python 3.11+
-- Node 18+
-- Postgres 16, Neo4j 5, Qdrant, Temporal Server
+### Infrastructure (host)
 
-## Install Infra
+- PostgreSQL 16+
+- Temporal Server
+- Qdrant
+- Neo4j 5+
+- Optional: Whisper STT
+- Optional: Fish Speech TTS / ElevenLabs adapter
 
-Windows (choco examples):
+## Recommended host ports
 
-```
-choco install postgresql16 neo4j-community
-# Qdrant: https://qdrant.tech/documentation/quick_start/
-# Temporal: https://docs.temporal.io/
-```
+- Frontend: `5173` (or your reverse-proxy port)
+- BFF API: `5000`
+- Temporal: `7233`
+- Postgres: `5432`
+- Qdrant: `6333`
+- Neo4j: `7474` / Bolt `7687`
+- Whisper STT: `9000`
+- TTS: `8081`
+- TTS Adapter: `8082`
 
-Linux (Ubuntu examples):
+## BFF setup
 
-```
-sudo apt-get update
-sudo apt-get install postgresql neo4j
-# Qdrant: https://qdrant.tech/documentation/quick_start/
-# Temporal: https://docs.temporal.io/
-```
-
-Configure:
-- Postgres DB `swai` with user `postgres` and your `POSTGRES_PASSWORD`
-- Temporal listening on `localhost:7233`
-- Qdrant on `localhost:6333`
-- Neo4j on `bolt://localhost:7687` (set `NEO4J_PASSWORD`)
-
-## App Tiers (Host)
-
-### BFF
-
-```
+```powershell
 cd Services/bff
 python -m venv .venv
-. .venv/Scripts/activate  # Windows: .\.venv\Scripts\Activate.ps1
+. .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-set DATABASE_URL=postgresql+asyncpg://postgres:<pwd>@localhost:5432/swai
-set TEMPORAL_HOST=localhost:7233
-set QDRANT_URL=http://localhost:6333
-set NEO4J_URL=bolt://localhost:7687
-set NEO4J_PASSWORD=<pwd>
-# Optional local LLMs/TTS:
-set OLLAMA_HOST=http://localhost:11434
-set LMSTUDIO_HOST=http://localhost:1234
-set TTS_ADAPTER_URL=http://localhost:8082
-set FISHSPEECH_URL=http://localhost:8081
+$env:DATABASE_URL = "postgresql+asyncpg://postgres:<pwd>@localhost:5432/swai"
+$env:TEMPORAL_HOST = "127.0.0.1:7233"
+$env:QDRANT_URL = "http://localhost:6333"
+$env:NEO4J_URL = "bolt://localhost:7687"
+$env:NEO4J_PASSWORD = "<pwd>"
+$env:FISHSPEECH_URL = "http://localhost:8081"
+$env:TTS_ADAPTER_URL = "http://localhost:8082"
 
-uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 5000
 ```
 
-### Orchestrator
+## Orchestrator setup
 
-```
+```powershell
 cd Services/orchestrator
 python -m venv .venv
-. .venv/Scripts/activate
+. .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-set TEMPORAL_HOST=localhost:7233
-set ACTIVITY_THREADS=32
-set TTS_ADAPTER_URL=http://localhost:8082
-set FISHSPEECH_URL=http://localhost:8081
+$env:TEMPORAL_HOST = "127.0.0.1:7233"
+$env:ACTIVITY_THREADS = "32"
+$env:FISHSPEECH_URL = "http://localhost:8081"
+$env:TTS_ADAPTER_URL = "http://localhost:8082"
 
 python -m app.worker
 ```
 
-### Frontend
+## Frontend setup
 
-```
+```powershell
 cd frontend
 npm ci
 npm run build
 
-# Serve dist/ with nginx, Caddy, or any static server
-# Example (serve, for dev):
+# Example static serving option
 npx serve -s dist -l 5173
 ```
 
-## Services (Production)
+## Operational notes
 
-Use systemd (Linux) or NSSM/Task Scheduler (Windows) to run the BFF and Orchestrator as services.
-
-### Linux (systemd examples)
-
-`/etc/systemd/system/swaivyn-bff.service`
-```
-[Unit]
-Description=SwAIvyn BFF
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/SwAIvyn/Services/bff
-Environment=DATABASE_URL=postgresql+asyncpg://postgres:<pwd>@localhost:5432/swai
-Environment=TEMPORAL_HOST=localhost:7233
-Environment=QDRANT_URL=http://localhost:6333
-Environment=NEO4J_URL=bolt://localhost:7687
-Environment=NEO4J_PASSWORD=<pwd>
-ExecStart=/opt/SwAIvyn/Services/bff/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 5000
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/swaivyn-orchestrator.service`
-```
-[Unit]
-Description=SwAIvyn Orchestrator
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/SwAIvyn/Services/orchestrator
-Environment=TEMPORAL_HOST=localhost:7233
-Environment=ACTIVITY_THREADS=32
-ExecStart=/opt/SwAIvyn/Services/orchestrator/.venv/bin/python -m app.worker
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Reload and start:
-
-```
-sudo systemctl daemon-reload
-sudo systemctl enable --now swaivyn-bff swaivyn-orchestrator
-```
-
-## Notes
-
-- The local TTS service is very heavy (multi-GB). Prefer ElevenLabs adapter if available.
-- For performance on Windows, avoid cross-filesystem I/O; keep the repo and venvs on the same drive.
-- TLS/Reverse proxy: terminate at nginx/Caddy and proxy `/api` to `localhost:5000`.
-
+- Configure TLS/reverse proxy at nginx/Caddy and route `/api` to `http://localhost:5000`.
+- Ensure your firewall allows required service ports.
+- Legacy helper scripts for older bare-metal flow are kept in `scripts/old-scripts/` and are not the recommended entrypoint.
