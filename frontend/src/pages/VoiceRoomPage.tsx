@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Mic, Volume2, MessageSquare, Camera, Paperclip, Loader2 } from 'lucide-react';
+import { Mic, Volume2, MessageSquare, Loader2 } from 'lucide-react';
 import ttsService from '../services/ttsService';
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import { transcribeAudio } from '../services/sttService';
 import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
+import useEffectiveUser from '../hooks/useEffectiveUser';
 import { Message } from '../types/chat';
 
 interface VoiceConfig {
@@ -16,6 +17,7 @@ interface VoiceConfig {
 }
 
 const VoiceRoomPage = () => {
+  const effectiveUserId = useEffectiveUser();
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -42,13 +44,43 @@ const VoiceRoomPage = () => {
       }
     };
     loadSettings();
+
+    // Cleanup on unmount
+    return () => {
+      if (audioRef.current) {
+        const currentAudio = audioRef.current;
+        if (currentAudio.src) {
+          try {
+            URL.revokeObjectURL(currentAudio.src);
+          } catch (e) {
+            console.warn('Failed to revoke audio object URL', e);
+          }
+          currentAudio.src = '';
+        }
+        currentAudio.pause();
+        audioRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+    };
   }, []);
 
   const startRecording = async () => {
     try {
       if (isSpeaking && audioRef.current) {
-         audioRef.current.pause();
-         setIsSpeaking(false);
+        const currentAudio = audioRef.current;
+        if (currentAudio.src) {
+          try {
+            URL.revokeObjectURL(currentAudio.src);
+          } catch (e) {
+            console.warn('Failed to revoke audio object URL', e);
+          }
+          currentAudio.src = '';
+        }
+        currentAudio.pause();
+        audioRef.current = null;
+        setIsSpeaking(false);
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -119,7 +151,11 @@ const VoiceRoomPage = () => {
     try {
       let currentSessionId = sessionId;
       if (!currentSessionId) {
-        const newSession = await conversationService.createSession({ title: text.substring(0, 30) });
+        const newSession = await conversationService.createConversation(
+          text.substring(0, 30),
+          effectiveUserId || undefined,
+          undefined
+        );
         currentSessionId = newSession.id;
         setSessionId(currentSessionId);
       }
@@ -154,23 +190,9 @@ const VoiceRoomPage = () => {
   const playTts = async (text: string) => {
     try {
       setIsSpeaking(true);
-      const payload = {
-        text,
-        voiceId: voiceConfig.voice,
-        apiKey: voiceConfig.apiKey,
-        ttsProvider: voiceConfig.ttsProvider,
-      };
-      const resp = await fetch('/api/tts/synthesize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        console.error('TTS synthesis failed with status:', resp.status);
-        setIsSpeaking(false);
-        return;
-      }
-      const blob = await resp.blob();
+
+      // Use the ttsService which handles authorization automatically
+      const blob = await ttsService.synthesize(text, effectiveUserId || undefined, voiceConfig.voice);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;

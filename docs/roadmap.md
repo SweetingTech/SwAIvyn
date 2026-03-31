@@ -32,7 +32,7 @@
 - Build character editor UI.
 - Implement 2D avatar management with upload, cropping, and selection interface.
 
-## Phase 3: Voice Integration & Room Interface (Completed)
+## Phase 3: Voice Integration & Room Interface
 - [OK] Integrate STT engine (Whisper) with audio capture, stream processing, and transcript generation.
 - [OK] Implement TTS engine with voice selection, audio streaming, and playback controls.
 - [ ] Create wake word detection service with background audio monitoring and event notification.
