@@ -47,8 +47,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: requirements-base.txt
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements-base.txt ]; then pip install -r requirements-base.txt; fi
+          if [ -f requirements-base.txt ]; then python -m pip install -r requirements-base.txt; fi
