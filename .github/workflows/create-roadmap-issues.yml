@@ -7,11 +7,8 @@ on:
       dry_run:
         description: 'Dry run — print issue titles without creating them'
         required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'false'
-          - 'true'
+        default: false
+        type: boolean
 
 permissions:
   issues: write
@@ -27,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create roadmap labels
-        if: ${{ inputs.dry_run == 'false' }}
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

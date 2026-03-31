@@ -13,7 +13,7 @@ Run it from **Actions → Create Roadmap Issues → Run workflow**.
 
 1. Go to **Actions** → **Create Roadmap Issues**.
 2. Click **Run workflow**.
-3. Leave *Dry run* as `false` to create the issues, or set it to `true` to preview without creating.
+3. Check *Dry run* to preview without creating issues, or leave it unchecked to create them.
 4. Click **Run workflow** to confirm.
 
 > **Note:** Re-running this workflow will create duplicate issues if the original issues are still
