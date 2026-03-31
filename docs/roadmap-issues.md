@@ -16,9 +16,8 @@ Run it from **Actions → Create Roadmap Issues → Run workflow**.
 3. Leave *Dry run* as `false` to create the issues, or set it to `true` to preview without creating.
 4. Click **Run workflow** to confirm.
 
-> **Note:** The workflow is idempotent in the sense that re-running it will create duplicate issues
-> if the original issues are still open. Close or delete any existing roadmap issues before
-> re-running if you want a clean slate.
+> **Note:** Re-running this workflow will create duplicate issues if the original issues are still
+> open. Close or delete any existing roadmap issues before re-running if you want a clean slate.
 
 ---
 
