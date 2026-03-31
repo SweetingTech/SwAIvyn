@@ -1533,7 +1533,7 @@ async def verify_recovery_code(user_id: str, body: RecoveryCodeVerify, request: 
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     async with engine.begin() as conn:
-        res = await conn.execute(select(users.c.recovery_codes_hash).where(users.c.id == user_id).limit(1))
+        res = await conn.execute(select(users.c.recovery_codes_hash).where(users.c.id == user_id).limit(1).with_for_update())
         row = res.first()
         if not row or not row.recovery_codes_hash:
             raise HTTPException(status_code=404, detail="No recovery codes found")
