@@ -248,8 +248,12 @@ jobs:
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "### Dry run complete"
+            echo "### Dry run complete" >> "$GITHUB_STEP_SUMMARY"
             echo "Re-run the workflow with dry_run=false to create the issues."
+            echo "Re-run the workflow with dry_run=false to create the issues." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### Issues created successfully"
+            echo "### Issues created successfully" >> "$GITHUB_STEP_SUMMARY"
             echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap"
+            echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap" >> "$GITHUB_STEP_SUMMARY"
           fi
