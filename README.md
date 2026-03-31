@@ -6,7 +6,7 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://reactjs.org/)
 
 </div>
@@ -23,7 +23,7 @@ SwAIvyn is a self-hosted AI platform designed for multi-user teams. It runs enti
 | **Agent integration**  | Manual / none              | Multi-tenant registry with full task lifecycle      |
 | **Workflow execution** | Direct API calls           | Temporal-orchestrated, versioned workflows          |
 | **Memory**             | Shared or none             | Per-user vector + graph memory with admin controls  |
-| **LLM routing**        | Global config              | Per-user engine selection with admin-level routing  |
+| **LLM routing**        | Global config              | Per-user engine selection (Ollama, LM Studio, OpenAI, Claude, vLLM) with admin-level routing  |
 | **Deployment**         | Local only                 | Bare metal, Docker Swarm, cloud                     |
 
 ---
@@ -63,10 +63,13 @@ SwAIvyn is a self-hosted AI platform designed for multi-user teams. It runs enti
 ```
 
 **Seed default users, characters, and the chat workflow:**
-```powershell
-.\scripts\dev-seed-accounts.ps1 -Yes    # admin / user1 / user2
-.\scripts\dev-seed-characters.ps1 -Yes  # Sam & Sherlock (global characters)
-.\scripts\dev-seed-workflows.ps1 -Yes   # Default Chat workflow
+
+Seeding is handled by BFF Python scripts in `Services/bff/app/`:
+```bash
+# From Services/bff directory:
+python -m app.seed_reset_accounts      # admin / user1 / user2
+python -m app.seed_characters_from_frontend  # Sam, Sherlock & GLaDOS (global characters)
+python -m app.seed_workflows           # Default Chat workflow
 ```
 
 **Default test users:**
@@ -82,10 +85,11 @@ SwAIvyn is a self-hosted AI platform designed for multi-user teams. It runs enti
 | Service         | URL                                        |
 |-----------------|--------------------------------------------|
 | Frontend (UI)   | http://localhost:5173                      |
-| BFF API         | http://localhost:8000 (`/healthz`, `/api/readyz`) |
-| Temporal        | localhost:7233                             |
-| Qdrant          | http://localhost:6333                      |
-| Neo4j           | http://localhost:7474 (bolt: 7687)         |
+| BFF API         | http://localhost:5000 (`/healthz`, `/api/readyz`) |
+| Fish Speech TTS | http://localhost:8081                      |
+| Whisper STT     | http://localhost:9000                      |
+
+> **Note:** Temporal, PostgreSQL, Qdrant, and Neo4j run on the internal Docker network (`swai-network`) and are not exposed to the host by default. The BFF and orchestrator access them via container DNS names.
 
 **Advanced options:**
 ```powershell
@@ -107,39 +111,24 @@ Application services (BFF, Orchestrator, Frontend) run on the host for hot reloa
 .\scripts\dev-run.ps1
 ```
 
-Host services: Frontend `:5173`, BFF `:8000`, Temporal worker (background)
-Docker infrastructure: PostgreSQL `:5432`, Temporal `:7233`, Qdrant `:6333`, Neo4j `:7474/7687`, Fish Speech TTS `:8081`, Whisper STT `:9000`, ElevenLabs adapter `:8082`, Traefik `:80`
+Host services: Frontend `:5173`, BFF `:5000`, Temporal worker (background)
+Docker infrastructure (internal network, not exposed to host): PostgreSQL, Temporal, Qdrant, Neo4j. Exposed: Fish Speech TTS `:8081`, Whisper STT `:9000`
 
 ### Bare Metal (Windows, No Docker)
 
-Installs and runs all 15+ services natively via Chocolatey. Suitable for production deployments without containerization overhead.
+See [`docs/bare-metal-deployment.md`](docs/bare-metal-deployment.md) for the container-free deployment guide. Legacy setup scripts are available in `scripts/old-scripts/`.
 
-```powershell
-# Install all dependencies and start the full stack
-.\scripts\setup-bare-metal.ps1 -InstallDependencies
-
-# Start / stop after setup
-.\start-bare-metal.ps1
-.\stop-bare-metal.ps1
-```
-
-Service endpoints: Frontend `:5000`, BFF `:8000`, PostgreSQL `:5432`, Neo4j `:7474`, Qdrant `:6333`
+Service endpoints: Frontend `:5000`, BFF `:5000`, PostgreSQL `:5432`, Neo4j `:7474`, Qdrant `:6333`
 
 ### Cloud / Replit
 
-SwAIvyn detects Replit automatically and reconfigures: Frontend binds `:5000`, BFF binds `:8000`, CORS expands to `*.repl.co`. No manual configuration needed.
+SwAIvyn detects Replit automatically and reconfigures: Frontend binds `:5000`, BFF binds `:8000`, CORS expands to `*.repl.co`. No manual configuration needed. See [`docs/replit.md`](docs/replit.md) for details.
 
 ### Docker Swarm
 
-Use `.\scripts\build-stack.ps1` to build images and deploy to a Swarm cluster.
+Use `docker-stack.yml` to deploy to a Swarm cluster. Legacy build scripts are available in `scripts/old-scripts/build-stack.ps1`.
 
-```powershell
-.\scripts\build-stack.ps1 -All -Pull           # Rebuild everything
-.\scripts\build-stack.ps1 -Target tts,app      # Rebuild specific groups
-.\scripts\build-stack.ps1 -List                # List available targets
-```
-
-Build groups: `tts` (tts-proxy, 11labs-adapter, stt), `infra` (postgres, qdrant, neo4j, temporal), `app` (bff, frontend, orchestrator, workers)
+The stack includes Traefik reverse proxy, Temporal, PostgreSQL, Qdrant, Neo4j, Fish Speech TTS, Whisper STT, and AI modules (CLIP, QA, summarization, reranking).
 
 ### Single-Executable Release
 
@@ -162,7 +151,7 @@ Vite and FastAPI both bind to `0.0.0.0` by default. To allow other devices on yo
 ```powershell
 # Local development
 netsh advfirewall firewall add rule name="SwAIvyn Frontend" dir=in action=allow protocol=TCP localport=5173
-netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow protocol=TCP localport=8000
+netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow protocol=TCP localport=5000
 ```
 
 ---
@@ -175,16 +164,12 @@ Each user has a dedicated memory space across three stores: Qdrant (vector simil
 
 ### Per-user LLM engine selection with admin-level routing
 
-Every user independently selects their LLM backend (Ollama, LM Studio, OpenAI, Claude) and model via the Settings UI. The BFF routes each chat request to the correct engine for that user — no shared global config, no fallback to another user's engine. Admins can see the active engine per user from the dashboard.
+Every user independently selects their LLM backend (Ollama, LM Studio, OpenAI, Claude, vLLM) and model via the Settings UI. The BFF routes each chat request to the correct engine for that user — no shared global config, no fallback to another user's engine. Admins can see the active engine per user from the dashboard.
 
 **Per-user LLM dataflow:**
 - Save engine/model: `PUT /api/chat/settings/{userId}`
 - Save connections: `PUT /api/settings/connections`
 - Chat sends `engine` + `model` per request → BFF launches engine-specific Temporal workflow → worker calls only that engine/model
-
-### Cross-instance AI federation with privacy boundary enforcement
-
-SwAIvyn instances on the same network can communicate AI-to-AI. This enables cross-instance calendar coordination, selective memory sharing, and user-to-user message passing — all with explicit privacy boundary controls so users choose what leaves their instance.
 
 ### Multi-tenant external agent registry with full task lifecycle management
 
@@ -218,15 +203,11 @@ Authorization: Bearer <jwt>
 
 **Retrieve results:** `GET /api/agents/tasks/{task_id}/results`
 
-Full API reference: [`docs/EXTERNAL_AGENT_GUIDE.md`](docs/EXTERNAL_AGENT_GUIDE.md) and [`docs/AGENT_STACK_INTEGRATION.md`](docs/AGENT_STACK_INTEGRATION.md)
+Full API reference: [`docs/external-agent-guide.md`](docs/external-agent-guide.md) and [`docs/agent-stack-integration.md`](docs/agent-stack-integration.md)
 
 ### Temporal-orchestrated versioned chat workflows
 
-Chat execution is driven by a versioned "Default Chat" workflow stored in the database. Every chat request becomes a Temporal workflow execution — durable, retryable, and auditable. Future enhancements (search augmentation, moderation, tool use) are workflow edits, not code changes.
-
-- List workflows: `GET /api/workflows`
-- Get default: `GET /api/workflows/default`
-- Get by id: `GET /api/workflows/{id}`
+Chat execution is driven by Temporal workflows with engine-specific routing. The orchestrator worker registers six workflow types (`ReplyWorkflow`, `ReplyWorkflow_Ollama`, `ReplyWorkflow_LMStudio`, `ReplyWorkflowOpenAI`, `ReplyWorkflowClaude`, `ReplyWorkflowVLLM`). Every chat request becomes a Temporal workflow execution — durable, retryable, and auditable. Workflows chain four activities: `generate_reply` → `synthesize_tts` → `upsert_vector_memory` → `update_graph`. Temporal support is enabled via the `ENABLE_TEMPORAL` environment variable.
 
 ### Dual interfaces: text chat and voice-first room
 
@@ -243,11 +224,16 @@ Admin-only view surfacing active LLM engine and model per user, agent registry s
 
 ### FastAPI BFF
 
-| Variable           | Required | Description |
-|--------------------|----------|-------------|
-| `DATABASE_URL`     | Yes      | PostgreSQL connection string |
-| `JWT_SECRET`       | Yes      | Secret key for signing access tokens |
-| `ALLOWED_ORIGINS`  | No       | Comma-delimited CORS origins (defaults to localhost dev ports) |
+| Variable              | Required | Description |
+|-----------------------|----------|-------------|
+| `DATABASE_URL`        | Yes      | PostgreSQL connection string |
+| `JWT_SECRET`          | Yes      | Secret key for signing access tokens |
+| `ALLOWED_ORIGINS`     | No       | Comma-delimited CORS origins (defaults to localhost dev ports) |
+| `ENABLE_TEMPORAL`     | No       | Set to `true` to enable Temporal workflow support (default: false) |
+| `FIELD_ENCRYPTION_KEY`| No       | Fernet key for encrypting API keys at rest |
+| `DEFAULT_LLM_ENGINE`  | No       | Default LLM engine: ollama, lmstudio, openai, claude, vllm (default: ollama) |
+| `LLM_MODEL`          | No       | Default LLM model name (default: llama3) |
+| `FISHSPEECH_URL`     | No       | Fish Speech TTS service URL (default: http://localhost:8081) |
 
 ### Temporal Orchestrator Worker
 
@@ -270,24 +256,24 @@ All scripts read `.env` and construct `DATABASE_URL` from `POSTGRES_PASSWORD` if
 
 ## Architecture Notes
 
-- **Communication**: Frontend uses REST API polling for real-time updates. SignalR/WebSocket client code has been removed; all live updates go through polling.
-- **Authentication**: JWT tokens with bcrypt hashing. The `useEffectiveUser` hook resolves the active user ID in priority order: `useAuth().user?.id` → `useInitialization().user?.id` → `/api/auth/me` fallback. All API calls include `Authorization` headers automatically.
+- **Communication**: Frontend uses REST API calls via Axios and React Query. WebSocket hub URLs are configured but not actively used; live updates go through polling.
+- **Authentication**: JWT tokens (HS256, configurable expiration) with bcrypt password hashing. The `useEffectiveUser` hook resolves the active user ID in priority order: `useAuth().user?.id` → `useInitialization().user?.id` → `/api/auth/me` fallback. All API calls include `Authorization` headers automatically. Rate limiting on login, password complexity enforcement, and optional field-level encryption for API keys.
 - **Ownership enforcement**: Users can read/modify only their own settings and conversations. Admins can manage any user's data.
-- **Workers agent catalog**: `GET http://localhost:8000/api/agents` (workers orchestrator) — proxied by BFF at `GET /api/agents/catalog`.
-- **Development ports**: Local dev uses Frontend `:5173` + BFF `:8000`. Replit uses Frontend `:5000` + BFF `:8000`.
+- **Agent catalog**: `GET /api/agents/available` lists registered external agents. `GET /api/agents/catalog` is a stub for future expansion.
+- **Development ports**: Local dev uses Frontend `:5173` + BFF `:5000`. Replit uses Frontend `:5000` + BFF `:8000`.
 
 ---
 
 ## Roadmap
 
 - [x] Multi-user authentication with role-based access control
-- [x] Per-user LLM engine and model selection
+- [x] Per-user LLM engine and model selection (Ollama, LM Studio, OpenAI, Claude, vLLM)
 - [x] External agent registry with multi-tenant task lifecycle
 - [x] Temporal-orchestrated chat workflow
 - [x] Bare metal, Docker Swarm, and cloud deployment
 - [x] Environment-aware configuration and dashboard
-- [ ] Voice-first AI Room interface
-- [ ] Cross-instance federation
+- [x] Voice-first AI Room interface
+- [ ] Cross-instance AI federation
 - [ ] Memory management UI enhancements
 - [ ] Plugin system expansion
 - [ ] 3D avatar support
@@ -301,7 +287,7 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 
 Each user can configure a persistent AI persona through the character system:
 
-- **Character cards** — Import JSON character cards or create custom personalities via the admin panel. Admin controls character creation; users are assigned characters.
+- **Character cards** — Import YAML/JSON character cards or create custom personalities via the admin panel. Built-in characters include Sam, Sherlock, and GLaDOS. Admin controls character creation; users are assigned characters.
 - **Avatars** — Upload custom 2D avatars (3D support planned). Voice and speech pattern configuration per character.
 - **AI Room** — An optional voice-first interface that gives the AI a visual presence in a virtual living space. Decorable environment with planned 3D item support.
 - **Voice** — Fish Speech TTS (default, local, private) or ElevenLabs adapter. Per-user voice selection persisted in settings. Voice directory layout: `voices.json`, `*.wav` files, or one-level subfolders under `speech/TTS/openaudio-s1-mini/voices/`.
@@ -328,5 +314,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 - [`docs/hybrid-development.md`](docs/hybrid-development.md) — Hybrid dev environment details
 - [`docs/bare-metal-deployment.md`](docs/bare-metal-deployment.md) — Container-free deployment guide
 - [`docs/architecture-and-dataflow.md`](docs/architecture-and-dataflow.md) — Architecture diagrams and dataflow
-- [`docs/EXTERNAL_AGENT_GUIDE.md`](docs/EXTERNAL_AGENT_GUIDE.md) — External agent integration basics
-- [`docs/AGENT_STACK_INTEGRATION.md`](docs/AGENT_STACK_INTEGRATION.md) — Comprehensive agent technical spec (800+ lines)
+- [`docs/external-agent-guide.md`](docs/external-agent-guide.md) — External agent integration basics
+- [`docs/agent-stack-integration.md`](docs/agent-stack-integration.md) — Comprehensive agent technical spec
