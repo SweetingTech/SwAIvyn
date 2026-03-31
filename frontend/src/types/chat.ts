@@ -4,6 +4,7 @@ export interface Message {
   text: string;
   timestamp: string;
   attachments?: Attachment[];
+  isError?: boolean;
 }
 
 export interface Attachment {

@@ -33,12 +33,12 @@
 - Implement 2D avatar management with upload, cropping, and selection interface.
 
 ## Phase 3: Voice Integration & Room Interface
-- Integrate STT engine (Whisper) with audio capture, stream processing, and transcript generation.
-- Implement TTS engine with voice selection, audio streaming, and playback controls.
-- Create wake word detection service with background audio monitoring and event notification.
-- Design 2D room environment with avatar display, room background, and interactive elements.
-- Build voice-first interaction controls including microphone button and voice status indicators.
-- Create minimizable text chat component with slide animations and auto-hide.
+- [OK] Integrate STT engine (Whisper) with audio capture, stream processing, and transcript generation.
+- [OK] Implement TTS engine with voice selection, audio streaming, and playback controls.
+- [ ] Create wake word detection service with background audio monitoring and event notification.
+- [OK] Design 2D room environment with avatar display, room background, and interactive elements.
+- [OK] Build voice-first interaction controls including microphone button and voice status indicators.
+- [OK] Create minimizable text chat component with slide animations and auto-hide.
 
 ## Phase 4: Federation & Advanced Features
 - Implement peer discovery on local network.
