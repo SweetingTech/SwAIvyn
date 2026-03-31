@@ -1,137 +1,92 @@
 # Hybrid Development Guide
 
-Run fast with hot reload on the host while keeping heavy infra in Docker. You can also run TTS on bare metal for best dev performance on Windows.
+This is the **current** development flow for SwAIvyn.
 
-## Overview
+## What runs where
 
-- Host (hot reload):
-  - BFF (FastAPI) on http://localhost:5000
-  - Orchestrator (Temporal worker)
-  - Frontend (Vite) on http://localhost:5173
-- Docker (infra): Postgres, Temporal, Qdrant, Neo4j, STT, ElevenLabs adapter
-- Optional host services: TTS (Fish Speech) on http://localhost:8081 when using `-UseHostTTS`
+- **Host (hot reload)**
+  - Frontend (Vite): `http://localhost:5173`
+  - BFF (FastAPI): `http://localhost:5000`
+  - Orchestrator worker: background process (`python -m app.worker`)
+- **Docker Swarm (infra + routing via Traefik)**
+  - Traefik: `http://traefik.localhost:8088`
+  - Postgres: `localhost:5432`
+  - Temporal: `localhost:7233`
+  - Qdrant: `localhost:6333`
+  - Neo4j: `localhost:7474` (Bolt `7687`)
+  - Whisper STT: `localhost:9000`
+  - Fish Speech TTS (via host): `localhost:8081`
+  - ElevenLabs adapter: `localhost:8082`
 
 ## Prerequisites
 
-- Windows 10/11 or Linux
-- Docker Desktop (or Docker Engine)
+- Windows PowerShell (scripts are PowerShell-first)
+- Docker Desktop with Swarm support
 - Python 3.11+
 - Node.js 18+
 
-## Quickstart
+## Start / Stop
 
-1) Start infra, then apps (recommended hybrid flow):
+### Start everything
 
-```
-# Infra only (no app-tier images)
-scripts/infra-up.ps1                # add -WithTTSAdapter/-WithTTS/-WithOrchestrator if needed
-
-# Apps on host with hot reload
-scripts/dev-start.ps1 -UseHostTTS   # spawns BFF, Orchestrator, Frontend + host TTS window
+```powershell
+.\scripts\dev-run.ps1
 ```
 
-Or, the classic one-liner (includes infra checks and spawns app windows):
+Useful options:
 
-```
-scripts/dev-start.ps1
-```
+- `-FrontendOnly`
+- `-BackendOnly`
+- `-DisableTraefik`
+- `-TraefikPort 8088`
 
-Options:
-- `-UseHostTTS`: run Fish Speech TTS on the host (recommended in dev)
-- `-IncludeTTS`: also build/run the TTS container (skip when using `-UseHostTTS`)
-- `-ActivityThreads 64`: give the worker more threads
-- `-NoStopAppContainers`: leave the `bff/orchestrator/frontend` containers running (use if you prefer them instead of host processes)
+### Stop everything
 
-2) Stop:
-
-```
-scripts/dev-stop.ps1            # stop host apps + stop infra
-scripts/dev-stop.ps1 -Down      # full teardown (remove containers/networks)
+```powershell
+.\scripts\dev-shutdown.ps1
 ```
 
-## What the scripts do
+Optional cleanup:
 
-- `dev-start.ps1`:
-  - Ensures infra containers are running and healthy (Postgres, Temporal, Qdrant, Neo4j, STT, ElevenLabs adapter, optional TTS)
-  - Stops containerized `bff`, `orchestrator`, `frontend` by default to free ports
-  - Launches three PowerShell windows:
-    - BFF (`scripts/dev-bff.ps1`): creates/uses `.venv`, installs deps once, runs uvicorn with `--reload`
-    - Orchestrator (`scripts/dev-orchestrator.ps1`): creates/uses `.venv`, installs deps once, runs worker
-    - Frontend (`scripts/dev-frontend.ps1`): runs Vite
-  - If `-UseHostTTS`, also launches `scripts/dev-tts.ps1` (Fish Speech on http://localhost:8081)
-- `dev-stop.ps1`:
-  - Stops the host app processes from `.dev-state.json`
-  - Either stops infra or `down`s the compose project
-
-### Compose Profiles
-
-- Orchestrator, TTS, and the 11Labs adapter are behind profiles so they don't build/run by default:
-  - `orchestrator`: app worker image
-  - `tts`: Fish Speech TTS container
-  - `tts-adapter`: ElevenLabs adapter
-- Examples:
-  - `docker compose --profile orchestrator up -d orchestrator`
-  - `docker compose --profile tts up -d tts`
-  - `docker compose --profile tts-adapter up -d tts-11labs-adapter`
-
-## Ports
-
-- BFF: 5000
-- Frontend: 5173
-- Temporal: 7233
-- Postgres: 5432
-- Qdrant: 6333
-- Neo4j: 7474 (bolt 7687)
-- STT: 9000
-- ElevenLabs adapter: 8082
-
-## Auth + Login
-
-- Seeded users (default):
-  - admin / admin1234
-  - Mari / mari1234
-  - DJay / djay1234
-- "Remember me" persists login across reloads via localStorage.
-
-## Environment
-
-The BFF and Orchestrator scripts auto-load `.env` from repo root. Important keys:
-
-- `POSTGRES_PASSWORD`, `NEO4J_PASSWORD`: used by infra containers and host apps
-- `ELEVENLABS_API_KEY`: enables the adapter
-- (Optional) `OLLAMA_HOST`, `LMSTUDIO_HOST`: local LLM endpoints
-- (Dev) `FISHSPEECH_URL`: when running containers that should call host TTS, set to `http://host.docker.internal:8081`
-
-## Dataflow (per user)
-
-- Settings -> Chat Settings (per user)
-  - Engine/Model saves to `PUT /api/chat/settings/{userId}`
-  - Connections (LM Studio/Ollama/OpenAI/Claude/vLLM endpoints/keys) save to `PUT /api/settings/connections`
-- Chat -> Send
-  - Client includes `engine` + `model` in `POST /api/conversation/chat`
-  - BFF resolves per-user connections and launches the engine-specific workflow
-  - Workflows (one per engine) call only that engine with the selected model - no cycling
-  - TTS synthesis uses host TTS (http://localhost:8081) or adapter URLs based on env
-
-Per-user isolation:
-- All reads/writes for chat settings, connections, and conversations are authorized per user; only admin can access others' settings/data.
-
-## Update & Maintenance
-
-- Update dependencies and pull infra images:
-
-```
-scripts/update.ps1 -All
-# or
-scripts/update.ps1 -FrontendDeps -BackendDeps -InfraPull
+```powershell
+.\scripts\dev-shutdown.ps1 -DownCompose -Prune
 ```
 
-## Troubleshooting
+## Script behavior
 
-- Frontend shows splash "Waiting for backend"
-  - Ensure host BFF is listening on 5000; `Invoke-WebRequest http://localhost:5000/api/readyz`
-  - Restart Vite to pick up latest bundle
-- 401 /api/auth/me
-  - Expected before login; go to `/login` and use seeded credentials
-- Slow Docker builds (Windows)
-  - Prefer host apps + `scripts/infra-up.ps1` in dev. If you must build, build specific services and avoid the all-services tar export path.
+`dev-run.ps1`:
+
+1. Loads `.env`
+2. Ensures Docker Swarm networking and deploys `docker-stack.yml`
+3. Waits for infrastructure readiness (Traefik/Qdrant/Temporal)
+4. Starts host app processes using scripts resolved from `scripts/` or `scripts/old-scripts/`:
+   - `dev-frontend.ps1`
+   - `dev-bff.ps1`
+   - `dev-orchestrator.ps1`
+
+`dev-shutdown.ps1`:
+
+- Stops host processes (frontend/BFF/orchestrator)
+- Removes stack services and known containers
+- Optionally prunes Docker networks/resources
+
+## Important environment variables
+
+- `POSTGRES_PASSWORD` (required)
+- `NEO4J_PASSWORD` (required)
+- `DATABASE_URL` (auto-derived in host dev if unset)
+- `TEMPORAL_HOST` (default `127.0.0.1:7233` for host worker)
+- `QDRANT_URL` (default `http://localhost:6333`)
+- `FISHSPEECH_URL` (default `http://localhost:8081`)
+- `TTS_ADAPTER_URL` (default `http://localhost:8082`)
+- `OLLAMA_HOST`, `LMSTUDIO_HOST`
+
+## Health checks
+
+- BFF: `GET /healthz`, `GET /readyz`, `GET /api/readyz`
+- Orchestrator worker: `ORCHESTRATOR_HEALTH_PORT` (default `8088`) with `/healthz` and `/readyz`
+
+## Notes
+
+- Older docs/scripts that reference `scripts/dev-start.ps1`, `scripts/dev-stop.ps1`, or `scripts/infra-up.ps1` are obsolete.
+- In current dev flow, `scripts/dev-run.ps1` is the entrypoint.
