@@ -46,9 +46,39 @@ jobs:
       working-directory: frontend
       run: npm ci
 
-    - name: Run frontend linting
+    - name: Determine frontend lint targets
+      id: frontend-lint-targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+        mapfile -t files < <(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- 'frontend/*.js' 'frontend/*.jsx' 'frontend/*.ts' 'frontend/*.tsx' 'frontend/src/**/*.js' 'frontend/src/**/*.jsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx')
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        printf 'targets<<EOF\n' >> "$GITHUB_OUTPUT"
+        printf '%s\n' "${files[@]#frontend/}" >> "$GITHUB_OUTPUT"
+        printf 'EOF\n' >> "$GITHUB_OUTPUT"
+        echo "has_targets=true" >> "$GITHUB_OUTPUT"
+
+    - name: Run frontend linting (changed files)
+      if: steps.frontend-lint-targets.outputs.has_targets == 'true'
       working-directory: frontend
-      run: npm run lint
+      shell: bash
+      run: |
+        set -euo pipefail
+        mapfile -t files <<'EOF'
+        ${{ steps.frontend-lint-targets.outputs.targets }}
+        EOF
+        if [ "${#files[@]}" -gt 0 ]; then
+          npx eslint "${files[@]}"
+        fi
+
+    - name: Skip frontend linting
+      if: steps.frontend-lint-targets.outputs.has_targets != 'true'
+      run: echo "No changed frontend source files to lint."
+
 
     - name: Check frontend build
       working-directory: frontend
