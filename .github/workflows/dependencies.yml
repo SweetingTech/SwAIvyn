@@ -14,8 +14,9 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
+        submodules: false
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup Node.js
@@ -160,7 +161,9 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
+      with:
+        submodules: false
 
     - name: Setup Node.js
       uses: actions/setup-node@v4

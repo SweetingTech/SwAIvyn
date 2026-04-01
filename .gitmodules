@@ -1,0 +1,12 @@
+[submodule "speech/TTS/VibeVoice"]
+	path = speech/TTS/VibeVoice
+	url = https://github.com/microsoft/VibeVoice.git
+[submodule "speech/TTS/VibeVoice7B"]
+	path = speech/TTS/VibeVoice7B
+	url = https://github.com/microsoft/VibeVoice.git
+[submodule "speech/TTS/openaudio-s1-mini/fish-speech-gui"]
+	path = speech/TTS/openaudio-s1-mini/fish-speech-gui
+	url = https://github.com/AnyaCoder/fish-speech-gui.git
+[submodule "traefik"]
+	path = traefik
+	url = https://github.com/traefik/traefik.git

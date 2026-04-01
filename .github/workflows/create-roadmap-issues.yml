@@ -9,10 +9,16 @@ on:
         required: false
         default: false
         type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/create-roadmap-issues.yml
 
 permissions:
   issues: write
   contents: read
+  projects: write
 
 jobs:
   create-roadmap-issues:
@@ -21,7 +27,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          submodules: false
 
       - name: Create roadmap labels
         if: ${{ !inputs.dry_run }}
@@ -35,6 +43,37 @@ jobs:
           gh label create "plugin-system"      --color "fef3c7" --description "Plugin architecture and extensibility"    --force
           gh label create "avatar-3d"          --color "fde8d8" --description "3D avatar and room customization"         --force
           gh label create "mobile"             --color "e8d5f5" --description "Mobile companion application"             --force
+
+      - name: Create or find SwAIvyn Roadmap project
+        id: create-project
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+
+          # Check if a project named "SwAIvyn Roadmap" already exists
+          EXISTING=$(gh project list --owner "$OWNER" --format json \
+            | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          projects = data.get('projects', [])
+          for p in projects:
+              if p.get('title') == 'SwAIvyn Roadmap':
+                  print(p['number'])
+                  break
+          " 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Project already exists: #$EXISTING"
+            echo "project_number=$EXISTING" >> "$GITHUB_OUTPUT"
+          else
+            echo "Creating new project 'SwAIvyn Roadmap'..."
+            NEW_NUM=$(gh project create --owner "$OWNER" --title "SwAIvyn Roadmap" --format json \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['number'])")
+            echo "Created project #$NEW_NUM"
+            echo "project_number=$NEW_NUM" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── Issue 1: Cross-instance AI federation ─────────────────────────────
       - name: "[1/5] Cross-instance AI federation"
@@ -71,11 +110,29 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "DRY RUN: Would create issue 'Cross-instance AI federation'"
           else
-            gh issue create \
+            EXISTING=$(gh issue list \
               --repo "${{ github.repository }}" \
-              --title "Cross-instance AI federation" \
-              --body "$BODY" \
-              --label "roadmap,enhancement,federation"
+              --search "\"Cross-instance AI federation\" in:title" \
+              --state open \
+              --json number,title \
+              --jq '.[0].number // ""')
+            if [ -n "$EXISTING" ]; then
+              echo "Issue already exists: #$EXISTING, skipping creation"
+              ISSUE_URL="https://github.com/${{ github.repository }}/issues/$EXISTING"
+            else
+              ISSUE_URL=$(gh issue create \
+                --repo "${{ github.repository }}" \
+                --title "Cross-instance AI federation" \
+                --body "$BODY" \
+                --label "roadmap,enhancement,federation")
+              echo "Created: $ISSUE_URL"
+            fi
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
+            if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
+              gh project item-add "$PROJECT_NUM" \
+                --owner "${{ github.repository_owner }}" \
+                --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
+            fi
           fi
 
       # ── Issue 2: Memory management UI enhancements ────────────────────────
@@ -111,11 +168,29 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "DRY RUN: Would create issue 'Memory management UI enhancements'"
           else
-            gh issue create \
+            EXISTING=$(gh issue list \
               --repo "${{ github.repository }}" \
-              --title "Memory management UI enhancements" \
-              --body "$BODY" \
-              --label "roadmap,enhancement,memory"
+              --search "\"Memory management UI enhancements\" in:title" \
+              --state open \
+              --json number,title \
+              --jq '.[0].number // ""')
+            if [ -n "$EXISTING" ]; then
+              echo "Issue already exists: #$EXISTING, skipping creation"
+              ISSUE_URL="https://github.com/${{ github.repository }}/issues/$EXISTING"
+            else
+              ISSUE_URL=$(gh issue create \
+                --repo "${{ github.repository }}" \
+                --title "Memory management UI enhancements" \
+                --body "$BODY" \
+                --label "roadmap,enhancement,memory")
+              echo "Created: $ISSUE_URL"
+            fi
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
+            if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
+              gh project item-add "$PROJECT_NUM" \
+                --owner "${{ github.repository_owner }}" \
+                --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
+            fi
           fi
 
       # ── Issue 3: Plugin system expansion ──────────────────────────────────
@@ -152,11 +227,29 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "DRY RUN: Would create issue 'Plugin system expansion'"
           else
-            gh issue create \
+            EXISTING=$(gh issue list \
               --repo "${{ github.repository }}" \
-              --title "Plugin system expansion" \
-              --body "$BODY" \
-              --label "roadmap,enhancement,plugin-system"
+              --search "\"Plugin system expansion\" in:title" \
+              --state open \
+              --json number,title \
+              --jq '.[0].number // ""')
+            if [ -n "$EXISTING" ]; then
+              echo "Issue already exists: #$EXISTING, skipping creation"
+              ISSUE_URL="https://github.com/${{ github.repository }}/issues/$EXISTING"
+            else
+              ISSUE_URL=$(gh issue create \
+                --repo "${{ github.repository }}" \
+                --title "Plugin system expansion" \
+                --body "$BODY" \
+                --label "roadmap,enhancement,plugin-system")
+              echo "Created: $ISSUE_URL"
+            fi
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
+            if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
+              gh project item-add "$PROJECT_NUM" \
+                --owner "${{ github.repository_owner }}" \
+                --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
+            fi
           fi
 
       # ── Issue 4: 3D avatar support ─────────────────────────────────────────
@@ -194,11 +287,29 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "DRY RUN: Would create issue '3D avatar support'"
           else
-            gh issue create \
+            EXISTING=$(gh issue list \
               --repo "${{ github.repository }}" \
-              --title "3D avatar support" \
-              --body "$BODY" \
-              --label "roadmap,enhancement,avatar-3d"
+              --search "\"3D avatar support\" in:title" \
+              --state open \
+              --json number,title \
+              --jq '.[0].number // ""')
+            if [ -n "$EXISTING" ]; then
+              echo "Issue already exists: #$EXISTING, skipping creation"
+              ISSUE_URL="https://github.com/${{ github.repository }}/issues/$EXISTING"
+            else
+              ISSUE_URL=$(gh issue create \
+                --repo "${{ github.repository }}" \
+                --title "3D avatar support" \
+                --body "$BODY" \
+                --label "roadmap,enhancement,avatar-3d")
+              echo "Created: $ISSUE_URL"
+            fi
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
+            if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
+              gh project item-add "$PROJECT_NUM" \
+                --owner "${{ github.repository_owner }}" \
+                --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
+            fi
           fi
 
       # ── Issue 5: Mobile companion app ──────────────────────────────────────
@@ -234,11 +345,29 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "DRY RUN: Would create issue 'Mobile companion app'"
           else
-            gh issue create \
+            EXISTING=$(gh issue list \
               --repo "${{ github.repository }}" \
-              --title "Mobile companion app" \
-              --body "$BODY" \
-              --label "roadmap,enhancement,mobile"
+              --search "\"Mobile companion app\" in:title" \
+              --state open \
+              --json number,title \
+              --jq '.[0].number // ""')
+            if [ -n "$EXISTING" ]; then
+              echo "Issue already exists: #$EXISTING, skipping creation"
+              ISSUE_URL="https://github.com/${{ github.repository }}/issues/$EXISTING"
+            else
+              ISSUE_URL=$(gh issue create \
+                --repo "${{ github.repository }}" \
+                --title "Mobile companion app" \
+                --body "$BODY" \
+                --label "roadmap,enhancement,mobile")
+              echo "Created: $ISSUE_URL"
+            fi
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
+            if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
+              gh project item-add "$PROJECT_NUM" \
+                --owner "${{ github.repository_owner }}" \
+                --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
+            fi
           fi
 
       - name: Summary
@@ -249,8 +378,10 @@ jobs:
             echo "Re-run the workflow with dry_run=false to create the issues."
             echo "Re-run the workflow with dry_run=false to create the issues." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### Issues created successfully"
-            echo "### Issues created successfully" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Issues and project created successfully"
+            echo "### Issues and project created successfully" >> "$GITHUB_STEP_SUMMARY"
             echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap"
             echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap" >> "$GITHUB_STEP_SUMMARY"
+            echo "View project board: https://github.com/orgs/${{ github.repository_owner }}/projects"
+            echo "View project board: https://github.com/orgs/${{ github.repository_owner }}/projects" >> "$GITHUB_STEP_SUMMARY"
           fi
