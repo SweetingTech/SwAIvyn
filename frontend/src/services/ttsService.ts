@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios';
 import apiService from './apiService';
 
 interface TtsProvider {
@@ -35,6 +36,12 @@ interface UploadVoiceRequest {
   audioFile: File;
   transcript: string;
   voiceName: string;
+}
+
+interface SynthesizeRequest {
+  text: string;
+  userId?: string;
+  voiceId?: string;
 }
 
 const ttsService = {
@@ -77,12 +84,13 @@ const ttsService = {
    * Returns an audio Blob.
    */
   async synthesize(text: string, userId?: string, voiceId?: string): Promise<Blob> {
-    const payload: any = { text };
+    const payload: SynthesizeRequest = { text };
     if (userId) payload.userId = userId;
     if (voiceId) payload.voiceId = voiceId;
 
     // Use apiService to include Authorization header automatically
-    const blob = await apiService.post('/api/tts/synthesize', payload, { responseType: 'blob' as any });
+    const blobRequestConfig: AxiosRequestConfig = { responseType: 'blob' };
+    const blob = await apiService.post('/api/tts/synthesize', payload, blobRequestConfig);
     return blob as unknown as Blob;
   },
 

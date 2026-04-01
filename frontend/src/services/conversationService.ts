@@ -1,5 +1,11 @@
 import apiService from './apiService';
 
+interface HttpErrorLike {
+  response?: {
+    status?: number;
+  };
+}
+
 export interface Conversation {
   id: string;
   userId: string;
@@ -30,9 +36,10 @@ const conversationService = {
     try {
       const response = await apiService.get(`/api/conversation/user/${userId}`);
       return Array.isArray(response) ? response : [];
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const httpError = error as HttpErrorLike;
       // If it's a 404 or similar "not found" error, return empty array instead of throwing
-      if (error.response && (error.response.status === 404 || error.response.status === 204)) {
+      if (httpError.response && (httpError.response.status === 404 || httpError.response.status === 204)) {
         return [];
       }
       console.error('Error getting conversations:', error);
@@ -148,7 +155,7 @@ const conversationService = {
       return false;
     } catch (error) {
       // Treat 404 as already deleted for idempotency
-      const status = (error as any)?.response?.status;
+      const status = (error as HttpErrorLike).response?.status;
       if (status === 404) {
         return true;
       }
@@ -183,7 +190,7 @@ const conversationService = {
       );
       
       return sortedConversations[0];
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`Error getting recent conversation for user ${userId}:`, error);
       return null; // Return null on error instead of throwing
     }
