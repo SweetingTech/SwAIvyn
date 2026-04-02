@@ -6,6 +6,9 @@ interface HttpErrorLike {
   };
 }
 
+const isHttpErrorLike = (error: unknown): error is HttpErrorLike =>
+  typeof error === 'object' && error !== null && 'response' in error;
+
 export interface Conversation {
   id: string;
   userId: string;
@@ -37,9 +40,11 @@ const conversationService = {
       const response = await apiService.get(`/api/conversation/user/${userId}`);
       return Array.isArray(response) ? response : [];
     } catch (error: unknown) {
-      const httpError = error as HttpErrorLike;
       // If it's a 404 or similar "not found" error, return empty array instead of throwing
-      if (httpError.response && (httpError.response.status === 404 || httpError.response.status === 204)) {
+      if (
+        isHttpErrorLike(error) &&
+        (error.response?.status === 404 || error.response?.status === 204)
+      ) {
         return [];
       }
       console.error('Error getting conversations:', error);
@@ -155,8 +160,7 @@ const conversationService = {
       return false;
     } catch (error) {
       // Treat 404 as already deleted for idempotency
-      const status = (error as HttpErrorLike).response?.status;
-      if (status === 404) {
+      if (isHttpErrorLike(error) && error.response?.status === 404) {
         return true;
       }
       console.error(`Error deleting conversation ${id}:`, error);

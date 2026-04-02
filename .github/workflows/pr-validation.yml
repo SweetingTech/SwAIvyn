@@ -57,7 +57,7 @@ jobs:
       run: |
         set -euo pipefail
         git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-        mapfile -t files < <(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- 'frontend/*.js' 'frontend/*.jsx' 'frontend/*.ts' 'frontend/*.tsx' 'frontend/src/**/*.js' 'frontend/src/**/*.jsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx')
+        mapfile -t files < <(git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}...HEAD" -- 'frontend/*.js' 'frontend/*.jsx' 'frontend/*.ts' 'frontend/*.tsx' 'frontend/src/**/*.js' 'frontend/src/**/*.jsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx')
         if [ "${#files[@]}" -eq 0 ]; then
           echo "has_targets=false" >> "$GITHUB_OUTPUT"
           exit 0
