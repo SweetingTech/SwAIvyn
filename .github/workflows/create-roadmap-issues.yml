@@ -20,11 +20,6 @@ permissions:
   contents: read
   projects: write
 
-env:
-  ROADMAP_PROJECT_OWNER: SweetingTech
-  ROADMAP_PROJECT_NUMBER: "7"
-  ROADMAP_PROJECT_TITLE: IOC
-
 jobs:
   create-roadmap-issues:
     runs-on: ubuntu-latest
@@ -49,13 +44,36 @@ jobs:
           gh label create "avatar-3d"          --color "fde8d8" --description "3D avatar and room customization"         --force
           gh label create "mobile"             --color "e8d5f5" --description "Mobile companion application"             --force
 
-      - name: Use existing IOC project
-        id: project
+      - name: Create or find SwAIvyn Roadmap project
+        id: create-project
         if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Using GitHub Project '$ROADMAP_PROJECT_TITLE' (#$ROADMAP_PROJECT_NUMBER) owned by $ROADMAP_PROJECT_OWNER"
-          echo "project_number=$ROADMAP_PROJECT_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "project_owner=$ROADMAP_PROJECT_OWNER" >> "$GITHUB_OUTPUT"
+          OWNER="${{ github.repository_owner }}"
+
+          # Check if a project named "SwAIvyn Roadmap" already exists
+          EXISTING=$(gh project list --owner "$OWNER" --format json \
+            | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          projects = data.get('projects', [])
+          for p in projects:
+              if p.get('title') == 'SwAIvyn Roadmap':
+                  print(p['number'])
+                  break
+          " 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Project already exists: #$EXISTING"
+            echo "project_number=$EXISTING" >> "$GITHUB_OUTPUT"
+          else
+            echo "Creating new project 'SwAIvyn Roadmap'..."
+            NEW_NUM=$(gh project create --owner "$OWNER" --title "SwAIvyn Roadmap" --format json \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['number'])")
+            echo "Created project #$NEW_NUM"
+            echo "project_number=$NEW_NUM" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── Issue 1: Cross-instance AI federation ─────────────────────────────
       - name: "[1/5] Cross-instance AI federation"
@@ -109,11 +127,10 @@ jobs:
                 --label "roadmap,enhancement,federation")
               echo "Created: $ISSUE_URL"
             fi
-            PROJECT_NUM="${{ steps.project.outputs.project_number }}"
-            PROJECT_OWNER="${{ steps.project.outputs.project_owner }}"
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
             if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
               gh project item-add "$PROJECT_NUM" \
-                --owner "$PROJECT_OWNER" \
+                --owner "${{ github.repository_owner }}" \
                 --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
             fi
           fi
@@ -168,11 +185,10 @@ jobs:
                 --label "roadmap,enhancement,memory")
               echo "Created: $ISSUE_URL"
             fi
-            PROJECT_NUM="${{ steps.project.outputs.project_number }}"
-            PROJECT_OWNER="${{ steps.project.outputs.project_owner }}"
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
             if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
               gh project item-add "$PROJECT_NUM" \
-                --owner "$PROJECT_OWNER" \
+                --owner "${{ github.repository_owner }}" \
                 --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
             fi
           fi
@@ -228,11 +244,10 @@ jobs:
                 --label "roadmap,enhancement,plugin-system")
               echo "Created: $ISSUE_URL"
             fi
-            PROJECT_NUM="${{ steps.project.outputs.project_number }}"
-            PROJECT_OWNER="${{ steps.project.outputs.project_owner }}"
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
             if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
               gh project item-add "$PROJECT_NUM" \
-                --owner "$PROJECT_OWNER" \
+                --owner "${{ github.repository_owner }}" \
                 --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
             fi
           fi
@@ -289,11 +304,10 @@ jobs:
                 --label "roadmap,enhancement,avatar-3d")
               echo "Created: $ISSUE_URL"
             fi
-            PROJECT_NUM="${{ steps.project.outputs.project_number }}"
-            PROJECT_OWNER="${{ steps.project.outputs.project_owner }}"
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
             if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
               gh project item-add "$PROJECT_NUM" \
-                --owner "$PROJECT_OWNER" \
+                --owner "${{ github.repository_owner }}" \
                 --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
             fi
           fi
@@ -348,11 +362,10 @@ jobs:
                 --label "roadmap,enhancement,mobile")
               echo "Created: $ISSUE_URL"
             fi
-            PROJECT_NUM="${{ steps.project.outputs.project_number }}"
-            PROJECT_OWNER="${{ steps.project.outputs.project_owner }}"
+            PROJECT_NUM="${{ steps.create-project.outputs.project_number }}"
             if [ -n "$PROJECT_NUM" ] && [ -n "$ISSUE_URL" ]; then
               gh project item-add "$PROJECT_NUM" \
-                --owner "$PROJECT_OWNER" \
+                --owner "${{ github.repository_owner }}" \
                 --url "$ISSUE_URL" 2>/dev/null || echo "Item may already be in project"
             fi
           fi
@@ -365,10 +378,10 @@ jobs:
             echo "Re-run the workflow with dry_run=false to create the issues."
             echo "Re-run the workflow with dry_run=false to create the issues." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### Issues created and linked to IOC"
-            echo "### Issues created and linked to IOC" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Issues and project created successfully"
+            echo "### Issues and project created successfully" >> "$GITHUB_STEP_SUMMARY"
             echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap"
             echo "View open issues: https://github.com/${{ github.repository }}/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap" >> "$GITHUB_STEP_SUMMARY"
-            echo "View project board: https://github.com/users/$ROADMAP_PROJECT_OWNER/projects/$ROADMAP_PROJECT_NUMBER"
-            echo "View project board: https://github.com/users/$ROADMAP_PROJECT_OWNER/projects/$ROADMAP_PROJECT_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+            echo "View project board: https://github.com/orgs/${{ github.repository_owner }}/projects"
+            echo "View project board: https://github.com/orgs/${{ github.repository_owner }}/projects" >> "$GITHUB_STEP_SUMMARY"
           fi
