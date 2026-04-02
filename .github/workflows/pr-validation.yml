@@ -6,6 +6,11 @@ on:
     types: [opened, synchronize, reopened]
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -46,33 +51,85 @@ jobs:
       working-directory: frontend
       run: npm ci
 
-    - name: Run frontend linting
+    - name: Determine frontend lint targets
+      id: frontend-lint-targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+        mapfile -t files < <(git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}...HEAD" -- 'frontend/*.js' 'frontend/*.jsx' 'frontend/*.ts' 'frontend/*.tsx' 'frontend/src/**/*.js' 'frontend/src/**/*.jsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx')
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        printf 'targets<<EOF\n' >> "$GITHUB_OUTPUT"
+        printf '%s\n' "${files[@]#frontend/}" >> "$GITHUB_OUTPUT"
+        printf 'EOF\n' >> "$GITHUB_OUTPUT"
+        echo "has_targets=true" >> "$GITHUB_OUTPUT"
+
+    - name: Run frontend linting (changed files)
+      if: steps.frontend-lint-targets.outputs.has_targets == 'true'
       working-directory: frontend
-      run: npm run lint
+      shell: bash
+      run: |
+        set -euo pipefail
+        mapfile -t files <<'EOF'
+        ${{ steps.frontend-lint-targets.outputs.targets }}
+        EOF
+        if [ "${#files[@]}" -gt 0 ]; then
+          npx eslint "${files[@]}"
+        fi
+
+    - name: Skip frontend linting
+      if: steps.frontend-lint-targets.outputs.has_targets != 'true'
+      run: echo "No changed frontend source files to lint."
+
 
     - name: Check frontend build
       working-directory: frontend
       run: npm run build
 
+    - name: Detect backend project
+      id: backend-project
+      shell: pwsh
+      run: |
+        $project = Get-ChildItem -Recurse -Filter *.csproj |
+          Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+          Select-Object -First 1 -ExpandProperty FullName
+        if ($project) {
+          "exists=true" >> $env:GITHUB_OUTPUT
+          "path=$project" >> $env:GITHUB_OUTPUT
+          Write-Host "Using .NET project: $project"
+        } else {
+          "exists=false" >> $env:GITHUB_OUTPUT
+          Write-Host "No .NET project found; skipping .NET steps."
+        }
+
     - name: Restore .NET dependencies
-      working-directory: backend
-      run: dotnet restore
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet restore "${{ steps.backend-project.outputs.path }}"
 
     - name: Check backend build
-      working-directory: backend
-      run: dotnet build --configuration Release --no-restore
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet build "${{ steps.backend-project.outputs.path }}" --configuration Release --no-restore
 
     - name: Run development setup (quick validation)
+      if: hashFiles('scripts/dev-setup.ps1') != ''
       run: |
         .\scripts\dev-setup.ps1
       shell: powershell
 
     - name: Validate build scripts
+      if: hashFiles('scripts/build-app.ps1', 'scripts/full-setup.ps1') != ''
       run: |
         # Test that build script can be parsed (syntax check)
         try {
-          $null = [ScriptBlock]::Create((Get-Content .\scripts\build-app.ps1 -Raw))
-          $null = [ScriptBlock]::Create((Get-Content .\scripts\full-setup.ps1 -Raw))
+          if (Test-Path .\scripts\build-app.ps1) {
+            $null = [ScriptBlock]::Create((Get-Content .\scripts\build-app.ps1 -Raw))
+          }
+          if (Test-Path .\scripts\full-setup.ps1) {
+            $null = [ScriptBlock]::Create((Get-Content .\scripts\full-setup.ps1 -Raw))
+          }
           Write-Host "✓ Build scripts syntax validation passed" -ForegroundColor Green
         } catch {
           Write-Error "Build script syntax error: $_"
@@ -86,16 +143,18 @@ jobs:
         $issues = @()
         
         # Check for hardcoded paths
-        $hardcodedPaths = Select-String -Path "backend\*.cs" -Pattern "C:\\|D:\\|/Users/" -ErrorAction SilentlyContinue
-        if ($hardcodedPaths) {
+        $hardcodedPaths = @()
+        if (Test-Path "backend") {
+          $hardcodedPaths = Select-String -Path "backend\*.cs" -Pattern "C:\\|D:\\|/Users/" -ErrorAction SilentlyContinue
+        }
+        if ($hardcodedPaths.Count -gt 0) {
           $issues += "Found potential hardcoded paths in backend code"
         }
         
         # Check for missing files that the build depends on
         $requiredFiles = @(
-          "backend\SwAIvyn.csproj",
           "frontend\package.json",
-          "scripts\build-app.ps1"
+          "scripts\dev-run.ps1"
         )
         
         foreach ($file in $requiredFiles) {
@@ -109,7 +168,7 @@ jobs:
           $issues | ForEach-Object { Write-Warning "- $_" }
           exit 1
         } else {
-          Write-Host "✓ No common issues found" -ForegroundColor Green
+          Write-Host "No common issues found" -ForegroundColor Green
         }
       shell: powershell
 

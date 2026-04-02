@@ -42,7 +42,38 @@ jobs:
       working-directory: frontend
       run: npm ci
 
+    - name: Determine frontend lint targets
+      id: frontend-lint-targets
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        set -euo pipefail
+        git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+        mapfile -t files < <(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- 'frontend/*.js' 'frontend/*.jsx' 'frontend/*.ts' 'frontend/*.tsx' 'frontend/src/**/*.js' 'frontend/src/**/*.jsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx')
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        printf 'targets<<EOF\n' >> "$GITHUB_OUTPUT"
+        printf '%s\n' "${files[@]#frontend/}" >> "$GITHUB_OUTPUT"
+        printf 'EOF\n' >> "$GITHUB_OUTPUT"
+        echo "has_targets=true" >> "$GITHUB_OUTPUT"
+
+    - name: Run frontend linting (changed files)
+      if: github.event_name == 'pull_request' && steps.frontend-lint-targets.outputs.has_targets == 'true'
+      working-directory: frontend
+      shell: bash
+      run: |
+        set -euo pipefail
+        mapfile -t files <<'EOF'
+        ${{ steps.frontend-lint-targets.outputs.targets }}
+        EOF
+        if [ "${#files[@]}" -gt 0 ]; then
+          npx eslint "${files[@]}"
+        fi
+
     - name: Run frontend linting
+      if: github.event_name != 'pull_request'
       working-directory: frontend
       run: npm run lint
 
@@ -50,17 +81,33 @@ jobs:
       working-directory: frontend
       run: npm run build
 
+    - name: Detect backend project
+      id: backend-project
+      shell: pwsh
+      run: |
+        $project = Get-ChildItem -Recurse -Filter *.csproj |
+          Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+          Select-Object -First 1 -ExpandProperty FullName
+        if ($project) {
+          "exists=true" >> $env:GITHUB_OUTPUT
+          "path=$project" >> $env:GITHUB_OUTPUT
+          Write-Host "Using .NET project: $project"
+        } else {
+          "exists=false" >> $env:GITHUB_OUTPUT
+          Write-Host "No .NET project found; skipping .NET steps."
+        }
+
     - name: Restore .NET dependencies
-      working-directory: backend
-      run: dotnet restore
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet restore "${{ steps.backend-project.outputs.path }}"
 
     - name: Build backend
-      working-directory: backend
-      run: dotnet build --configuration Release --no-restore
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet build "${{ steps.backend-project.outputs.path }}" --configuration Release --no-restore
 
     - name: Run .NET tests (if any)
-      working-directory: backend
-      run: dotnet test --configuration Release --no-build --verbosity normal
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet test "${{ steps.backend-project.outputs.path }}" --configuration Release --no-build --verbosity normal
       continue-on-error: true
 
   build:

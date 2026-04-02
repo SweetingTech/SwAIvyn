@@ -19,6 +19,15 @@ export interface UpdateChatSettingsPayload {
   engineModels?: Record<string, string>;
 }
 
+interface SendMessageRequest {
+  conversationId: string;
+  message: string;
+  userId: string | null;
+  characterId?: string;
+  engine?: string;
+  model?: string;
+}
+
 /**
  * Service for chat-related API calls
  */
@@ -49,7 +58,7 @@ const chatService = {
         return `I'm sorry, but I'm currently in demo mode and can't process your request: "${message}". Please ensure you have a valid conversation.`;
       }
 
-      const requestBody: any = {
+      const requestBody: SendMessageRequest = {
         conversationId,
         message,
         userId: userId || null
@@ -58,7 +67,7 @@ const chatService = {
       if (characterId && characterId !== 'null' && characterId !== 'undefined') {
         requestBody.characterId = characterId;
       } else {
-        requestBody.characterId = "default";
+        requestBody.characterId = 'default';
       }
 
       if (engineOverride) {
