@@ -81,17 +81,33 @@ jobs:
       working-directory: frontend
       run: npm run build
 
+    - name: Detect backend project
+      id: backend-project
+      shell: pwsh
+      run: |
+        $project = Get-ChildItem -Recurse -Filter *.csproj |
+          Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+          Select-Object -First 1 -ExpandProperty FullName
+        if ($project) {
+          "exists=true" >> $env:GITHUB_OUTPUT
+          "path=$project" >> $env:GITHUB_OUTPUT
+          Write-Host "Using .NET project: $project"
+        } else {
+          "exists=false" >> $env:GITHUB_OUTPUT
+          Write-Host "No .NET project found; skipping .NET steps."
+        }
+
     - name: Restore .NET dependencies
-      working-directory: backend
-      run: dotnet restore
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet restore "${{ steps.backend-project.outputs.path }}"
 
     - name: Build backend
-      working-directory: backend
-      run: dotnet build --configuration Release --no-restore
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet build "${{ steps.backend-project.outputs.path }}" --configuration Release --no-restore
 
     - name: Run .NET tests (if any)
-      working-directory: backend
-      run: dotnet test --configuration Release --no-build --verbosity normal
+      if: steps.backend-project.outputs.exists == 'true'
+      run: dotnet test "${{ steps.backend-project.outputs.path }}" --configuration Release --no-build --verbosity normal
       continue-on-error: true
 
   build:
