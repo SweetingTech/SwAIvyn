@@ -160,7 +160,7 @@ jobs:
           $issues | ForEach-Object { Write-Warning "- $_" }
           exit 1
         } else {
-          Write-Host "✓ No common issues found" -ForegroundColor Green
+          Write-Host "No common issues found" -ForegroundColor Green
         }
       shell: powershell
 
