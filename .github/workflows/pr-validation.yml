@@ -138,8 +138,11 @@ jobs:
         $issues = @()
         
         # Check for hardcoded paths
-        $hardcodedPaths = Select-String -Path "backend\*.cs" -Pattern "C:\\|D:\\|/Users/" -ErrorAction SilentlyContinue
-        if ($hardcodedPaths) {
+        $hardcodedPaths = @()
+        if (Test-Path "backend") {
+          $hardcodedPaths = Select-String -Path "backend\*.cs" -Pattern "C:\\|D:\\|/Users/" -ErrorAction SilentlyContinue
+        }
+        if ($hardcodedPaths.Count -gt 0) {
           $issues += "Found potential hardcoded paths in backend code"
         }
         
