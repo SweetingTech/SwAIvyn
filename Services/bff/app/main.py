@@ -104,31 +104,36 @@ VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:admin@swai.local")
 _vapid_instance = None
 
 def _get_vapid():
-    """Return (private_key_pem, public_key_base64) for Web Push VAPID signing."""
+    """Return (vapid_instance, public_key_base64) for Web Push VAPID signing.
+
+    The first tuple element is a ``py_vapid.Vapid`` instance used for signing,
+    not a PEM-encoded private key string. If VAPID support is unavailable,
+    returns ``(None, None)``.
+    """
     global _vapid_instance, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY
     if _vapid_instance is not None:
         return _vapid_instance
     try:
         from py_vapid import Vapid
         if VAPID_PRIVATE_KEY:
-            v = Vapid.from_pem(VAPID_PRIVATE_KEY.encode() if isinstance(VAPID_PRIVATE_KEY, str) else VAPID_PRIVATE_KEY)
+            vapid_obj = Vapid.from_pem(VAPID_PRIVATE_KEY.encode() if isinstance(VAPID_PRIVATE_KEY, str) else VAPID_PRIVATE_KEY)
         else:
-            v = Vapid()
-            v.generate_keys()
+            vapid_obj = Vapid()
+            vapid_obj.generate_keys()
             logger.warning(
                 "VAPID_PRIVATE_KEY not set; generated ephemeral VAPID keys. "
                 "Push subscriptions will break on restart. Set VAPID_PRIVATE_KEY + VAPID_PUBLIC_KEY env vars."
             )
         # Cache application server key (URL-safe base64, no padding)
         import base64
-        pub_bytes = v.public_key.public_bytes(
+        pub_bytes = vapid_obj.public_key.public_bytes(
             encoding=__import__('cryptography.hazmat.primitives.serialization', fromlist=['Encoding']).Encoding.X962,
             format=__import__('cryptography.hazmat.primitives.serialization', fromlist=['PublicFormat']).PublicFormat.UncompressedPoint,
         )
         pub_b64 = base64.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode()
         if not VAPID_PUBLIC_KEY:
             VAPID_PUBLIC_KEY = pub_b64
-        _vapid_instance = (v, pub_b64)
+        _vapid_instance = (vapid_obj, pub_b64)
         return _vapid_instance
     except ImportError:
         logger.warning("py_vapid / pywebpush not installed; push notifications disabled.")
@@ -2491,15 +2496,30 @@ async def create_task_result(task_id: str, body: ResultCreate, request: Request,
             )
         )
 
-    # Send push notification to the task owner (best-effort, fire-and-forget)
-    asyncio.create_task(
-        _send_push_notification(
-            user_id=user_id,
-            title="Agent Task Complete",
-            body=f"Result ready: {body.name}",
-            engine=engine,
-        )
-    )
+    # Send push notification to the task owner only if the task has not already
+    # transitioned to a terminal state.  In the typical agent flow the agent
+    # first PATCHes the task to "completed" (which triggers its own notification)
+    # and then POSTs results — skip here to avoid a duplicate notification.
+    if engine is not None:
+        async with engine.connect() as _sc:
+            _tr = await _sc.execute(
+                select(agent_tasks.c.status)
+                .where(
+                    agent_tasks.c.id == task_id,
+                    agent_tasks.c.user_id == user_id,
+                )
+                .limit(1)
+            )
+            _task_row = _tr.first()
+            if not (_task_row and _task_row.status in {"completed", "failed"}):
+                asyncio.create_task(
+                    _send_push_notification(
+                        user_id=user_id,
+                        title="Agent Task Complete",
+                        body=f"Result ready: {body.name}",
+                        engine=engine,
+                    )
+                )
 
     return {"result_id": result_id, "success": True}
 
@@ -2938,7 +2958,10 @@ async def _send_push_notification(user_id: str, title: str, body: str, engine: O
             "keys": {"p256dh": row.p256dh, "auth": row.auth},
         }
         try:
-            webpush(
+            # webpush() is synchronous and performs a blocking network request;
+            # run it in a thread pool to avoid stalling the event loop.
+            await asyncio.to_thread(
+                webpush,
                 subscription_info=subscription_info,
                 data=payload,
                 vapid_private_key=vapid_obj,
@@ -2998,16 +3021,27 @@ async def push_subscribe(request: Request, body: dict, engine: Optional[AsyncEng
     sub_id = str(uuid.uuid4())
 
     async with engine.begin() as conn:
-        # Upsert by endpoint (one record per endpoint, regardless of user)
+        # Upsert by endpoint — but reject if the endpoint belongs to another user
         existing = await conn.execute(
-            select(t_push_subscriptions.c.id).where(t_push_subscriptions.c.endpoint == endpoint).limit(1)
+            select(
+                t_push_subscriptions.c.id,
+                t_push_subscriptions.c.user_id,
+            ).where(t_push_subscriptions.c.endpoint == endpoint).limit(1)
         )
         row = existing.first()
         if row:
+            if row.user_id != uid:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This push subscription endpoint is already registered to another user.",
+                )
             await conn.execute(
                 t_push_subscriptions.update()
-                .where(t_push_subscriptions.c.endpoint == endpoint)
-                .values(user_id=uid, p256dh=p256dh, auth=auth_key, created_at=now)
+                .where(
+                    t_push_subscriptions.c.endpoint == endpoint,
+                    t_push_subscriptions.c.user_id == uid,
+                )
+                .values(p256dh=p256dh, auth=auth_key, created_at=now)
             )
         else:
             await conn.execute(

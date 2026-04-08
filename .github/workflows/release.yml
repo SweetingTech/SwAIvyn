@@ -158,6 +158,7 @@ jobs:
   pwa-build:
     runs-on: ubuntu-latest
     name: PWA Build
+    needs: release-build
     permissions:
       contents: write
 

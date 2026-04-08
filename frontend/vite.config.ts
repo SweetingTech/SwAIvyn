@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
+        // Use the custom service worker so push and notificationclick events
+        // are handled correctly in addition to Workbox precaching.
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
         includeAssets: ['favicon.ico', 'default-avatar.png'],
         manifest: {
           name: 'SwAIvyn',
@@ -40,50 +45,6 @@ export default defineConfig(({ mode }) => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable',
-            },
-          ],
-        },
-        workbox: {
-          // Cache API responses for offline graceful degradation
-          runtimeCaching: [
-            {
-              // Cache conversation list and messages for offline access
-              urlPattern: /^.*\/api\/conversation.*/i,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-conversations',
-                expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 24 * 60 * 60, // 24 hours
-                },
-                networkTimeoutSeconds: 5,
-              },
-            },
-            {
-              // Cache chat settings for offline access
-              urlPattern: /^.*\/api\/chat\/settings.*/i,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-settings',
-                expiration: {
-                  maxEntries: 20,
-                  maxAgeSeconds: 24 * 60 * 60,
-                },
-                networkTimeoutSeconds: 5,
-              },
-            },
-            {
-              // Cache character data
-              urlPattern: /^.*\/api\/characters.*/i,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-characters',
-                expiration: {
-                  maxEntries: 50,
-                  maxAgeSeconds: 24 * 60 * 60,
-                },
-                networkTimeoutSeconds: 5,
-              },
             },
           ],
         },
