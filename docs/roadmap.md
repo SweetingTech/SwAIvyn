@@ -39,6 +39,9 @@
 - [OK] Design 2D room environment with avatar display, room background, and interactive elements.
 - [OK] Build voice-first interaction controls including microphone button and voice status indicators.
 - [OK] Create minimizable text chat component with slide animations and auto-hide.
+- [OK] Replace 2D orb avatar with a real-time 3D scene (Three.js / React Three Fiber) in the Voice Room.
+- [OK] Add wake word detection service with background SpeechRecognition monitoring.
+- [OK] Add 3D model (VRM / glTF) upload support in the Character Editor.
 
 ## Phase 4: Federation & Advanced Features
 - Implement peer discovery on local network.
@@ -53,8 +56,8 @@
 - Design plugin interface and manifest format.
 - Build plugin manager service for discovery, installation, updates, and removal.
 - Create plugin management UI.
-- Develop 3D avatar space UI and Tamagotchi-like stat system.
-- Implement room customization and voice profile training systems.
+- [x] Develop 3D avatar space UI and Tamagotchi-like stat system.
+- [x] Implement room customization and voice profile training systems.
 
 ## Phase 6: Reliability & Polish
 - Implement automated local and cloud backups with scheduling and encryption.

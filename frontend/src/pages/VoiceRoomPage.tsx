@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Mic, Volume2, MessageSquare, Loader2 } from 'lucide-react';
+import { Mic, Volume2, MessageSquare, Loader2, UserCircle2, Radio } from 'lucide-react';
 import ttsService from '../services/ttsService';
 import chatService from '../services/chatService';
 import conversationService from '../services/conversationService';
 import { transcribeAudio } from '../services/sttService';
-import VoiceRoomAvatar from '../components/voice-room/VoiceRoomAvatar';
 import MiniChat from '../components/voice-room/MiniChat';
+import Avatar3DScene from '../components/voice-room/Avatar3DScene';
+import AvatarStatsPanel, { useAvatarStats } from '../components/voice-room/AvatarStats';
+import RoomCustomizer, { loadRoomItems } from '../components/voice-room/RoomCustomizer';
+import { VoiceProfileModal } from '../components/voice-room/VoiceProfileTrainer';
+import { useWakeWord } from '../hooks/useWakeWord';
 import useEffectiveUser from '../hooks/useEffectiveUser';
 import { Message } from '../types/chat';
 
@@ -19,6 +23,7 @@ interface VoiceConfig {
 const VoiceRoomPage = () => {
   const effectiveUserId = useEffectiveUser();
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
+  const [isVoiceProfileOpen, setIsVoiceProfileOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -26,9 +31,28 @@ const VoiceRoomPage = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
+  // 3D room state
+  const [activeRoomItems, setActiveRoomItems] = useState<string[]>(loadRoomItems);
+  const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
+
+  // Tamagotchi stats
+  const { stats, setStats, recordInteraction } = useAvatarStats();
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Wake word detection
+  const { isSupported: wakeWordSupported, isActive: wakeWordActive, setActive: setWakeWordActive } =
+    useWakeWord({
+      wakeWord: 'hey assistant',
+      enabled: wakeWordEnabled,
+      onDetected: () => {
+        if (!isListening && !isProcessing && !isSpeaking) {
+          startRecording();
+        }
+      },
+    });
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -171,6 +195,7 @@ const VoiceRoomPage = () => {
 
       setMessages((prev) => [...prev, newAiMsg]);
       await playTts(responseText);
+      recordInteraction();
 
     } catch (error) {
       console.error('Chat error:', error);
@@ -228,13 +253,25 @@ const VoiceRoomPage = () => {
           <p className="text-gray-400">Speak naturally with your AI assistant</p>
         </div>
 
+        {/* Stats panel */}
+        <div className="mb-3 max-w-xs mx-auto w-full">
+          <AvatarStatsPanel stats={stats} onStatsChange={setStats} />
+        </div>
+
         <div className="flex-grow bg-gray-900/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden relative">
 
-          <div className="w-full h-full min-h-[600px] p-6 relative flex flex-col items-center justify-center">
+          {/* 3D Scene */}
+          <div className="w-full h-full min-h-[520px] relative">
+            <Avatar3DScene
+              isListening={isListening}
+              isSpeaking={isSpeaking}
+              isProcessing={isProcessing}
+              activeRoomItems={activeRoomItems}
+            />
 
-            <VoiceRoomAvatar isListening={isListening} isSpeaking={isSpeaking} isProcessing={isProcessing} />
-
-            <div className="absolute bottom-12 left-0 right-0 flex justify-center items-end space-x-6">
+            {/* Controls bar */}
+            <div className="absolute bottom-8 left-0 right-0 flex justify-center items-end space-x-4 z-10">
+              {/* Mic */}
               <button
                 className={`p-5 rounded-full shadow-lg flex items-center justify-center transition-all transform hover:scale-105 ${
                   isListening
@@ -245,18 +282,22 @@ const VoiceRoomPage = () => {
                 }`}
                 onClick={toggleListening}
                 disabled={isProcessing}
+                aria-label={isListening ? 'Stop recording' : 'Start recording'}
               >
                 {isProcessing ? <Loader2 size={28} className="animate-spin" /> : <Mic size={28} className={isListening ? 'animate-pulse' : ''} />}
               </button>
 
+              {/* Test voice */}
               <button
                 className="p-4 rounded-full shadow-md bg-gray-800/80 border border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white flex items-center justify-center transition-all backdrop-blur-md"
                 onClick={playSample}
                 title="Test Voice"
+                aria-label="Play voice sample"
               >
                 <Volume2 size={22} />
               </button>
 
+              {/* Text chat */}
               <button
                 className={`p-4 rounded-full shadow-md border flex items-center justify-center transition-all backdrop-blur-md ${
                   isMiniChatOpen
@@ -265,9 +306,50 @@ const VoiceRoomPage = () => {
                 }`}
                 onClick={() => setIsMiniChatOpen(!isMiniChatOpen)}
                 title="Open Text Chat"
+                aria-label="Toggle text chat"
               >
                 <MessageSquare size={22} />
               </button>
+
+              {/* Voice profile trainer */}
+              <button
+                className={`p-4 rounded-full shadow-md border flex items-center justify-center transition-all backdrop-blur-md ${
+                  isVoiceProfileOpen
+                    ? 'bg-primary-600 border-primary-500 text-white'
+                    : 'bg-gray-800/80 border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+                onClick={() => setIsVoiceProfileOpen(true)}
+                title="Voice Profile Training"
+                aria-label="Open voice profile trainer"
+              >
+                <UserCircle2 size={22} />
+              </button>
+
+              {/* Wake word toggle */}
+              {wakeWordSupported && (
+                <button
+                  className={`p-4 rounded-full shadow-md border flex items-center justify-center transition-all backdrop-blur-md ${
+                    wakeWordActive
+                      ? 'bg-green-700 border-green-600 text-green-200'
+                      : 'bg-gray-800/80 border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white'
+                  }`}
+                  onClick={() => {
+                    const next = !wakeWordEnabled;
+                    setWakeWordEnabled(next);
+                    setWakeWordActive(next);
+                  }}
+                  title={wakeWordActive ? 'Disable wake word' : 'Enable wake word ("Hey Assistant")'}
+                  aria-label="Toggle wake word detection"
+                >
+                  <Radio size={22} />
+                </button>
+              )}
+
+              {/* Room customiser */}
+              <RoomCustomizer
+                activeItems={activeRoomItems}
+                onActiveItemsChange={setActiveRoomItems}
+              />
             </div>
           </div>
 
@@ -281,6 +363,12 @@ const VoiceRoomPage = () => {
         </div>
 
       </div>
+
+      {/* Voice Profile Training modal */}
+      <VoiceProfileModal
+        isOpen={isVoiceProfileOpen}
+        onClose={() => setIsVoiceProfileOpen(false)}
+      />
     </motion.div>
   );
 };

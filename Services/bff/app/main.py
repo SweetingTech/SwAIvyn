@@ -59,6 +59,8 @@ from .models import (
     agent_registry,
     agent_tasks,
     agent_results,
+    avatar_stats as t_avatar_stats,
+    room_items as t_room_items,
 )
 
 # ------------------------- Logging & Config -------------------------
@@ -2826,5 +2828,146 @@ async def put_connection_settings(body: dict, request: Request, engine: Optional
             if getattr(res, "rowcount", 0) == 0:
                 await conn.execute(t_conn_settings.insert().values(user_id=uid, **db_values))
     return {"success": True}
+
+
+# ─── 3D Avatar Stats endpoints ────────────────────────────────────────────────
+
+@app.get("/api/avatar-stats")
+async def get_avatar_stats(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the Tamagotchi-style avatar stats for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    defaults = {"energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
+    if engine is None:
+        return defaults
+
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(t_avatar_stats).where(t_avatar_stats.c.user_id == user_id).limit(1)
+        )
+        row = res.first()
+
+    if not row:
+        return defaults
+    r = row._mapping
+    return {
+        "energy": float(r["energy"]),
+        "mood": float(r["mood"]),
+        "relationship_score": float(r["relationship_score"]),
+    }
+
+
+class AvatarStatsUpdate(BaseModel):
+    energy: Optional[float] = None
+    mood: Optional[float] = None
+    relationship_score: Optional[float] = None
+
+
+@app.put("/api/avatar-stats")
+async def update_avatar_stats(
+    body: AvatarStatsUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Upsert avatar stats for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Clamp values to [0, 100]
+    for key in ("energy", "mood", "relationship_score"):
+        if key in updates:
+            updates[key] = max(0.0, min(100.0, float(updates[key])))
+
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    if engine is None:
+        return {"success": True}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_avatar_stats.update()
+            .where(t_avatar_stats.c.user_id == user_id)
+            .values(**updates)
+        )
+        if getattr(res, "rowcount", 0) == 0:
+            row_values = {"user_id": user_id, "energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
+            row_values.update(updates)
+            await conn.execute(t_avatar_stats.insert().values(**row_values))
+
+    return {"success": True}
+
+
+# ─── Room Items endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/room-items")
+async def get_room_items(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the list of active room item IDs for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    if engine is None:
+        return {"items": []}
+
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(t_room_items).where(t_room_items.c.user_id == user_id).limit(1)
+        )
+        row = res.first()
+
+    if not row:
+        return {"items": []}
+    try:
+        items = json.loads(row._mapping["items"] or "[]")
+    except (ValueError, TypeError):
+        items = []
+    return {"items": items}
+
+
+class RoomItemsUpdate(BaseModel):
+    items: list
+
+
+@app.put("/api/room-items")
+async def update_room_items(
+    body: RoomItemsUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Upsert room items for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    # Validate: each item must be a non-empty string with only safe chars
+    allowed_ids = {"plant", "lamp", "book", "rug", "chair"}
+    sanitised = [i for i in body.items if isinstance(i, str) and i in allowed_ids]
+
+    items_json = json.dumps(sanitised)
+    now = datetime.now(timezone.utc)
+
+    if engine is None:
+        return {"success": True, "items": sanitised}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_room_items.update()
+            .where(t_room_items.c.user_id == user_id)
+            .values(items=items_json, updated_at=now)
+        )
+        if getattr(res, "rowcount", 0) == 0:
+            await conn.execute(
+                t_room_items.insert().values(user_id=user_id, items=items_json, updated_at=now)
+            )
+
+    return {"success": True, "items": sanitised}
 
 # This ends the main.py file - all imports and endpoints are complete

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey
+from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, Float, text, ForeignKey
 
 
 metadata = MetaData()
@@ -180,4 +180,24 @@ agent_results = Table(
     Column("mime_type", String(100), nullable=True),  # MIME type for files
     Column("metadata", Text, nullable=True),  # Additional JSON metadata
     Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+# Per-user Tamagotchi-style avatar stats (3D avatar Phase 5)
+avatar_stats = Table(
+    "avatar_stats",
+    metadata,
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("energy", Float, nullable=False, server_default=text("80")),
+    Column("mood", Float, nullable=False, server_default=text("70")),
+    Column("relationship_score", Float, nullable=False, server_default=text("50")),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)
+
+# Per-user room item selections (3D avatar Phase 5)
+room_items = Table(
+    "room_items",
+    metadata,
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("items", Text, nullable=False, server_default=text("'[]'")),  # JSON array of item IDs
+    Column("updated_at", DateTime(timezone=True), nullable=True),
 )

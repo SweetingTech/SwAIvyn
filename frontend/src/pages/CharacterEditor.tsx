@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ChangeEvent } from 'react';
+import React, { useState, useEffect, ChangeEvent, useRef } from 'react';
 import yaml from 'js-yaml';
 import apiService from '../services/apiService';
 
@@ -66,6 +66,7 @@ interface CharacterEditorProps {
 /**
  * CharacterEditor component allows creating and editing YAML-based AI character profiles.
  * Uses a single YAML input field for flexibility and full character customization.
+ * Supports 3D model (VRM / glTF) uploads via the `avatar` YAML field.
  */
 const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, onSave, onCancel }) => {
   const [character, setCharacter] = useState<Character>({
@@ -76,6 +77,12 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
     createdAt: '',
     lastModified: ''
   });
+
+  // 3D model upload state
+  const [model3dFile, setModel3dFile] = useState<File | null>(null);
+  const [model3dPreviewUrl, setModel3dPreviewUrl] = useState<string | null>(null);
+  const [model3dError, setModel3dError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Generate system prompt and character name from YAML
   const systemPrompt = useYamlToPrompt(character.yamlProfile);
@@ -92,9 +99,52 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
     }
   }, [characterId]);
 
+  // Revoke 3D model object URL on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (model3dPreviewUrl) {
+        URL.revokeObjectURL(model3dPreviewUrl);
+      }
+    };
+  }, [model3dPreviewUrl]);
+
   // Handle YAML input changes
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setCharacter(prev => ({ ...prev, yamlProfile: e.target.value }));
+  };
+
+  // Handle 3D model file selection (VRM / glTF)
+  const handle3dModelChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setModel3dError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedExtensions = ['.vrm', '.glb', '.gltf'];
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+    if (!allowedExtensions.includes(ext)) {
+      setModel3dError('Please upload a VRM, GLB, or GLTF file.');
+      return;
+    }
+    const maxBytes = 100 * 1024 * 1024; // 100 MB
+    if (file.size > maxBytes) {
+      setModel3dError('File must be smaller than 100 MB.');
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setModel3dFile(file);
+    setModel3dPreviewUrl(objectUrl);
+
+    // Inject the object URL into the YAML `avatar` field so the 3D scene can use it.
+    setCharacter(prev => {
+      try {
+        const parsed = yaml.load(prev.yamlProfile) as Record<string, unknown> ?? {};
+        parsed['avatar_3d'] = objectUrl;
+        return { ...prev, yamlProfile: yaml.dump(parsed) };
+      } catch {
+        return prev;
+      }
+    });
   };
 
   // Handle form submission to save YAML character profile
@@ -167,6 +217,7 @@ tags:
   - Tag3
 
 avatar: none
+avatar_3d: none
 chat: ""
 talkativeness: 0.5
 favorite: false
@@ -183,6 +234,50 @@ extensions:
   alternate_greetings: []
   group_only_greetings: []`}
       />
+
+      {/* 3D Model Upload */}
+      <div className="mt-4 p-4 border border-dashed border-gray-300 rounded-lg bg-gray-50">
+        <h3 className="font-semibold text-sm mb-1">3D Avatar Model <span className="font-normal text-gray-500">(optional)</span></h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Upload a <strong>VRM</strong>, <strong>GLB</strong>, or <strong>GLTF</strong> file to use a 3D model in the
+          Voice Room. The file is loaded locally in the browser and its URL is stored in the{' '}
+          <code className="bg-gray-100 px-1 rounded">avatar_3d</code> YAML field.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".vrm,.glb,.gltf"
+            onChange={handle3dModelChange}
+            className="hidden"
+            id="avatar3d-upload"
+          />
+          <label
+            htmlFor="avatar3d-upload"
+            className="cursor-pointer px-3 py-1.5 text-sm bg-primary-500 text-white rounded hover:bg-primary-600 transition-colors"
+          >
+            Choose 3D Model
+          </label>
+          {model3dFile && (
+            <span className="text-sm text-gray-700 truncate max-w-xs">
+              ✅ {model3dFile.name}
+            </span>
+          )}
+          {model3dPreviewUrl && (
+            <a
+              href={model3dPreviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary-600 hover:underline"
+            >
+              Preview URL
+            </a>
+          )}
+        </div>
+        {model3dError && (
+          <p className="mt-1 text-xs text-red-600">{model3dError}</p>
+        )}
+      </div>
       <div className="flex gap-4 mt-4">
         <button
           type="submit"
