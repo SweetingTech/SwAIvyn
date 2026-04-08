@@ -15,7 +15,11 @@ import {
   Edit,
   Trash2,
   Bot,
+  Smartphone,
+  Bell,
+  BellOff,
 } from 'lucide-react';
+import usePushNotifications from '../hooks/usePushNotifications';
 import chatService from '../services/chatService';
 import ttsService, { VoiceDetails } from '../services/ttsService';
 import { useInitialization } from '../contexts/InitializationContext';
@@ -72,6 +76,7 @@ const tabs = [
   { id: 'external-agents', label: 'External Agents', icon: <Bot size={16} /> },
   { id: 'appearance', label: 'Appearance', icon: <Palette size={16} /> },
   { id: 'network', label: 'Network', icon: <Network size={16} /> },
+  { id: 'mobile', label: 'Mobile & Notifications', icon: <Smartphone size={16} /> },
 ];
 
 // ============================ Character Creation Settings ===========================
@@ -1904,6 +1909,117 @@ const NetworkSettings = () => (
   </div>
 );
 
+// ============================== Mobile & Notifications Settings ==============================
+
+const MobileSettings = () => {
+  const { isSupported, isEnabled, isLoading, enable, disable } = usePushNotifications();
+
+  const isPWA =
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true);
+
+  return (
+    <div className="space-y-6">
+      <div className="border-b border-gray-200 pb-4">
+        <h3 className="text-lg font-medium text-gray-900">Mobile &amp; Notifications</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Install SwAIvyn as a Progressive Web App (PWA) on your phone or tablet, and manage push
+          notification preferences.
+        </p>
+      </div>
+
+      {/* Install prompt */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <Smartphone className="text-indigo-600 mt-0.5 flex-shrink-0" size={20} />
+          <div>
+            <h4 className="text-indigo-900 font-medium">Install as Mobile App</h4>
+            <p className="text-indigo-700 text-sm mt-1">
+              SwAIvyn works as a Progressive Web App (PWA). Open this page in your mobile browser
+              and use &ldquo;Add to Home Screen&rdquo; to install it as a native-like app with
+              offline support, voice interaction, and push notifications.
+            </p>
+            {isPWA && (
+              <span className="inline-block mt-2 text-xs bg-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 font-medium">
+                ✓ Running as installed app
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Push notification toggle */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-start gap-3">
+            {isEnabled ? (
+              <Bell className="text-green-600 mt-0.5 flex-shrink-0" size={20} />
+            ) : (
+              <BellOff className="text-gray-400 mt-0.5 flex-shrink-0" size={20} />
+            )}
+            <div>
+              <h4 className="text-gray-900 font-medium">Push Notifications</h4>
+              <p className="text-gray-500 text-sm mt-1">
+                {isSupported
+                  ? 'Receive a notification when an agent task completes or a scheduled workflow fires.'
+                  : 'Push notifications are not supported in this browser. Install SwAIvyn as a PWA to enable them.'}
+              </p>
+            </div>
+          </div>
+          {isSupported && (
+            <button
+              onClick={isEnabled ? disable : enable}
+              disabled={isLoading}
+              className={`ml-4 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isEnabled
+                  ? 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              } disabled:opacity-50`}
+            >
+              {isLoading ? (
+                <InlineSpinner size={14} />
+              ) : isEnabled ? (
+                'Disable'
+              ) : (
+                'Enable'
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Feature summary */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <h4 className="text-gray-800 font-medium mb-3">Mobile Features</h4>
+        <ul className="space-y-2 text-sm text-gray-600">
+          <li className="flex items-center gap-2">
+            <span className="text-green-500">✓</span> Full conversation history with markdown
+            rendering
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="text-green-500">✓</span> Voice interaction (microphone → Whisper STT
+            → LLM → TTS playback)
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="text-green-500">✓</span> Offline access to last-known conversations
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="text-green-500">✓</span> LLM engine and character settings sync
+            across devices
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={isSupported && isEnabled ? 'text-green-500' : 'text-gray-400'}>
+              {isSupported && isEnabled ? '✓' : '○'}
+            </span>{' '}
+            Push notifications for agent task results
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
 // ============================== page shell ==============================
 
 const SettingsPage = () => {
@@ -1959,6 +2075,7 @@ const SettingsPage = () => {
               {activeTab === 'external-agents' && <ExternalAgentsSettings />}
               {activeTab === 'appearance' && <AppearanceSettings />}
               {activeTab === 'network' && <NetworkSettings />}
+              {activeTab === 'mobile' && <MobileSettings />}
             </div>
           </div>
         </div>
