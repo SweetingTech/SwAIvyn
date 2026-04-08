@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey
+from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey, Integer
 
 
 metadata = MetaData()
@@ -180,4 +180,18 @@ agent_results = Table(
     Column("mime_type", String(100), nullable=True),  # MIME type for files
     Column("metadata", Text, nullable=True),  # Additional JSON metadata
     Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+# Per-user memory items
+memories = Table(
+    "memories",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("content", Text, nullable=False),
+    Column("category", String(100), nullable=False, server_default=text("'Personal'")),
+    Column("is_shared", Boolean, nullable=False, server_default=text("false")),
+    Column("annotation", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
