@@ -144,15 +144,10 @@ const InstallModal = ({ onClose, onInstalled, headers }: InstallModalProps) => {
         <div className="p-4">
           <p className="text-sm text-gray-600 mb-3">
             Paste or edit a plugin manifest (JSON). See{' '}
-            <a
-              href="/docs/plugin-manifest.md"
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary-600 underline"
-            >
+            <code className="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded">
               docs/plugin-manifest.md
-            </a>{' '}
-            for the full spec.
+            </code>{' '}
+            in the repository for the full spec.
           </p>
           <textarea
             className="w-full h-64 font-mono text-sm border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-1 focus:ring-primary-500"

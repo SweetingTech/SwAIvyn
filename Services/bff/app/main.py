@@ -292,8 +292,12 @@ def _default_chat_settings(uid: str) -> Dict[str, Any]:
         "ttsVoiceId": os.getenv("DEFAULT_TTS_VOICE", "glados"),
     }
 
-async def _validate_url_for_ssrf(url: str) -> bool:
-    """Basic SSRF guard with dev localhost allowance."""
+async def _validate_url_for_ssrf(url: str, *, allow_private: bool = False) -> bool:
+    """Basic SSRF guard with dev localhost allowance.
+
+    Pass ``allow_private=True`` to also permit RFC1918 private addresses
+    (useful for plugin URLs when ``ALLOW_PRIVATE_PLUGIN_URLS=true`` is set).
+    """
     try:
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme not in ("http", "https"):
@@ -307,8 +311,12 @@ async def _validate_url_for_ssrf(url: str) -> bool:
             or os.getenv("ENVIRONMENT", "production").lower() in ("development", "dev", "local")
             or os.getenv("ENABLE_DEV_LOCALHOST", "false").lower() == "true"
         )
+        allow_private_urls = (
+            allow_private
+            or os.getenv("ALLOW_PRIVATE_PLUGIN_URLS", "false").lower() == "true"
+        )
         if hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
-            return True if is_development else False
+            return True if (is_development or allow_private_urls) else False
 
         try:
             loop = asyncio.get_running_loop()
@@ -329,6 +337,8 @@ async def _validate_url_for_ssrf(url: str) -> bool:
             for network in private_networks:
                 if ip_obj in network:
                     if is_development and ip_obj in ipaddress.ip_network("127.0.0.0/8"):
+                        return True
+                    if allow_private_urls:
                         return True
                     return False
         except Exception:
@@ -673,7 +683,7 @@ async def dashboard_status(request: Request, userId: str = Query(), db: Optional
 
 @app.get("/api/agents/catalog")
 async def agents_catalog(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
-    """Plugin marketplace catalog — returns installed/enabled plugins from the plugin registry."""
+    """Plugin marketplace catalog — returns only enabled plugins from the plugin registry."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -684,7 +694,7 @@ async def agents_catalog(request: Request, engine: Optional[AsyncEngine] = Depen
     async with engine.connect() as conn:
         res = await conn.execute(
             select(t_plugins)
-            .where(t_plugins.c.status.in_(["installed", "enabled"]))
+            .where(t_plugins.c.status == "enabled")
             .order_by(t_plugins.c.name)
         )
         catalog = []
@@ -2866,9 +2876,7 @@ async def put_connection_settings(body: dict, request: Request, engine: Optional
                 await conn.execute(t_conn_settings.insert().values(user_id=uid, **db_values))
     return {"success": True}
 
-# This ends the main.py file - all imports and endpoints are complete
-
-# ========================= Plugin Manager =========================
+# ------------------------- Plugin Endpoints -------------------------
 # Phase 5: Plugin System & Customization
 # Implements install / list / toggle / uninstall / health endpoints.
 # All write operations are admin-only; reads are available to any
@@ -2924,10 +2932,21 @@ async def install_plugin(
     if manifest.manifest_version not in ("1",):
         raise HTTPException(status_code=400, detail=f"Unsupported manifest_version '{manifest.manifest_version}'. Only '1' is supported.")
 
-    # Validate entry_point URL if provided
-    if manifest.entry_point and not await _validate_url_for_ssrf(manifest.entry_point):
+    # Validate plugin id: lower-kebab-case, 2-128 chars
+    _PLUGIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,126}[a-z0-9]$")
+    if not _PLUGIN_ID_RE.match(manifest.id):
+        raise HTTPException(status_code=400, detail="Plugin id must be lower-kebab-case (e.g. 'my-plugin'), 2–128 characters.")
+
+    # Validate permissions against the known allowlist
+    _ALLOWED_PERMISSIONS: set[str] = {"tool-use"}
+    unknown_perms = [p for p in manifest.permissions if p not in _ALLOWED_PERMISSIONS]
+    if unknown_perms:
+        raise HTTPException(status_code=400, detail=f"Unknown permission(s): {unknown_perms}. Allowed: {sorted(_ALLOWED_PERMISSIONS)}.")
+
+    # Validate entry_point / health_endpoint URLs (allow private when ALLOW_PRIVATE_PLUGIN_URLS=true)
+    if manifest.entry_point and not await _validate_url_for_ssrf(manifest.entry_point, allow_private=False):
         raise HTTPException(status_code=400, detail="Invalid or unsafe entry_point URL.")
-    if manifest.health_endpoint and not await _validate_url_for_ssrf(manifest.health_endpoint):
+    if manifest.health_endpoint and not await _validate_url_for_ssrf(manifest.health_endpoint, allow_private=False):
         raise HTTPException(status_code=400, detail="Invalid or unsafe health_endpoint URL.")
 
     now = current_timestamp()
@@ -3069,10 +3088,12 @@ async def plugin_health(
 
     The health check is performed server-side to avoid SSRF from the browser.
     Only the response status code and a small JSON payload are surfaced.
+    Admin-only to prevent unauthenticated traffic amplification.
     """
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
     if engine is None:
         raise HTTPException(status_code=503, detail="Database not configured")
 
@@ -3089,13 +3110,13 @@ async def plugin_health(
         return {"plugin_id": plugin_id, "health_status": "unknown", "detail": "No health_endpoint configured."}
 
     # Validate endpoint to prevent SSRF
-    if not await _validate_url_for_ssrf(health_endpoint):
+    if not await _validate_url_for_ssrf(health_endpoint, allow_private=False):
         return {"plugin_id": plugin_id, "health_status": "error", "detail": "Invalid health_endpoint URL."}
 
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
             resp = await client.get(health_endpoint)
-        health_status = "healthy" if resp.status_code < 400 else "unhealthy"
+        health_status = "healthy" if 200 <= resp.status_code < 300 else "unhealthy"
         try:
             detail = resp.json()
         except Exception:

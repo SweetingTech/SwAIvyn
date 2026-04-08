@@ -7,7 +7,7 @@ This is the minimal server that satisfies the SwAIvyn plugin contract
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, Dict, Optional
 
 app = FastAPI(title="Hello World Plugin", version="1.0.0")
@@ -31,7 +31,7 @@ async def health():
 # ── Tool invocation ─────────────────────────────────────────────────────────
 
 class InvokeRequest(BaseModel):
-    input: Dict[str, Any] = {}
+    input: Dict[str, Any] = Field(default_factory=dict)
     context: Optional[Dict[str, Any]] = None
 
 

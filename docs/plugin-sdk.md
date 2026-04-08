@@ -164,8 +164,10 @@ DELETE /api/plugins/{plugin_id}
 ```
 GET /api/agents/catalog
 ```
-Returns all `installed` and `enabled` plugins — this is the endpoint
-the frontend and LLM tool-use layer consume.
+Returns plugins that are currently `enabled` and available for use — this
+is the endpoint the frontend and LLM tool-use layer consume. `installed`
+is an admin/plugin-management state; a plugin must be explicitly enabled
+before it appears in this catalog.
 
 ---
 
@@ -184,8 +186,11 @@ actually need.
 ## Security notes
 
 * `entry_point` and `health_endpoint` URLs are validated server-side to
-  prevent SSRF.  Private / loopback addresses are blocked unless
-  `ALLOW_PRIVATE_PLUGIN_URLS=true` is set (development only).
+  prevent SSRF.  Loopback addresses (`127.0.0.1`, `localhost`) are only
+  permitted when `ENVIRONMENT` is set to `development`/`dev`/`local`, or
+  when `ENABLE_DEV_LOCALHOST=true` is set.  RFC1918 private addresses
+  (e.g. Docker/K8s service hostnames) are additionally allowed when
+  `ALLOW_PRIVATE_PLUGIN_URLS=true` is set (use in development only).
 * Plugins receive only the data passed in the `invoke` request body.
   They cannot query the SwAIvyn database directly.
 * Plugin API keys (if added in future) will be stored hashed (bcrypt).
