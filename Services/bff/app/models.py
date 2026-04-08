@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey, Integer
+from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey
 
 
 metadata = MetaData()

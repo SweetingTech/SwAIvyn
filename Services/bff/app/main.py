@@ -2745,16 +2745,7 @@ async def create_memory(body: dict, request: Request, engine: Optional[AsyncEngi
     mem_id = str(uuid.uuid4())
 
     if engine is None:
-        return {
-            "id": mem_id,
-            "userId": uid,
-            "content": content,
-            "category": category,
-            "isShared": is_shared,
-            "annotation": annotation,
-            "createdAt": now.isoformat(),
-            "updatedAt": now.isoformat(),
-        }
+        raise HTTPException(status_code=503, detail="Database not configured")
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -2847,6 +2838,9 @@ async def update_memory(memory_id: str, body: dict, request: Request, engine: Op
         res = await conn.execute(select(t_memories).where(t_memories.c.id == memory_id))
         updated_row = res.first()
 
+    if not updated_row:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
     return _serialize_memory(updated_row)
 
 
@@ -2858,7 +2852,7 @@ async def delete_memory(memory_id: str, request: Request, engine: Optional[Async
         raise HTTPException(status_code=401, detail="Authentication required")
 
     if engine is None:
-        return {"deleted": True}
+        raise HTTPException(status_code=503, detail="Database not configured")
 
     async with engine.connect() as conn:
         res = await conn.execute(select(t_memories).where(t_memories.c.id == memory_id))
@@ -2944,12 +2938,14 @@ async def import_memories(user_id: str, request: Request, engine: Optional[Async
         raise HTTPException(status_code=400, detail="'memories' must be an array")
 
     if engine is None:
-        return {"imported": 0}
+        raise HTTPException(status_code=503, detail="Memory import service unavailable")
 
     now = datetime.now(timezone.utc)
     imported = 0
     async with engine.begin() as conn:
         for item in items:
+            if not isinstance(item, dict):
+                continue
             content = (item.get("content") or "").strip()
             if not content:
                 continue
@@ -3049,13 +3045,16 @@ async def get_memory_sync_status(user_id: str, request: Request, engine: Optiona
             row = res.first()
             sqlite_count = row[0] if row else 0
 
+    neo4j_count = 0
+    in_sync = sqlite_count == neo4j_count
+
     return {
         "userId": user_id,
         "sqliteCount": sqlite_count,
-        "neo4jCount": 0,
-        "inSync": True,
-        "missingInNeo4j": {"count": 0, "memoryIds": [], "details": []},
-        "missingInSqlite": {"count": 0, "memoryIds": []},
+        "neo4jCount": neo4j_count,
+        "inSync": in_sync,
+        "missingInNeo4j": {"count": max(0, sqlite_count - neo4j_count), "memoryIds": [], "details": []},
+        "missingInSqlite": {"count": max(0, neo4j_count - sqlite_count), "memoryIds": []},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
