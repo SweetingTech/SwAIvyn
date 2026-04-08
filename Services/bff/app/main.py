@@ -316,7 +316,7 @@ async def _validate_url_for_ssrf(url: str, *, allow_private: bool = False) -> bo
             or os.getenv("ALLOW_PRIVATE_PLUGIN_URLS", "false").lower() == "true"
         )
         if hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
-            return True if (is_development or allow_private_urls) else False
+            return is_development or allow_private_urls
 
         try:
             loop = asyncio.get_running_loop()
@@ -2944,9 +2944,9 @@ async def install_plugin(
         raise HTTPException(status_code=400, detail=f"Unknown permission(s): {unknown_perms}. Allowed: {sorted(_ALLOWED_PERMISSIONS)}.")
 
     # Validate entry_point / health_endpoint URLs (allow private when ALLOW_PRIVATE_PLUGIN_URLS=true)
-    if manifest.entry_point and not await _validate_url_for_ssrf(manifest.entry_point, allow_private=False):
+    if manifest.entry_point and not await _validate_url_for_ssrf(manifest.entry_point):
         raise HTTPException(status_code=400, detail="Invalid or unsafe entry_point URL.")
-    if manifest.health_endpoint and not await _validate_url_for_ssrf(manifest.health_endpoint, allow_private=False):
+    if manifest.health_endpoint and not await _validate_url_for_ssrf(manifest.health_endpoint):
         raise HTTPException(status_code=400, detail="Invalid or unsafe health_endpoint URL.")
 
     now = current_timestamp()
