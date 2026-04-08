@@ -11,9 +11,6 @@ import {
   Calendar,
   Globe,
   Radio,
-  CheckCircle,
-  XCircle,
-  Clock,
   ChevronDown,
   ChevronUp,
   ArrowUpRight,
@@ -972,10 +969,10 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 ];
 
 const FederationPage = () => {
-  const { user } = useEffectiveUser();
+  const { resolved } = useEffectiveUser();
   const [activeTab, setActiveTab] = useState<TabId>('peers');
 
-  if (!user) {
+  if (!resolved) {
     return <div className="p-6 text-gray-500">Loading…</div>;
   }
 

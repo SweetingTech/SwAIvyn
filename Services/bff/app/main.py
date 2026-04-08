@@ -377,6 +377,67 @@ async def _ensure_temporal_connected():
     if _temporal_client is None:
         _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
 
+# ------------------------- UDP Discovery Responder -------------------------
+
+import threading as _threading
+
+_discovery_thread: Optional[_threading.Thread] = None
+_discovery_stop_event = _threading.Event()
+
+
+def _run_discovery_responder(port: int, magic: bytes, reply_url: str) -> None:
+    """
+    Listen for UDP broadcast discovery packets and reply with this instance's base URL.
+    Runs in a background daemon thread so it doesn't block the event loop.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Linux/macOS
+            except (AttributeError, OSError):
+                pass
+            sock.bind(("", port))
+            sock.settimeout(1.0)
+            logger.info("Federation UDP discovery responder listening on port %d", port)
+            while not _discovery_stop_event.is_set():
+                try:
+                    data, addr = sock.recvfrom(256)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if data == magic:
+                    reply = magic + reply_url.encode()
+                    try:
+                        sock.sendto(reply, addr)
+                    except OSError:
+                        pass
+    except Exception as exc:
+        logger.warning("Federation UDP discovery responder stopped: %s", exc)
+
+
+def _start_discovery_responder() -> None:
+    global _discovery_thread
+    reply_url = os.getenv("FEDERATION_PUBLIC_URL", "").strip().rstrip("/")
+    if not reply_url:
+        return  # No public URL configured; skip responder
+    _discovery_stop_event.clear()
+    _discovery_thread = _threading.Thread(
+        target=_run_discovery_responder,
+        args=(_FEDERATION_BROADCAST_PORT, _FEDERATION_BROADCAST_MAGIC, reply_url),
+        daemon=True,
+        name="federation-udp-responder",
+    )
+    _discovery_thread.start()
+
+
+def _stop_discovery_responder() -> None:
+    _discovery_stop_event.set()
+    if _discovery_thread is not None:
+        _discovery_thread.join(timeout=2.0)
+
+
 # ------------------------- Lifespan -------------------------
 
 @asynccontextmanager
@@ -389,6 +450,9 @@ async def lifespan(application: FastAPI):
 
     if ENABLE_TEMPORAL:
         asyncio.create_task(_ensure_temporal_connected())
+
+    # Start UDP discovery responder (no-op if FEDERATION_PUBLIC_URL not set)
+    _start_discovery_responder()
 
     if DATABASE_URL:
         try:
@@ -416,6 +480,8 @@ async def lifespan(application: FastAPI):
             logger.exception("Failed to pre-load connection settings: %s", exc)
 
     yield
+    # Shutdown: stop UDP discovery responder if running
+    _stop_discovery_responder()
     # Shutdown: dispose DB engine if created
     if _engine is not None:
         await _engine.dispose()
@@ -2853,13 +2919,6 @@ def _hash_peer_key(key: str) -> str:
     return bcrypt.hashpw(key.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
-def _verify_peer_key(key: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(key.encode(), hashed.encode())
-    except Exception:
-        return False
-
-
 async def _validate_federation_url(url: str) -> bool:
     """Allow both public and private URLs for peer instances (federation is opt-in)."""
     try:
@@ -3103,7 +3162,6 @@ async def send_federated_message(body: dict, request: Request, engine: Optional[
 
     # Look up peer
     peer_url: Optional[str] = None
-    peer_api_key_hash: Optional[str] = None
     if engine is not None:
         async with engine.connect() as conn:
             row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
@@ -3111,7 +3169,6 @@ async def send_federated_message(body: dict, request: Request, engine: Optional[
             if not peer:
                 raise HTTPException(status_code=404, detail="Peer not found")
             peer_url = peer._mapping["url"]
-            peer_api_key_hash = peer._mapping.get("api_key")
 
     msg_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -3192,13 +3249,18 @@ async def delete_federated_message(msg_id: str, request: Request, engine: Option
 async def receive_federated_message(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """
     Receive an inbound federated message from another SwAIvyn instance.
-    Authenticated via X-Federation-Secret header when FEDERATION_SHARED_SECRET is set.
+    Authenticated via X-Federation-Secret header.
     """
-    if _FEDERATION_SHARED_SECRET:
-        incoming_secret = request.headers.get("X-Federation-Secret", "")
-        # Use hmac-safe comparison to avoid timing attacks
-        if not secrets.compare_digest(incoming_secret, _FEDERATION_SHARED_SECRET):
-            raise HTTPException(status_code=403, detail="Invalid federation secret")
+    if not _FEDERATION_SHARED_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Inbound federation is disabled until FEDERATION_SHARED_SECRET is configured",
+        )
+
+    incoming_secret = request.headers.get("X-Federation-Secret", "")
+    # Use hmac-safe comparison to avoid timing attacks
+    if not secrets.compare_digest(incoming_secret, _FEDERATION_SHARED_SECRET):
+        raise HTTPException(status_code=403, detail="Invalid federation secret")
 
     from_address = _assert_length((body.get("from_address") or "").strip(), 300, "from_address")
     to_address = _assert_length((body.get("to_address") or "").strip(), 300, "to_address")
@@ -3222,13 +3284,12 @@ async def receive_federated_message(body: dict, request: Request, engine: Option
                 local_uid = u_row._mapping["id"]
 
     if not local_uid:
-        # Still store even if recipient not found locally, for admin review
-        local_uid = "unknown"
+        raise HTTPException(status_code=404, detail="Recipient not found")
 
     msg_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
-    if engine is not None and local_uid != "unknown":
+    if engine is not None:
         async with engine.begin() as conn:
             await conn.execute(t_fed_messages.insert().values(
                 id=msg_id,
@@ -3365,7 +3426,17 @@ async def add_email_account(body: dict, request: Request, engine: Optional[Async
     label = _assert_length((body.get("label") or "").strip(), _MAX_LABEL_LEN, "label")
     host = _assert_length((body.get("host") or "").strip(), 300, "host")
     username = _assert_length((body.get("username") or "").strip(), 300, "username")
-    port = str(body.get("port") or "993")
+    raw_port = body.get("port")
+    if raw_port in (None, ""):
+        port_num = 993
+    else:
+        try:
+            port_num = int(str(raw_port).strip())
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="port must be an integer between 1 and 65535")
+        if not 1 <= port_num <= 65535:
+            raise HTTPException(status_code=400, detail="port must be an integer between 1 and 65535")
+    port = str(port_num)
     password = body.get("password") or ""
     use_ssl = bool(body.get("use_ssl", True))
 
@@ -3478,8 +3549,10 @@ async def sync_email_account(account_id: str, request: Request, engine: Optional
     imap_user = acct_map["username"]
     raw_password = _decrypt_api_key(acct_map.get("password")) or ""
 
-    def _sync_imap() -> List[dict]:
+    def _sync_imap() -> tuple[List[dict], bool]:
+        """Returns (messages, success)."""
         msgs: List[dict] = []
+        success = False
         try:
             if use_ssl:
                 conn_imap = imaplib.IMAP4_SSL(host, port)
@@ -3487,12 +3560,13 @@ async def sync_email_account(account_id: str, request: Request, engine: Optional
                 conn_imap = imaplib.IMAP4(host, port)
             conn_imap.login(imap_user, raw_password)
             conn_imap.select("INBOX", readonly=True)
-            _, data = conn_imap.search(None, "ALL")
+            # Use UID commands for stable message identifiers
+            _, data = conn_imap.uid("search", None, "ALL")
             uids = data[0].split()
             recent = uids[-20:] if len(uids) > 20 else uids
             for uid_b in reversed(recent):
                 uid_str = uid_b.decode()
-                _, msg_data = conn_imap.fetch(uid_b, "(RFC822)")
+                _, msg_data = conn_imap.uid("fetch", uid_b, "(RFC822)")
                 raw_msg = msg_data[0][1] if msg_data and msg_data[0] else None
                 if not raw_msg:
                     continue
@@ -3535,54 +3609,61 @@ async def sync_email_account(account_id: str, request: Request, engine: Optional
                 })
             conn_imap.close()
             conn_imap.logout()
+            success = True
         except Exception as exc:
             logger.warning("IMAP sync failed for account %s: %s", account_id, exc)
-        return msgs
+        return msgs, success
 
     loop = asyncio.get_running_loop()
-    raw_msgs = await loop.run_in_executor(None, _sync_imap)
+    raw_msgs, sync_ok = await loop.run_in_executor(None, _sync_imap)
 
     now = datetime.now(timezone.utc)
+    new_status = "connected" if sync_ok else "error"
+
+    # Persist all new messages in a single transaction
     saved = 0
-    for m in raw_msgs:
-        msg_id = f"{account_id}:{m['uid']}"
-        # Parse date best-effort
-        msg_date = now
-        try:
-            from email.utils import parsedate_to_datetime
-            if m["date_str"]:
-                msg_date = parsedate_to_datetime(m["date_str"]).astimezone(timezone.utc)
-        except Exception:
-            pass
+    if raw_msgs:
+        from email.utils import parsedate_to_datetime as _parsedate
+
+        rows_to_insert = []
+        for m in raw_msgs:
+            msg_id = f"{account_id}:{m['uid']}"
+            msg_date = now
+            try:
+                if m["date_str"]:
+                    msg_date = _parsedate(m["date_str"]).astimezone(timezone.utc)
+            except Exception:
+                pass
+            rows_to_insert.append({
+                "id": msg_id,
+                "account_id": account_id,
+                "user_id": uid,
+                "mailbox": "INBOX",
+                "uid": m["uid"],
+                "subject": m["subject"],
+                "from_addr": m["from_addr"],
+                "to_addr": m["to_addr"],
+                "date": msg_date,
+                "body_text": m["body_text"],
+                "is_read": False,
+                "flags": None,
+                "synced_at": now,
+            })
 
         async with engine.begin() as conn:
-            # Upsert: try insert; if duplicate, skip
-            try:
-                await conn.execute(t_email_messages.insert().values(
-                    id=msg_id,
-                    account_id=account_id,
-                    user_id=uid,
-                    mailbox="INBOX",
-                    uid=m["uid"],
-                    subject=m["subject"],
-                    from_addr=m["from_addr"],
-                    to_addr=m["to_addr"],
-                    date=msg_date,
-                    body_text=m["body_text"],
-                    is_read=False,
-                    flags=None,
-                    synced_at=now,
-                ))
-                saved += 1
-            except Exception:
-                pass  # Already exists or constraint violation
+            for row in rows_to_insert:
+                try:
+                    await conn.execute(t_email_messages.insert().values(**row))
+                    saved += 1
+                except Exception:
+                    pass  # Duplicate UID - already synced
 
-    # Update last_synced
+    # Update last_synced and status based on sync result
     async with engine.begin() as conn:
         await conn.execute(
             t_email_accounts.update()
             .where(t_email_accounts.c.id == account_id)
-            .values(last_synced=now, status="connected")
+            .values(last_synced=now if sync_ok else None, status=new_status)
         )
 
     return {"synced": len(raw_msgs), "saved": saved}
@@ -3631,6 +3712,8 @@ async def add_calendar_account(body: dict, request: Request, engine: Optional[As
         raise HTTPException(status_code=400, detail="label and url are required")
     if not await _validate_federation_url(url):
         raise HTTPException(status_code=400, detail="Invalid calendar URL")
+    if not await _validate_url_for_ssrf(url):
+        raise HTTPException(status_code=400, detail="Calendar URL is not allowed (private/link-local addresses are blocked)")
     if cal_type not in ("caldav", "ical"):
         raise HTTPException(status_code=400, detail="type must be caldav or ical")
 
@@ -3755,22 +3838,30 @@ async def sync_calendar_account(acct_id: str, request: Request, engine: Optional
             def _parse_dt(s: str) -> Optional[datetime]:
                 if not s:
                     return None
-                # Strip VALUE= param prefix (e.g. "TZID=America/New_York:" -> just the value)
+                # Strip VALUE= or TZID= param prefix (e.g. "TZID=America/New_York:20060102T150405")
                 if ":" in s:
                     s = s.rsplit(":", 1)[-1]
-                s = s.replace("Z", "+00:00")
-                # Map each format to its expected input length (excluding %z which is variable)
-                fmt_lengths = [
-                    ("%Y%m%dT%H%M%S%z", 15),  # 20060102T150405+00:00 -> parse first 15 chars
-                    ("%Y%m%dT%H%M%S", 15),
-                    ("%Y%m%d", 8),
-                ]
-                for fmt, length in fmt_lengths:
-                    try:
-                        dt = datetime.strptime(s[:length], fmt)
-                        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-                    except ValueError:
-                        continue
+                s = s.strip()
+                try:
+                    # DATE-only value: YYYYMMDD
+                    if _re.fullmatch(r"\d{8}", s):
+                        return datetime.strptime(s, "%Y%m%d").replace(tzinfo=timezone.utc)
+                    # UTC datetime: YYYYMMDDTHHMMSSZ
+                    if _re.fullmatch(r"\d{8}T\d{6}Z", s, _re.IGNORECASE):
+                        dt = datetime.strptime(s.upper(), "%Y%m%dT%H%M%SZ")
+                        return dt.replace(tzinfo=timezone.utc)
+                    # Offset datetime: YYYYMMDDTHHMMSS±HHMM or YYYYMMDDTHHMMSS±HH:MM
+                    offset_m = _re.fullmatch(r"(\d{8}T\d{6})([+-]\d{2}:?\d{2})", s)
+                    if offset_m:
+                        base = offset_m.group(1)
+                        tz_str = offset_m.group(2).replace(":", "")
+                        dt = datetime.strptime(base + tz_str, "%Y%m%dT%H%M%S%z")
+                        return dt.astimezone(timezone.utc)
+                    # Naive datetime: YYYYMMDDTHHMMSS (treat as UTC)
+                    if _re.fullmatch(r"\d{8}T\d{6}", s):
+                        return datetime.strptime(s, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    pass
                 return None
 
             uid_val = _prop("UID")
@@ -3941,10 +4032,38 @@ async def browse_url(body: dict, request: Request, engine: Optional[AsyncEngine]
     title = ""
     fetch_error: Optional[str] = None
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, max_redirects=5) as client:
-            resp = await client.get(url, headers={"User-Agent": "SwAIvyn-Browser/1.0"})
+        _max_response_bytes = min(_MAX_BROWSE_CONTENT * 4, 1024 * 1024)  # 4× text limit, max 1 MB
+        _max_redirects = 5
+        current_url = url
+        raw_html = ""
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            for _ in range(_max_redirects + 1):
+                resp = await client.get(current_url, headers={"User-Agent": "SwAIvyn-Browser/1.0"})
+                if resp.is_redirect:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ValueError("Redirect response missing Location header")
+                    next_url = urllib.parse.urljoin(str(resp.url), location)
+                    if not await _validate_url_for_ssrf(next_url):
+                        raise HTTPException(status_code=400, detail="Invalid or unsafe redirect URL")
+                    current_url = next_url
+                    continue
+                break
+            else:
+                raise ValueError("Too many redirects")
+
             resp.raise_for_status()
-            raw_html = resp.text
+            # Cap response size to avoid large-page memory/CPU DoS
+            raw_bytes = bytearray()
+            async for chunk in resp.aiter_bytes():
+                if len(raw_bytes) + len(chunk) > _max_response_bytes:
+                    remaining = _max_response_bytes - len(raw_bytes)
+                    if remaining > 0:
+                        raw_bytes.extend(chunk[:remaining])
+                    break
+                raw_bytes.extend(chunk)
+            encoding = resp.encoding or "utf-8"
+            raw_html = bytes(raw_bytes).decode(encoding, errors="replace")
 
         # Strip scripts and styles (including tags with whitespace before >)
         clean = _re.sub(r"<(script|style)\b[^>]*>.*?</(script|style)\s*>", "", raw_html, flags=_re.DOTALL | _re.IGNORECASE)
