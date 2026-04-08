@@ -220,7 +220,11 @@ const PeersTab = () => {
               <li key={url} className="text-sm text-blue-700 flex items-center justify-between">
                 <span>{url}</span>
                 <button
-                  onClick={() => setForm({ name: new URL(url).hostname, url, api_key: '' })}
+                  onClick={() => {
+                    let hostname = url;
+                    try { hostname = new URL(url).hostname; } catch { /* keep raw url as name */ }
+                    setForm({ name: hostname, url, api_key: '' });
+                  }}
                   className="ml-2 text-xs px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700"
                 >
                   Add
@@ -339,8 +343,12 @@ const MessagesTab = () => {
   useEffect(() => { load(); }, [load]);
 
   const handleSend = async () => {
-    if (!form.peer_id || !form.to_address || !form.body) {
-      toast.error('Peer, recipient address, and body are required');
+    if (!form.peer_id || !form.body) {
+      toast.error('Peer and body are required');
+      return;
+    }
+    if (composeType === 'user' && !form.to_address) {
+      toast.error('Recipient address is required for user messages');
       return;
     }
     try {

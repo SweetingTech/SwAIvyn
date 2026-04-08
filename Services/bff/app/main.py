@@ -3755,13 +3755,19 @@ async def sync_calendar_account(acct_id: str, request: Request, engine: Optional
             def _parse_dt(s: str) -> Optional[datetime]:
                 if not s:
                     return None
-                # Strip VALUE= param prefix
-                s = _re.sub(r".*:", s)
+                # Strip VALUE= param prefix (e.g. "TZID=America/New_York:" -> just the value)
+                if ":" in s:
+                    s = s.rsplit(":", 1)[-1]
                 s = s.replace("Z", "+00:00")
-                fmts = ["%Y%m%dT%H%M%S%z", "%Y%m%dT%H%M%S", "%Y%m%d"]
-                for fmt in fmts:
+                # Map each format to its expected input length (excluding %z which is variable)
+                fmt_lengths = [
+                    ("%Y%m%dT%H%M%S%z", 15),  # 20060102T150405+00:00 -> parse first 15 chars
+                    ("%Y%m%dT%H%M%S", 15),
+                    ("%Y%m%d", 8),
+                ]
+                for fmt, length in fmt_lengths:
                     try:
-                        dt = datetime.strptime(s[:len(fmt.replace("%z", "").replace("%","??").replace("??","XX"))], fmt)
+                        dt = datetime.strptime(s[:length], fmt)
                         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
                     except ValueError:
                         continue
@@ -3927,7 +3933,8 @@ async def browse_url(body: dict, request: Request, engine: Optional[AsyncEngine]
     url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
     if not url:
         raise HTTPException(status_code=400, detail="url is required")
-    if not await _validate_federation_url(url):
+    # Use the strict SSRF guard (blocks private/link-local IPs) for web browsing
+    if not await _validate_url_for_ssrf(url):
         raise HTTPException(status_code=400, detail="Invalid or unsafe URL")
 
     content_text = ""
@@ -3939,8 +3946,8 @@ async def browse_url(body: dict, request: Request, engine: Optional[AsyncEngine]
             resp.raise_for_status()
             raw_html = resp.text
 
-        # Strip scripts and styles
-        clean = _re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", "", raw_html, flags=_re.DOTALL | _re.IGNORECASE)
+        # Strip scripts and styles (including tags with whitespace before >)
+        clean = _re.sub(r"<(script|style)\b[^>]*>.*?</(script|style)\s*>", "", raw_html, flags=_re.DOTALL | _re.IGNORECASE)
         # Extract title
         title_m = _re.search(r"<title[^>]*>(.*?)</title>", clean, _re.DOTALL | _re.IGNORECASE)
         if title_m:
