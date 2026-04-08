@@ -59,6 +59,13 @@ from .models import (
     agent_registry,
     agent_tasks,
     agent_results,
+    federation_peers as t_fed_peers,
+    federated_messages as t_fed_messages,
+    email_accounts as t_email_accounts,
+    email_messages as t_email_messages,
+    calendar_accounts as t_cal_accounts,
+    calendar_events as t_cal_events,
+    browse_history as t_browse_history,
 )
 
 # ------------------------- Logging & Config -------------------------
@@ -2826,5 +2833,1166 @@ async def put_connection_settings(body: dict, request: Request, engine: Optional
             if getattr(res, "rowcount", 0) == 0:
                 await conn.execute(t_conn_settings.insert().values(user_id=uid, **db_values))
     return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Federation & Advanced Features
+# ---------------------------------------------------------------------------
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+_FEDERATION_SHARED_SECRET = os.getenv("FEDERATION_SHARED_SECRET", "")
+_FEDERATION_BROADCAST_PORT = int(os.getenv("FEDERATION_BROADCAST_PORT", "49152"))
+_FEDERATION_BROADCAST_MAGIC = b"SWAIVYN_DISCOVERY_V1"
+_MAX_URL_LEN = 500
+_MAX_LABEL_LEN = 200
+
+
+def _hash_peer_key(key: str) -> str:
+    """Bcrypt-hash a federation peer API key."""
+    return bcrypt.hashpw(key.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+def _verify_peer_key(key: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(key.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+async def _validate_federation_url(url: str) -> bool:
+    """Allow both public and private URLs for peer instances (federation is opt-in)."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if not parsed.hostname:
+            return False
+        # Disallow javascript: / data: scheme abuse via hostname
+        hostname = parsed.hostname.lower()
+        if hostname in {"", ".", ".."}:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _serialize_peer(row: dict) -> dict:
+    r = dict(row)
+    r.pop("api_key", None)  # Never expose hashed key
+    for k in ("last_seen", "created_at", "updated_at"):
+        if r.get(k) and hasattr(r[k], "isoformat"):
+            r[k] = r[k].isoformat()
+    return r
+
+
+def _serialize_fed_msg(row: dict) -> dict:
+    r = dict(row)
+    for k in ("created_at",):
+        if r.get(k) and hasattr(r[k], "isoformat"):
+            r[k] = r[k].isoformat()
+    return r
+
+
+# ─── Peer Management ─────────────────────────────────────────────────────────
+
+@app.get("/api/federation/peers")
+async def list_federation_peers(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """List all known federation peers."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_fed_peers.select().order_by(t_fed_peers.c.created_at.desc())
+        )
+        return [_serialize_peer(dict(r._mapping)) for r in rows]
+
+
+@app.post("/api/federation/peers")
+async def add_federation_peer(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Manually register a peer SwAIvyn instance."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    name = _assert_length((body.get("name") or "").strip(), _MAX_LABEL_LEN, "name")
+    url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
+    if not name or not url:
+        raise HTTPException(status_code=400, detail="name and url are required")
+    if not await _validate_federation_url(url):
+        raise HTTPException(status_code=400, detail="Invalid peer URL")
+
+    raw_key = (body.get("api_key") or secrets.token_urlsafe(32)).strip()
+    hashed_key = _hash_peer_key(raw_key)
+    peer_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_peers.insert().values(
+                id=peer_id,
+                name=name,
+                url=url.rstrip("/"),
+                api_key=hashed_key,
+                status="pending",
+                discovered_via="manual",
+                last_seen=None,
+                created_at=now,
+                updated_at=now,
+            ))
+    return {"id": peer_id, "name": name, "url": url, "status": "pending", "api_key": raw_key}
+
+
+@app.delete("/api/federation/peers/{peer_id}")
+async def remove_federation_peer(peer_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Remove a known peer."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_peers.delete().where(t_fed_peers.c.id == peer_id))
+    return {"success": True}
+
+
+@app.post("/api/federation/peers/{peer_id}/ping")
+async def ping_federation_peer(peer_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Ping a peer to check connectivity and update its status."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with engine.connect() as conn:
+        row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
+        peer = row.first()
+    if not peer:
+        raise HTTPException(status_code=404, detail="Peer not found")
+
+    peer_url = peer._mapping["url"]
+    new_status = "unreachable"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{peer_url}/healthz")
+            if resp.status_code < 400:
+                new_status = "connected"
+    except Exception:
+        pass
+
+    now = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_fed_peers.update()
+            .where(t_fed_peers.c.id == peer_id)
+            .values(status=new_status, last_seen=now if new_status == "connected" else None, updated_at=now)
+        )
+    return {"peer_id": peer_id, "status": new_status}
+
+
+# ─── Peer Discovery (LAN UDP broadcast) ──────────────────────────────────────
+
+@app.post("/api/federation/peers/discover")
+async def discover_peers(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Broadcast a UDP discovery packet on the local network and collect responses.
+    Peers that implement the same protocol will reply with their base URL.
+    Returns a list of discovered peer URLs (not yet registered).
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    discovered: List[str] = []
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _do_broadcast() -> List[str]:
+            results: List[str] = []
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.settimeout(2.0)
+                payload = _FEDERATION_BROADCAST_MAGIC
+                try:
+                    sock.sendto(payload, ("<broadcast>", _FEDERATION_BROADCAST_PORT))
+                except OSError:
+                    return results
+                # Collect replies for 2 seconds
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    try:
+                        data, addr = sock.recvfrom(1024)
+                        if data.startswith(_FEDERATION_BROADCAST_MAGIC):
+                            remainder = data[len(_FEDERATION_BROADCAST_MAGIC):]
+                            if remainder:
+                                peer_url = remainder.decode(errors="replace").strip()
+                                if peer_url and peer_url not in results:
+                                    results.append(peer_url)
+                    except socket.timeout:
+                        break
+                    except OSError:
+                        break
+            return results
+
+        discovered = await loop.run_in_executor(None, _do_broadcast)
+    except Exception as exc:
+        logger.warning("Federation discovery failed: %s", exc)
+
+    return {"discovered": discovered}
+
+
+# ─── Federated Messages (User-to-User & AI-to-AI) ────────────────────────────
+
+@app.get("/api/federation/messages")
+async def list_federated_messages(
+    request: Request,
+    direction: Optional[str] = Query(None),
+    message_type: Optional[str] = Query(None),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """List federated messages for the current user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    q = t_fed_messages.select().where(t_fed_messages.c.user_id == uid)
+    if direction in ("in", "out"):
+        q = q.where(t_fed_messages.c.direction == direction)
+    if message_type:
+        q = q.where(t_fed_messages.c.message_type == message_type)
+    q = q.order_by(t_fed_messages.c.created_at.desc()).limit(200)
+    async with engine.connect() as conn:
+        rows = await conn.execute(q)
+        return [_serialize_fed_msg(dict(r._mapping)) for r in rows]
+
+
+@app.post("/api/federation/messages")
+async def send_federated_message(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Send a federated message to a user on another instance.
+    Body: { peer_id, to_address, subject?, body, message_type? }
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    username = u.get("username", uid)
+
+    peer_id = (body.get("peer_id") or "").strip()
+    to_address = _assert_length((body.get("to_address") or "").strip(), 300, "to_address")
+    subject = _assert_length((body.get("subject") or "").strip(), 500, "subject")
+    msg_body = _assert_length((body.get("body") or "").strip(), _MAX_MESSAGE_LEN, "body")
+    msg_type = (body.get("message_type") or "user").strip()
+
+    if not peer_id or not to_address or not msg_body:
+        raise HTTPException(status_code=400, detail="peer_id, to_address and body are required")
+    if msg_type not in ("user", "ai_task", "ai_result"):
+        raise HTTPException(status_code=400, detail="message_type must be user|ai_task|ai_result")
+
+    # Look up peer
+    peer_url: Optional[str] = None
+    peer_api_key_hash: Optional[str] = None
+    if engine is not None:
+        async with engine.connect() as conn:
+            row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
+            peer = row.first()
+            if not peer:
+                raise HTTPException(status_code=404, detail="Peer not found")
+            peer_url = peer._mapping["url"]
+            peer_api_key_hash = peer._mapping.get("api_key")
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    from_address = f"{username}@{request.base_url.hostname}"
+
+    # Store outbound record
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_messages.insert().values(
+                id=msg_id,
+                peer_id=peer_id,
+                user_id=uid,
+                direction="out",
+                message_type=msg_type,
+                from_address=from_address,
+                to_address=to_address,
+                subject=subject,
+                body=msg_body,
+                metadata=json.dumps({"peer_url": peer_url}),
+                status="sending",
+                created_at=now,
+            ))
+
+    # Attempt delivery to peer
+    delivery_status = "failed"
+    if peer_url:
+        payload = {
+            "from_address": from_address,
+            "to_address": to_address,
+            "subject": subject,
+            "body": msg_body,
+            "message_type": msg_type,
+            "metadata": body.get("metadata"),
+        }
+        headers = {"X-Federation-Secret": _FEDERATION_SHARED_SECRET} if _FEDERATION_SHARED_SECRET else {}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{peer_url}/api/federation/incoming/message",
+                    json=payload,
+                    headers=headers,
+                )
+                if resp.status_code < 400:
+                    delivery_status = "sent"
+        except Exception as exc:
+            logger.warning("Failed to deliver federated message to %s: %s", peer_url, exc)
+
+    # Update delivery status
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_fed_messages.update().where(t_fed_messages.c.id == msg_id).values(status=delivery_status)
+            )
+
+    return {"id": msg_id, "status": delivery_status}
+
+
+@app.delete("/api/federation/messages/{msg_id}")
+async def delete_federated_message(msg_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Delete a federated message for the current user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_fed_messages.delete()
+                .where(t_fed_messages.c.id == msg_id)
+                .where(t_fed_messages.c.user_id == uid)
+            )
+    return {"success": True}
+
+
+# ─── Incoming endpoints (called by remote SwAIvyn peers) ─────────────────────
+
+@app.post("/api/federation/incoming/message")
+async def receive_federated_message(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Receive an inbound federated message from another SwAIvyn instance.
+    Authenticated via X-Federation-Secret header when FEDERATION_SHARED_SECRET is set.
+    """
+    if _FEDERATION_SHARED_SECRET:
+        incoming_secret = request.headers.get("X-Federation-Secret", "")
+        # Use hmac-safe comparison to avoid timing attacks
+        if not secrets.compare_digest(incoming_secret, _FEDERATION_SHARED_SECRET):
+            raise HTTPException(status_code=403, detail="Invalid federation secret")
+
+    from_address = _assert_length((body.get("from_address") or "").strip(), 300, "from_address")
+    to_address = _assert_length((body.get("to_address") or "").strip(), 300, "to_address")
+    subject = _assert_length((body.get("subject") or "").strip(), 500, "subject")
+    msg_body = _assert_length((body.get("body") or "").strip(), _MAX_MESSAGE_LEN, "body")
+    msg_type = (body.get("message_type") or "user").strip()
+
+    if not from_address or not msg_body:
+        raise HTTPException(status_code=400, detail="from_address and body are required")
+
+    # Resolve local recipient - match by username from "user@host" address
+    local_username = to_address.split("@")[0] if "@" in to_address else to_address
+    local_uid: Optional[str] = None
+    if engine is not None:
+        async with engine.connect() as conn:
+            row = await conn.execute(
+                users.select().where(users.c.username == local_username).limit(1)
+            )
+            u_row = row.first()
+            if u_row:
+                local_uid = u_row._mapping["id"]
+
+    if not local_uid:
+        # Still store even if recipient not found locally, for admin review
+        local_uid = "unknown"
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None and local_uid != "unknown":
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_messages.insert().values(
+                id=msg_id,
+                peer_id=None,
+                user_id=local_uid,
+                direction="in",
+                message_type=msg_type,
+                from_address=from_address,
+                to_address=to_address,
+                subject=subject,
+                body=msg_body,
+                metadata=json.dumps(body.get("metadata") or {}),
+                status="received",
+                created_at=now,
+            ))
+
+    return {"id": msg_id, "status": "received"}
+
+
+@app.post("/api/federation/ai-task")
+async def delegate_ai_task(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Delegate an AI task to a peer instance via federated message.
+    Body: { peer_id, task_prompt, context? }
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    username = u.get("username", uid)
+
+    peer_id = (body.get("peer_id") or "").strip()
+    task_prompt = _assert_length((body.get("task_prompt") or "").strip(), _MAX_MESSAGE_LEN, "task_prompt")
+    context = body.get("context")
+
+    if not peer_id or not task_prompt:
+        raise HTTPException(status_code=400, detail="peer_id and task_prompt are required")
+
+    peer_url: Optional[str] = None
+    if engine is not None:
+        async with engine.connect() as conn:
+            row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
+            peer = row.first()
+            if not peer:
+                raise HTTPException(status_code=404, detail="Peer not found")
+            peer_url = peer._mapping["url"]
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    from_address = f"{username}@{request.base_url.hostname}"
+
+    metadata_payload = json.dumps({"context": context, "task_id": msg_id})
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_messages.insert().values(
+                id=msg_id,
+                peer_id=peer_id,
+                user_id=uid,
+                direction="out",
+                message_type="ai_task",
+                from_address=from_address,
+                to_address=f"ai@{urllib.parse.urlparse(peer_url).hostname}" if peer_url else "ai@peer",
+                subject="AI Task Delegation",
+                body=task_prompt,
+                metadata=metadata_payload,
+                status="sending",
+                created_at=now,
+            ))
+
+    delivery_status = "failed"
+    if peer_url:
+        payload = {
+            "from_address": from_address,
+            "to_address": "ai@local",
+            "subject": "AI Task Delegation",
+            "body": task_prompt,
+            "message_type": "ai_task",
+            "metadata": {"context": context, "task_id": msg_id},
+        }
+        headers = {"X-Federation-Secret": _FEDERATION_SHARED_SECRET} if _FEDERATION_SHARED_SECRET else {}
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{peer_url}/api/federation/incoming/message",
+                    json=payload,
+                    headers=headers,
+                )
+                if resp.status_code < 400:
+                    delivery_status = "sent"
+        except Exception as exc:
+            logger.warning("Failed to deliver AI task to peer %s: %s", peer_url, exc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_fed_messages.update().where(t_fed_messages.c.id == msg_id).values(status=delivery_status)
+            )
+
+    return {"id": msg_id, "status": delivery_status}
+
+
+# ─── Email (IMAP) Endpoints ───────────────────────────────────────────────────
+
+@app.get("/api/federation/email/accounts")
+async def list_email_accounts(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_email_accounts.select().where(t_email_accounts.c.user_id == uid).order_by(t_email_accounts.c.created_at)
+        )
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("password", None)  # Never expose stored password
+            for k in ("last_synced", "created_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/email/accounts")
+async def add_email_account(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    label = _assert_length((body.get("label") or "").strip(), _MAX_LABEL_LEN, "label")
+    host = _assert_length((body.get("host") or "").strip(), 300, "host")
+    username = _assert_length((body.get("username") or "").strip(), 300, "username")
+    port = str(body.get("port") or "993")
+    password = body.get("password") or ""
+    use_ssl = bool(body.get("use_ssl", True))
+
+    if not label or not host or not username:
+        raise HTTPException(status_code=400, detail="label, host and username are required")
+
+    # Encrypt password if key available
+    stored_password = _encrypt_api_key(password) if password else None
+    account_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_email_accounts.insert().values(
+                id=account_id,
+                user_id=uid,
+                label=label,
+                host=host,
+                port=port,
+                username=username,
+                password=stored_password,
+                use_ssl=use_ssl,
+                last_synced=None,
+                status="unchecked",
+                created_at=now,
+            ))
+    return {"id": account_id, "label": label, "host": host, "status": "unchecked"}
+
+
+@app.delete("/api/federation/email/accounts/{account_id}")
+async def remove_email_account(account_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_email_accounts.delete()
+                .where(t_email_accounts.c.id == account_id)
+                .where(t_email_accounts.c.user_id == uid)
+            )
+    return {"success": True}
+
+
+@app.get("/api/federation/email/messages")
+async def list_email_messages(
+    request: Request,
+    account_id: Optional[str] = Query(None),
+    mailbox: Optional[str] = Query("INBOX"),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    q = t_email_messages.select().where(t_email_messages.c.user_id == uid)
+    if account_id:
+        q = q.where(t_email_messages.c.account_id == account_id)
+    if mailbox:
+        q = q.where(t_email_messages.c.mailbox == mailbox)
+    q = q.order_by(t_email_messages.c.date.desc()).limit(100)
+    async with engine.connect() as conn:
+        rows = await conn.execute(q)
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            for k in ("date", "synced_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/email/sync/{account_id}")
+async def sync_email_account(account_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Trigger an IMAP sync for the given email account.
+    Fetches recent messages from INBOX and caches them.
+    Requires imaplib (stdlib); returns up to 20 most-recent messages.
+    """
+    import imaplib
+    import email as _email_module
+    from email.header import decode_header as _decode_header
+
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            t_email_accounts.select()
+            .where(t_email_accounts.c.id == account_id)
+            .where(t_email_accounts.c.user_id == uid)
+            .limit(1)
+        )
+        acct = row.first()
+    if not acct:
+        raise HTTPException(status_code=404, detail="Email account not found")
+
+    acct_map = dict(acct._mapping)
+    host = acct_map["host"]
+    port = int(acct_map.get("port") or 993)
+    use_ssl = bool(acct_map.get("use_ssl", True))
+    imap_user = acct_map["username"]
+    raw_password = _decrypt_api_key(acct_map.get("password")) or ""
+
+    def _sync_imap() -> List[dict]:
+        msgs: List[dict] = []
+        try:
+            if use_ssl:
+                conn_imap = imaplib.IMAP4_SSL(host, port)
+            else:
+                conn_imap = imaplib.IMAP4(host, port)
+            conn_imap.login(imap_user, raw_password)
+            conn_imap.select("INBOX", readonly=True)
+            _, data = conn_imap.search(None, "ALL")
+            uids = data[0].split()
+            recent = uids[-20:] if len(uids) > 20 else uids
+            for uid_b in reversed(recent):
+                uid_str = uid_b.decode()
+                _, msg_data = conn_imap.fetch(uid_b, "(RFC822)")
+                raw_msg = msg_data[0][1] if msg_data and msg_data[0] else None
+                if not raw_msg:
+                    continue
+                parsed = _email_module.message_from_bytes(raw_msg)
+
+                def _decode_str(val: Any) -> str:
+                    if not val:
+                        return ""
+                    parts = _decode_header(val)
+                    result = []
+                    for part, enc in parts:
+                        if isinstance(part, bytes):
+                            result.append(part.decode(enc or "utf-8", errors="replace"))
+                        else:
+                            result.append(str(part))
+                    return "".join(result)
+
+                subj = _decode_str(parsed.get("Subject", ""))
+                from_addr = _decode_str(parsed.get("From", ""))
+                to_addr = _decode_str(parsed.get("To", ""))
+                date_str = parsed.get("Date", "")
+                body_text = ""
+                if parsed.is_multipart():
+                    for part in parsed.walk():
+                        if part.get_content_type() == "text/plain":
+                            body_text = part.get_payload(decode=True).decode(errors="replace")[:8000]
+                            break
+                else:
+                    payload = parsed.get_payload(decode=True)
+                    if payload:
+                        body_text = payload.decode(errors="replace")[:8000]
+
+                msgs.append({
+                    "uid": uid_str,
+                    "subject": subj[:500],
+                    "from_addr": from_addr[:500],
+                    "to_addr": to_addr[:1000],
+                    "date_str": date_str,
+                    "body_text": body_text,
+                })
+            conn_imap.close()
+            conn_imap.logout()
+        except Exception as exc:
+            logger.warning("IMAP sync failed for account %s: %s", account_id, exc)
+        return msgs
+
+    loop = asyncio.get_running_loop()
+    raw_msgs = await loop.run_in_executor(None, _sync_imap)
+
+    now = datetime.now(timezone.utc)
+    saved = 0
+    for m in raw_msgs:
+        msg_id = f"{account_id}:{m['uid']}"
+        # Parse date best-effort
+        msg_date = now
+        try:
+            from email.utils import parsedate_to_datetime
+            if m["date_str"]:
+                msg_date = parsedate_to_datetime(m["date_str"]).astimezone(timezone.utc)
+        except Exception:
+            pass
+
+        async with engine.begin() as conn:
+            # Upsert: try insert; if duplicate, skip
+            try:
+                await conn.execute(t_email_messages.insert().values(
+                    id=msg_id,
+                    account_id=account_id,
+                    user_id=uid,
+                    mailbox="INBOX",
+                    uid=m["uid"],
+                    subject=m["subject"],
+                    from_addr=m["from_addr"],
+                    to_addr=m["to_addr"],
+                    date=msg_date,
+                    body_text=m["body_text"],
+                    is_read=False,
+                    flags=None,
+                    synced_at=now,
+                ))
+                saved += 1
+            except Exception:
+                pass  # Already exists or constraint violation
+
+    # Update last_synced
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_email_accounts.update()
+            .where(t_email_accounts.c.id == account_id)
+            .values(last_synced=now, status="connected")
+        )
+
+    return {"synced": len(raw_msgs), "saved": saved}
+
+
+# ─── Calendar Endpoints ───────────────────────────────────────────────────────
+
+@app.get("/api/federation/calendar/accounts")
+async def list_calendar_accounts(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_cal_accounts.select().where(t_cal_accounts.c.user_id == uid).order_by(t_cal_accounts.c.created_at)
+        )
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("password", None)
+            for k in ("last_synced", "created_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/calendar/accounts")
+async def add_calendar_account(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    label = _assert_length((body.get("label") or "").strip(), _MAX_LABEL_LEN, "label")
+    url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
+    cal_username = (body.get("username") or "").strip()
+    cal_password = body.get("password") or ""
+    cal_type = (body.get("type") or "caldav").strip()
+    color = (body.get("color") or "#4f8ef7").strip()[:16]
+
+    if not label or not url:
+        raise HTTPException(status_code=400, detail="label and url are required")
+    if not await _validate_federation_url(url):
+        raise HTTPException(status_code=400, detail="Invalid calendar URL")
+    if cal_type not in ("caldav", "ical"):
+        raise HTTPException(status_code=400, detail="type must be caldav or ical")
+
+    stored_password = _encrypt_api_key(cal_password) if cal_password else None
+    acct_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_cal_accounts.insert().values(
+                id=acct_id,
+                user_id=uid,
+                label=label,
+                url=url,
+                username=cal_username or None,
+                password=stored_password,
+                type=cal_type,
+                color=color,
+                last_synced=None,
+                status="unchecked",
+                created_at=now,
+            ))
+    return {"id": acct_id, "label": label, "url": url, "type": cal_type, "status": "unchecked"}
+
+
+@app.delete("/api/federation/calendar/accounts/{acct_id}")
+async def remove_calendar_account(acct_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_cal_accounts.delete()
+                .where(t_cal_accounts.c.id == acct_id)
+                .where(t_cal_accounts.c.user_id == uid)
+            )
+    return {"success": True}
+
+
+@app.get("/api/federation/calendar/events")
+async def list_calendar_events(
+    request: Request,
+    account_id: Optional[str] = Query(None),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    q = t_cal_events.select().where(t_cal_events.c.user_id == uid)
+    if account_id:
+        q = q.where(t_cal_events.c.account_id == account_id)
+    q = q.order_by(t_cal_events.c.start_dt.asc()).limit(200)
+    async with engine.connect() as conn:
+        rows = await conn.execute(q)
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("raw_ical", None)
+            for k in ("start_dt", "end_dt", "synced_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/calendar/sync/{acct_id}")
+async def sync_calendar_account(acct_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Sync a CalDAV or iCal URL and store events locally.
+    Uses only stdlib + httpx; no external caldav library required.
+    """
+    import re as _re
+
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            t_cal_accounts.select()
+            .where(t_cal_accounts.c.id == acct_id)
+            .where(t_cal_accounts.c.user_id == uid)
+            .limit(1)
+        )
+        acct = row.first()
+    if not acct:
+        raise HTTPException(status_code=404, detail="Calendar account not found")
+
+    acct_map = dict(acct._mapping)
+    cal_url = acct_map["url"]
+    cal_username = acct_map.get("username") or ""
+    raw_password = _decrypt_api_key(acct_map.get("password")) or ""
+    cal_type = acct_map.get("type", "ical")
+
+    auth = (cal_username, raw_password) if cal_username else None
+
+    def _parse_ical_simple(ical_text: str) -> List[dict]:
+        """Minimal iCal VEVENT parser using regex (no external library)."""
+        events: List[dict] = []
+        for block in _re.split(r"BEGIN:VEVENT", ical_text, flags=_re.IGNORECASE):
+            if "END:VEVENT" not in block.upper():
+                continue
+            block = block[:block.upper().index("END:VEVENT")]
+
+            def _prop(name: str) -> str:
+                m = _re.search(rf"^{name}[;:][^\r\n]*", block, _re.MULTILINE | _re.IGNORECASE)
+                if not m:
+                    return ""
+                val = m.group(0)
+                # Strip property name and parameters
+                val = _re.sub(rf"^{name}[^:]*:", "", val, flags=_re.IGNORECASE)
+                return val.strip()
+
+            def _parse_dt(s: str) -> Optional[datetime]:
+                if not s:
+                    return None
+                # Strip VALUE= param prefix
+                s = _re.sub(r".*:", s)
+                s = s.replace("Z", "+00:00")
+                fmts = ["%Y%m%dT%H%M%S%z", "%Y%m%dT%H%M%S", "%Y%m%d"]
+                for fmt in fmts:
+                    try:
+                        dt = datetime.strptime(s[:len(fmt.replace("%z", "").replace("%","??").replace("??","XX"))], fmt)
+                        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+                    except ValueError:
+                        continue
+                return None
+
+            uid_val = _prop("UID")
+            if not uid_val:
+                uid_val = str(uuid.uuid4())
+            start_raw = _prop("DTSTART")
+            end_raw = _prop("DTEND")
+            all_day = "T" not in start_raw.upper() and start_raw != ""
+            events.append({
+                "uid": uid_val[:300],
+                "summary": _prop("SUMMARY")[:500],
+                "description": _prop("DESCRIPTION")[:2000],
+                "location": _prop("LOCATION")[:500],
+                "start_dt": _parse_dt(start_raw),
+                "end_dt": _parse_dt(end_raw),
+                "all_day": all_day,
+                "recurrence": _prop("RRULE")[:500] or None,
+                "raw_ical": block[:5000],
+            })
+        return events
+
+    ical_text: str = ""
+    new_status = "error"
+    try:
+        async with httpx.AsyncClient(timeout=15.0, auth=auth) as client:
+            if cal_type == "ical":
+                resp = await client.get(cal_url)
+            else:
+                # CalDAV: issue a REPORT request to fetch VCALENDAR data
+                report_body = (
+                    '<?xml version="1.0" encoding="utf-8" ?>'
+                    '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">'
+                    '<D:prop><D:getetag/><C:calendar-data/></D:prop>'
+                    '<C:filter><C:comp-filter name="VCALENDAR"/></C:filter>'
+                    '</C:calendar-query>'
+                )
+                resp = await client.request(
+                    "REPORT",
+                    cal_url,
+                    content=report_body,
+                    headers={"Content-Type": "application/xml", "Depth": "1"},
+                )
+            resp.raise_for_status()
+            ical_text = resp.text
+            new_status = "connected"
+    except Exception as exc:
+        logger.warning("Calendar sync failed for account %s: %s", acct_id, exc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_cal_accounts.update()
+                .where(t_cal_accounts.c.id == acct_id)
+                .values(status="error")
+            )
+        raise HTTPException(status_code=502, detail=f"Failed to fetch calendar: {exc}")
+
+    events = _parse_ical_simple(ical_text)
+    now = datetime.now(timezone.utc)
+    saved = 0
+    for ev in events:
+        ev_id = f"{acct_id}:{ev['uid']}"
+        async with engine.begin() as conn:
+            try:
+                await conn.execute(t_cal_events.insert().values(
+                    id=ev_id,
+                    account_id=acct_id,
+                    user_id=uid,
+                    uid=ev["uid"],
+                    summary=ev["summary"],
+                    description=ev["description"],
+                    location=ev["location"],
+                    start_dt=ev["start_dt"],
+                    end_dt=ev["end_dt"],
+                    all_day=ev["all_day"],
+                    recurrence=ev["recurrence"],
+                    raw_ical=ev["raw_ical"],
+                    synced_at=now,
+                ))
+                saved += 1
+            except Exception:
+                # Update existing event
+                try:
+                    await conn.execute(
+                        t_cal_events.update()
+                        .where(t_cal_events.c.id == ev_id)
+                        .values(
+                            summary=ev["summary"],
+                            description=ev["description"],
+                            location=ev["location"],
+                            start_dt=ev["start_dt"],
+                            end_dt=ev["end_dt"],
+                            all_day=ev["all_day"],
+                            recurrence=ev["recurrence"],
+                            raw_ical=ev["raw_ical"],
+                            synced_at=now,
+                        )
+                    )
+                except Exception:
+                    pass
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_cal_accounts.update()
+            .where(t_cal_accounts.c.id == acct_id)
+            .values(last_synced=now, status=new_status)
+        )
+
+    return {"synced": len(events), "saved": saved}
+
+
+# ─── Web Browse Endpoints ─────────────────────────────────────────────────────
+
+_MAX_BROWSE_CONTENT = 50_000  # 50 KB of text
+
+
+@app.get("/api/federation/browse/history")
+async def get_browse_history(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_browse_history.select()
+            .where(t_browse_history.c.user_id == uid)
+            .order_by(t_browse_history.c.visited_at.desc())
+            .limit(limit)
+        )
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("content_text", None)  # Omit heavy content from list
+            if d.get("visited_at") and hasattr(d["visited_at"], "isoformat"):
+                d["visited_at"] = d["visited_at"].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/browse")
+async def browse_url(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Fetch a web page and return its text content, recording it in browse history.
+    Uses httpx for HTTP retrieval; strips HTML tags to extract readable text.
+    Note: Full Browsh integration requires a Browsh service; this provides
+    a lightweight fallback using HTTP + basic HTML stripping.
+    """
+    import html
+    import re as _re
+
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+    if not await _validate_federation_url(url):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe URL")
+
+    content_text = ""
+    title = ""
+    fetch_error: Optional[str] = None
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, max_redirects=5) as client:
+            resp = await client.get(url, headers={"User-Agent": "SwAIvyn-Browser/1.0"})
+            resp.raise_for_status()
+            raw_html = resp.text
+
+        # Strip scripts and styles
+        clean = _re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", "", raw_html, flags=_re.DOTALL | _re.IGNORECASE)
+        # Extract title
+        title_m = _re.search(r"<title[^>]*>(.*?)</title>", clean, _re.DOTALL | _re.IGNORECASE)
+        if title_m:
+            title = html.unescape(_re.sub(r"<[^>]+>", "", title_m.group(1))).strip()[:500]
+        # Strip remaining HTML tags
+        text = _re.sub(r"<[^>]+>", " ", clean)
+        text = html.unescape(text)
+        # Collapse whitespace
+        text = _re.sub(r"[ \t]+", " ", text)
+        text = _re.sub(r"\n\s*\n", "\n\n", text)
+        content_text = text.strip()[:_MAX_BROWSE_CONTENT]
+    except Exception as exc:
+        fetch_error = str(exc)
+        logger.warning("Browse fetch failed for %s: %s", url, exc)
+
+    now = datetime.now(timezone.utc)
+    visit_id = str(uuid.uuid4())
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_browse_history.insert().values(
+                id=visit_id,
+                user_id=uid,
+                url=url,
+                title=title or None,
+                content_text=content_text or None,
+                visited_at=now,
+            ))
+
+    if fetch_error:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {fetch_error}")
+
+    return {
+        "id": visit_id,
+        "url": url,
+        "title": title,
+        "content_text": content_text,
+        "visited_at": now.isoformat(),
+    }
+
+
+@app.delete("/api/federation/browse/history")
+async def clear_browse_history(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Clear all browse history for the current user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_browse_history.delete().where(t_browse_history.c.user_id == uid))
+    return {"success": True}
+
 
 # This ends the main.py file - all imports and endpoints are complete

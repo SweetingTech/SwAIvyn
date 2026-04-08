@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload, Menu, X } from 'lucide-react';
+import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload, Menu, X, Network } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -32,6 +32,7 @@ const Navigation = () => {
             <NavItem to="/knowledge-upload" icon={<Upload size={18} />} label="Knowledge" />
             <NavItem to="/modules" icon={<Puzzle size={18} />} label={t('navigation.modules')} />
             <NavItem to="/agents" icon={<Bot size={18} />} label={t('navigation.agents')} />
+            <NavItem to="/federation" icon={<Network size={18} />} label={t('navigation.federation')} />
             <NavItem to="/profile" icon={<User size={18} />} label={t('navigation.profile')} />
             <NavItem to="/settings" icon={<Settings size={18} />} label={t('navigation.settings')} />
             {user?.role === 'admin' && (
@@ -129,6 +130,7 @@ const MobileMenu = ({ isOpen, setIsOpen }: MobileMenuProps) => {
               <MobileNavItem to="/knowledge-upload" icon={<Upload size={20} />} label="Knowledge" onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/modules" icon={<Puzzle size={20} />} label={t('navigation.modules')} onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/agents" icon={<Bot size={20} />} label={t('navigation.agents')} onClick={() => setIsOpen(false)} />
+              <MobileNavItem to="/federation" icon={<Network size={20} />} label={t('navigation.federation')} onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/profile" icon={<User size={20} />} label={t('navigation.profile')} onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/settings" icon={<Settings size={20} />} label={t('navigation.settings')} onClick={() => setIsOpen(false)} />
               {user?.role === 'admin' && (
