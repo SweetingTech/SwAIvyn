@@ -3102,7 +3102,8 @@ async def plugin_health(
             detail = resp.text[:200]
     except Exception as exc:
         health_status = "unhealthy"
-        detail = str(exc)[:200]
+        logger.debug("Plugin %s health probe failed: %s", plugin_id, exc)
+        detail = "Health probe failed — could not reach health_endpoint."
 
     # Persist the last-known health status
     now = current_timestamp()
