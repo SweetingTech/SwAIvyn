@@ -66,7 +66,7 @@ interface CharacterEditorProps {
 /**
  * CharacterEditor component allows creating and editing YAML-based AI character profiles.
  * Uses a single YAML input field for flexibility and full character customization.
- * Supports 3D model (VRM / glTF) uploads via the `avatar` YAML field.
+ * Supports 3D model (VRM / glTF) uploads via the `avatar_3d` YAML field.
  */
 const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, onSave, onCancel }) => {
   const [character, setCharacter] = useState<Character>({

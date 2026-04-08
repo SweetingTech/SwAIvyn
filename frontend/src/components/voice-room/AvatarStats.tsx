@@ -11,10 +11,24 @@ export interface AvatarStats {
 const DEFAULT_STATS: AvatarStats = { energy: 80, mood: 70, relationship: 50 };
 const STORAGE_KEY = 'swaivyn_avatar_stats';
 
+/** Clamp a value to [0, 100], returning the default if not a valid number */
+function clampStat(val: unknown, def: number): number {
+  const n = Number(val);
+  if (!isFinite(n)) return def;
+  return Math.max(0, Math.min(100, n));
+}
+
 export function loadStats(): AvatarStats {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULT_STATS, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        energy:       clampStat(parsed.energy,       DEFAULT_STATS.energy),
+        mood:         clampStat(parsed.mood,          DEFAULT_STATS.mood),
+        relationship: clampStat(parsed.relationship,  DEFAULT_STATS.relationship),
+      };
+    }
   } catch {
     // ignore
   }

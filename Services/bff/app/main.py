@@ -28,6 +28,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
     File,
+    Form,
     Query,
     Request,
     Depends,
@@ -2587,6 +2588,61 @@ async def get_tts_voices(request: Request, provider: str = Query(...)):
 
     return {"voices": voices}
 
+
+@app.post("/api/tts/voices/upload")
+async def upload_tts_voice(
+    request: Request,
+    audioFile: UploadFile = File(...),
+    transcript: str = Form(...),
+    voiceName: str = Form(...),
+):
+    """Proxy voice upload to the Fish Speech TTS service.
+    Accepts a recorded audio file (WebM, OGG, WAV, or MP3), a reference transcript,
+    and a voice name, then forwards them to the upstream TTS proxy.
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    voice_name_clean = voiceName.strip()
+    if not voice_name_clean:
+        raise HTTPException(status_code=400, detail="voiceName is required")
+    if not transcript.strip():
+        raise HTTPException(status_code=400, detail="transcript is required")
+
+    # Basic content-type allow-list to prevent uploading arbitrary files
+    allowed_mime_prefixes = ("audio/",)
+    file_ct = (audioFile.content_type or "").lower()
+    if not any(file_ct.startswith(p) for p in allowed_mime_prefixes):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ct}")
+
+    audio_bytes = await audioFile.read()
+    if len(audio_bytes) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Audio file exceeds 50 MB limit")
+
+    tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            # Derive a sensible file extension from the content-type when the client
+            # doesn't supply a filename (e.g. audio/webm → .webm, audio/ogg → .ogg).
+            fallback_ext = file_ct.split(";")[0].split("/")[-1] if "/" in file_ct else "webm"
+            upload_filename = audioFile.filename or f"{voice_name_clean}.{fallback_ext}"
+            r = await client.post(
+                f"{tts_url}/voices/upload",
+                files={"audioFile": (upload_filename, audio_bytes, file_ct)},
+                data={"transcript": transcript.strip(), "voiceName": voice_name_clean},
+            )
+            if r.status_code == 200:
+                return r.json()
+            logger.warning("upstream voice upload returned %d: %s", r.status_code, r.text[:200])
+            raise HTTPException(status_code=r.status_code, detail="Upstream TTS voice upload failed")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("upload_tts_voice proxy error: %s", exc)
+        raise HTTPException(status_code=502, detail="TTS service unavailable") from exc
+
+
 @app.get("/api/tts/health")
 async def tts_health(request: Request):
     """Proxy TTS proxy /health so the frontend can display GPU/CPU status.
@@ -2950,6 +3006,8 @@ async def update_room_items(
     # Validate: each item must be a non-empty string with only safe chars
     allowed_ids = {"plant", "lamp", "book", "rug", "chair"}
     sanitised = [i for i in body.items if isinstance(i, str) and i in allowed_ids]
+    # De-duplicate while preserving the original request order
+    sanitised = list(dict.fromkeys(sanitised))
 
     items_json = json.dumps(sanitised)
     now = datetime.now(timezone.utc)

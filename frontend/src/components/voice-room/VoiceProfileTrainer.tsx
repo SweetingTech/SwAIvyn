@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Upload, Play, Square, X, UserCheck } from 'lucide-react';
 import ttsService from '../../services/ttsService';
@@ -9,10 +9,31 @@ interface VoiceProfileTrainerProps {
 
 type RecordingState = 'idle' | 'recording' | 'recorded' | 'uploading' | 'done' | 'error';
 
+// Detect the best audio MIME type supported by the current browser's MediaRecorder.
+// We prefer webm/opus, then ogg/opus. The empty string at the end means "let the
+// browser pick its own default" — MediaRecorder constructed without a mimeType option.
+function getSupportedMimeType(): string {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg'];
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  // No explicit preference matched; let the browser use its built-in default.
+  return '';
+}
+
+// Derive a file extension from a MIME type string (e.g. "audio/webm;codecs=opus" → "webm").
+function extFromMime(mime: string): string {
+  if (!mime) return 'audio';
+  const base = mime.split(';')[0].split('/')[1] ?? 'audio';
+  return base;
+}
+
 const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [recordingMime, setRecordingMime] = useState<string>('audio/webm');
+  const [recordingExt, setRecordingExt] = useState<string>('webm');
   const [transcript, setTranscript] = useState('');
   const [voiceName, setVoiceName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -20,6 +41,13 @@ const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Revoke object URL when it changes or component unmounts to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
 
   // ── Recording controls ─────────────────────────────────────────────────────
 
@@ -29,7 +57,10 @@ const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
       streamRef.current = stream;
       audioChunksRef.current = [];
 
-      const mediaRecorder = new MediaRecorder(stream);
+      const mimeType = getSupportedMimeType();
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (e) => {
@@ -37,10 +68,14 @@ const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const actualMime = mediaRecorder.mimeType || mimeType || 'audio/webm';
+        const ext = extFromMime(actualMime);
+        const blob = new Blob(audioChunksRef.current, { type: actualMime });
         const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
         setAudioUrl(url);
+        setRecordingMime(actualMime);
+        setRecordingExt(ext);
         setRecordingState('recorded');
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -66,12 +101,14 @@ const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
   }, [audioUrl]);
 
   const reset = useCallback(() => {
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    // Note: audioUrl revocation is handled by the useEffect above
     setAudioBlob(null);
     setAudioUrl(null);
+    setRecordingMime('audio/webm');
+    setRecordingExt('webm');
     setRecordingState('idle');
     setErrorMsg('');
-  }, [audioUrl]);
+  }, []);
 
   // ── Upload ─────────────────────────────────────────────────────────────────
 
@@ -81,8 +118,9 @@ const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
       return;
     }
 
-    // Validate via ttsService utility
-    const file = new File([audioBlob], `${voiceName.trim()}.wav`, { type: 'audio/wav' });
+    // Build a File with the actual recorded MIME type and extension
+    const fileName = `${voiceName.trim()}.${recordingExt}`;
+    const file = new File([audioBlob], fileName, { type: recordingMime });
     const validation = ttsService.validateVoiceFile(file);
     if (!validation.valid) {
       setErrorMsg(validation.error ?? 'Invalid file.');
@@ -104,7 +142,7 @@ const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
       setErrorMsg(msg);
       setRecordingState('error');
     }
-  }, [audioBlob, voiceName, transcript]);
+  }, [audioBlob, voiceName, transcript, recordingMime, recordingExt]);
 
   // ── File upload (alternative to recording) ────────────────────────────────
 

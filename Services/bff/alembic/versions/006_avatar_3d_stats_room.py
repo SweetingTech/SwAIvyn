@@ -25,6 +25,7 @@ def upgrade():
         sa.Column('mood', sa.Float(), nullable=False, server_default='70'),
         sa.Column('relationship_score', sa.Float(), nullable=False, server_default='50'),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     )
 
     op.create_table(
@@ -33,6 +34,7 @@ def upgrade():
         # JSON array of active item IDs, e.g. ["plant", "lamp"]
         sa.Column('items', sa.Text(), nullable=False, server_default='[]'),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     )
 
 

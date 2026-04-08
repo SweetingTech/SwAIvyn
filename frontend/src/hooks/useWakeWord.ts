@@ -48,6 +48,10 @@ interface SpeechRecognition extends EventTarget {
   onend: (() => void) | null;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const normalize = (s: string) => s.toLowerCase().trim();
+
 // ─── Public hook ──────────────────────────────────────────────────────────────
 
 interface UseWakeWordOptions {
@@ -82,10 +86,16 @@ export function useWakeWord({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const isActiveRef = useRef(false);
 
-  const isSupported = SpeechRecognitionCtor !== null;
+  // Keep refs always fresh so the recognition handlers never capture stale values
+  const onDetectedRef = useRef(onDetected);
+  const needleRef = useRef(normalize(wakeWord));
+  const langRef = useRef(lang);
 
-  const normalize = (s: string) => s.toLowerCase().trim();
-  const needle = normalize(wakeWord);
+  useEffect(() => { onDetectedRef.current = onDetected; }, [onDetected]);
+  useEffect(() => { needleRef.current = normalize(wakeWord); }, [wakeWord]);
+  useEffect(() => { langRef.current = lang; }, [lang]);
+
+  const isSupported = SpeechRecognitionCtor !== null;
 
   const stop = useCallback(() => {
     recognitionRef.current?.abort();
@@ -101,14 +111,14 @@ export function useWakeWord({
     const recognition = new SpeechRecognitionCtor();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = lang;
+    recognition.lang = langRef.current;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         const transcript = normalize(result[0].transcript);
-        if (transcript.includes(needle)) {
-          onDetected?.();
+        if (transcript.includes(needleRef.current)) {
+          onDetectedRef.current?.();
           // Don't stop: keep listening for subsequent wake words
           break;
         }
@@ -145,7 +155,7 @@ export function useWakeWord({
       isActiveRef.current = false;
       setIsActive(false);
     }
-  }, [isSupported, lang, needle, onDetected]);
+  }, [isSupported]);
 
   // Respond to `enabled` prop changes
   useEffect(() => {

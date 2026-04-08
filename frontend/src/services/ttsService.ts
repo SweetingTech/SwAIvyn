@@ -146,12 +146,11 @@ const ttsService = {
    */
   validateVoiceFile(file: File): { valid: boolean; error?: string } {
     const maxSizeBytes = 50 * 1024 * 1024; // 50MB
-    const allowedTypes = ['audio/wav', 'audio/mpeg', 'audio/mp3'];
-
-    if (!allowedTypes.includes(file.type)) {
+    // Accept any audio/* MIME type (covers WAV, MP3, WebM/Opus, OGG, etc.)
+    if (!file.type.startsWith('audio/')) {
       return {
         valid: false,
-        error: 'Please upload a WAV or MP3 audio file.',
+        error: 'Please upload an audio file (WAV, MP3, WebM, or OGG).',
       };
     }
 

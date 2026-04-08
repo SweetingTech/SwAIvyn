@@ -33,7 +33,6 @@ const VoiceRoomPage = () => {
 
   // 3D room state
   const [activeRoomItems, setActiveRoomItems] = useState<string[]>(loadRoomItems);
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
 
   // Tamagotchi stats
   const { stats, setStats, recordInteraction } = useAvatarStats();
@@ -42,11 +41,11 @@ const VoiceRoomPage = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Wake word detection
+  // Wake word detection – `wakeWordActive` is the single source of truth for whether
+  // the wake-word listener is running. We only use `setActive` to toggle it.
   const { isSupported: wakeWordSupported, isActive: wakeWordActive, setActive: setWakeWordActive } =
     useWakeWord({
       wakeWord: 'hey assistant',
-      enabled: wakeWordEnabled,
       onDetected: () => {
         if (!isListening && !isProcessing && !isSpeaking) {
           startRecording();
@@ -333,11 +332,7 @@ const VoiceRoomPage = () => {
                       ? 'bg-green-700 border-green-600 text-green-200'
                       : 'bg-gray-800/80 border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white'
                   }`}
-                  onClick={() => {
-                    const next = !wakeWordEnabled;
-                    setWakeWordEnabled(next);
-                    setWakeWordActive(next);
-                  }}
+                  onClick={() => setWakeWordActive(!wakeWordActive)}
                   title={wakeWordActive ? 'Disable wake word' : 'Enable wake word ("Hey Assistant")'}
                   aria-label="Toggle wake word detection"
                 >
