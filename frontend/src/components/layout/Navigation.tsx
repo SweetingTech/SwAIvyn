@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload, Menu, X } from 'lucide-react';
+import { Sparkles, MessageSquare, Headphones, Brain, Puzzle, Settings, BarChart3, User, Bot, Upload, Menu, X, Blocks } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -31,6 +31,7 @@ const Navigation = () => {
             <NavItem to="/memory" icon={<Brain size={18} />} label={t('navigation.memory')} />
             <NavItem to="/knowledge-upload" icon={<Upload size={18} />} label="Knowledge" />
             <NavItem to="/modules" icon={<Puzzle size={18} />} label={t('navigation.modules')} />
+            <NavItem to="/plugins" icon={<Blocks size={18} />} label="Plugins" />
             <NavItem to="/agents" icon={<Bot size={18} />} label={t('navigation.agents')} />
             <NavItem to="/profile" icon={<User size={18} />} label={t('navigation.profile')} />
             <NavItem to="/settings" icon={<Settings size={18} />} label={t('navigation.settings')} />
@@ -128,6 +129,7 @@ const MobileMenu = ({ isOpen, setIsOpen }: MobileMenuProps) => {
               <MobileNavItem to="/memory" icon={<Brain size={20} />} label={t('navigation.memory')} onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/knowledge-upload" icon={<Upload size={20} />} label="Knowledge" onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/modules" icon={<Puzzle size={20} />} label={t('navigation.modules')} onClick={() => setIsOpen(false)} />
+              <MobileNavItem to="/plugins" icon={<Blocks size={20} />} label="Plugins" onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/agents" icon={<Bot size={20} />} label={t('navigation.agents')} onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/profile" icon={<User size={20} />} label={t('navigation.profile')} onClick={() => setIsOpen(false)} />
               <MobileNavItem to="/settings" icon={<Settings size={20} />} label={t('navigation.settings')} onClick={() => setIsOpen(false)} />

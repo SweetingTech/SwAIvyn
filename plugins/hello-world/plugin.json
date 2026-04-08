@@ -1,0 +1,17 @@
+{
+  "manifest_version": "1",
+  "id": "hello-world",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "description": "Reference plugin that demonstrates the SwAIvyn plugin lifecycle. Exposes a single tool-use endpoint that returns a greeting.",
+  "author": "SwAIvyn Team",
+  "entry_point": "http://hello-world-plugin:8080",
+  "health_endpoint": "http://hello-world-plugin:8080/health",
+  "permissions": [],
+  "capabilities": ["tool-use"],
+  "metadata": {
+    "homepage": "https://github.com/SweetingTech/SwAIvyn",
+    "license": "MIT",
+    "tags": ["example", "tool-use", "reference"]
+  }
+}
