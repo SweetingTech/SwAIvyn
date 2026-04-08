@@ -154,3 +154,70 @@ jobs:
           See the commits since the last release for detailed changes.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  pwa-build:
+    runs-on: ubuntu-latest
+    name: PWA Build
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        submodules: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Get version
+      id: version
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${{ github.ref_name }}"
+        fi
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "version_clean=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: npm ci
+
+    - name: Build PWA
+      working-directory: frontend
+      env:
+        VITE_API_BASE_URL: ''
+      run: npm run build
+
+    - name: Package PWA dist
+      shell: bash
+      run: |
+        VERSION="${{ steps.version.outputs.version_clean }}"
+        PKG="SwAIvyn-pwa-${VERSION}.zip"
+        cd frontend
+        zip -r "../${PKG}" dist/
+        echo "package_path=${PKG}" >> "$GITHUB_OUTPUT"
+      id: pwa_package
+
+    - name: Upload PWA artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SwAIvyn-pwa-${{ steps.version.outputs.version_clean }}
+        path: ${{ steps.pwa_package.outputs.package_path }}
+        retention-days: 90
+
+    - name: Upload PWA to release
+      if: github.event.inputs.create_release != 'false'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        files: ${{ steps.pwa_package.outputs.package_path }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
