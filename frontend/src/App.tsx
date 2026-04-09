@@ -21,17 +21,10 @@ import { InitializationProvider, useInitialization } from './contexts/Initializa
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import { env } from './config/env';
+import { StagewiseToolbar } from '@stagewise/toolbar-react';
+import { ReactPlugin } from '@stagewise-plugins/react';
 // Optional Stagewise toolbar (disabled by default). Enable with VITE_STAGEWISE_ENABLED=true
 const enableStagewise = env.stagewiseEnabled;
-let StagewiseToolbar: any = null as any;
-let ReactPlugin: any = null as any;
-if (enableStagewise) {
-  // Lazy require to avoid loading when disabled
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  StagewiseToolbar = require('@stagewise/toolbar-react').StagewiseToolbar;
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  ReactPlugin = require('@stagewise-plugins/react').ReactPlugin;
-}
 import AdminUsersPage from './pages/AdminUsersPage';
 import FederationPage from './pages/FederationPage';
 import PluginsPage from './pages/PluginsPage';

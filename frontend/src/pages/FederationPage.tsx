@@ -94,6 +94,31 @@ interface BrowseEntry {
   visited_at: string;
 }
 
+interface EmailAccountForm {
+  label: string;
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  use_ssl: boolean;
+}
+
+interface CalendarAccountForm {
+  label: string;
+  url: string;
+  username: string;
+  password: string;
+  type: string;
+  color: string;
+}
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (axios.isAxiosError<{ detail?: string }>(error)) {
+    return error.response?.data?.detail || fallback;
+  }
+  return fallback;
+};
+
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 const StatusDot = ({ status }: { status: string }) => {
@@ -144,8 +169,8 @@ const PeersTab = () => {
       } else {
         toast.success(`Discovered ${data.discovered.length} peer(s)`);
       }
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Discovery failed');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Discovery failed'));
     } finally {
       setDiscovering(false);
     }
@@ -159,8 +184,8 @@ const PeersTab = () => {
       setShowAdd(false);
       setForm({ name: '', url: '', api_key: '' });
       load();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Failed to add peer');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Failed to add peer'));
     }
   };
 
@@ -358,8 +383,8 @@ const MessagesTab = () => {
       setShowCompose(false);
       setForm({ peer_id: '', to_address: '', subject: '', body: '' });
       load();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Send failed');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Send failed'));
     }
   };
 
@@ -511,7 +536,7 @@ const EmailTab = () => {
   const [syncing, setSyncing] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [form, setForm] = useState({ label: '', host: '', port: '993', username: '', password: '', use_ssl: true });
+  const [form, setForm] = useState<EmailAccountForm>({ label: '', host: '', port: '993', username: '', password: '', use_ssl: true });
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -542,7 +567,7 @@ const EmailTab = () => {
       setShowAdd(false);
       setForm({ label: '', host: '', port: '993', username: '', password: '', use_ssl: true });
       loadAccounts();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to add account'); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, 'Failed to add account')); }
   };
 
   const handleSync = async (id: string) => {
@@ -552,7 +577,7 @@ const EmailTab = () => {
       toast.success(`Synced ${data.synced} messages (${data.saved} new)`);
       loadAccounts();
       if (id === selAccount) loadMessages(id);
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Sync failed'); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, 'Sync failed')); }
     finally { setSyncing(null); }
   };
 
@@ -584,12 +609,12 @@ const EmailTab = () => {
               { key: 'host', label: 'IMAP Host', placeholder: 'imap.gmail.com' },
               { key: 'port', label: 'Port', placeholder: '993' },
               { key: 'username', label: 'Username / Email', placeholder: 'you@gmail.com' },
-            ].map(({ key, label, placeholder }) => (
+            ].map(({ key, label, placeholder }: { key: keyof EmailAccountForm; label: string; placeholder: string }) => (
               <div key={key}>
                 <label className="block text-xs text-gray-600 mb-1">{label}</label>
                 <input className="w-full border rounded px-2 py-1.5 text-sm"
                   placeholder={placeholder}
-                  value={(form as any)[key]}
+                  value={form[key]}
                   onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
               </div>
             ))}
@@ -678,7 +703,7 @@ const CalendarTab = () => {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ label: '', url: '', username: '', password: '', type: 'caldav', color: '#4f8ef7' });
+  const [form, setForm] = useState<CalendarAccountForm>({ label: '', url: '', username: '', password: '', type: 'caldav', color: '#4f8ef7' });
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -709,7 +734,7 @@ const CalendarTab = () => {
       setShowAdd(false);
       setForm({ label: '', url: '', username: '', password: '', type: 'caldav', color: '#4f8ef7' });
       loadAccounts();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to add calendar'); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, 'Failed to add calendar')); }
   };
 
   const handleSync = async (id: string) => {
@@ -719,7 +744,7 @@ const CalendarTab = () => {
       toast.success(`Synced ${data.synced} event(s)`);
       loadAccounts();
       if (id === selAccount) loadEvents(id);
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Sync failed'); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, 'Sync failed')); }
     finally { setSyncing(null); }
   };
 
@@ -878,8 +903,8 @@ const BrowseTab = () => {
       const { data } = await axios.post<{ title: string; content_text: string; url: string }>(`${API}/browse`, { url: url.trim() });
       setResult(data);
       loadHistory();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Browse failed');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Browse failed'));
     } finally {
       setBrowsing(false);
     }
