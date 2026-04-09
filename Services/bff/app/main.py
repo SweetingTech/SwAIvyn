@@ -507,6 +507,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 try:
+    if os.path.exists(UPLOADS_DIR):
+        app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
     frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
     if os.path.exists(frontend_dist):
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
@@ -1939,6 +1941,37 @@ async def create_character_yaml(body: dict, request: Request, engine: Optional[A
     except Exception as e:
         logger.exception("create_character_yaml failed for user %s: %s", u.get("id"), e)
         raise HTTPException(status_code=400, detail="Failed to create character")
+
+@app.post("/api/character/upload-3d-model")
+async def upload_character_3d_model(request: Request, file: UploadFile = File(...)):
+    """Upload a 3D avatar asset and return a stable URL for YAML storage."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    allowed_extensions = {".vrm", ".glb", ".gltf"}
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Only VRM, GLB, and GLTF files are supported")
+
+    max_bytes = 100 * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=400, detail="File must be smaller than 100 MB")
+
+    user_dir = os.path.join(CHAR_UPLOADS_DIR, u["id"])
+    os.makedirs(user_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(user_dir, stored_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    return {
+        "url": f"/uploads/characters/{u['id']}/{stored_name}",
+        "filename": filename,
+        "size": len(content),
+    }
 
 @app.put("/api/character/{character_id}/yaml")
 async def update_character_yaml(character_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):

@@ -2,12 +2,25 @@ import React, { useState, useEffect, ChangeEvent, useRef } from 'react';
 import yaml from 'js-yaml';
 import apiService from '../services/apiService';
 
+type CharacterYaml = Record<string, unknown> & {
+  name?: string;
+  description?: string;
+  personality?: string;
+  scenario?: string;
+  tags?: string[];
+  talkativeness?: number | string;
+  system_prompt?: string;
+  post_history_instructions?: string;
+  first_message?: string;
+  message_example?: string;
+};
+
 /**
  * Hook: Converts YAML to a system prompt string usable by LLMs.
  */
 const useYamlToPrompt = (yamlString: string): string => {
   try {
-    const parsed = yaml.load(yamlString) as any;
+    const parsed = yaml.load(yamlString) as CharacterYaml | null;
     if (!parsed || typeof parsed !== 'object') return '';
 
     return `You are roleplaying as the AI character below. Remain fully in character.
@@ -40,9 +53,9 @@ ${parsed.message_example || ''}`;
  */
 const useCharacterName = (yamlString: string): string => {
   try {
-    const parsed = yaml.load(yamlString) as any;
+    const parsed = yaml.load(yamlString) as CharacterYaml | null;
     return parsed?.name || 'Unnamed Character';
-  } catch (error) {
+  } catch {
     return 'Unnamed Character';
   }
 };
@@ -81,7 +94,9 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
   // 3D model upload state
   const [model3dFile, setModel3dFile] = useState<File | null>(null);
   const [model3dPreviewUrl, setModel3dPreviewUrl] = useState<string | null>(null);
+  const [model3dStoredUrl, setModel3dStoredUrl] = useState<string | null>(null);
   const [model3dError, setModel3dError] = useState<string | null>(null);
+  const [uploadingModel, setUploadingModel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Generate system prompt and character name from YAML
@@ -99,14 +114,30 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
     }
   }, [characterId]);
 
-  // Revoke 3D model object URL on unmount to avoid memory leaks
   useEffect(() => {
+    const previewUrl = model3dPreviewUrl;
     return () => {
-      if (model3dPreviewUrl) {
-        URL.revokeObjectURL(model3dPreviewUrl);
+      if (previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
       }
     };
   }, [model3dPreviewUrl]);
+
+  useEffect(() => {
+    try {
+      const parsed = yaml.load(character.yamlProfile) as Record<string, unknown> | null;
+      const avatarUrl = typeof parsed?.avatar_3d === 'string' ? parsed.avatar_3d : '';
+      if (avatarUrl && avatarUrl !== 'none') {
+        setModel3dStoredUrl(avatarUrl);
+        setModel3dPreviewUrl((current) => (current && current.startsWith('blob:') ? current : avatarUrl));
+      } else {
+        setModel3dStoredUrl(null);
+        setModel3dPreviewUrl((current) => (current && current.startsWith('blob:') ? current : null));
+      }
+    } catch {
+      // Ignore YAML parse errors during editing; submit validation handles them.
+    }
+  }, [character.yamlProfile]);
 
   // Handle YAML input changes
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -114,7 +145,7 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
   };
 
   // Handle 3D model file selection (VRM / glTF)
-  const handle3dModelChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handle3dModelChange = async (e: ChangeEvent<HTMLInputElement>) => {
     setModel3dError(null);
     const file = e.target.files?.[0];
     if (!file) return;
@@ -132,19 +163,44 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ userId, characterId, 
     }
 
     const objectUrl = URL.createObjectURL(file);
+    if (model3dPreviewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(model3dPreviewUrl);
+    }
     setModel3dFile(file);
     setModel3dPreviewUrl(objectUrl);
+    setUploadingModel(true);
 
-    // Inject the object URL into the YAML `avatar` field so the 3D scene can use it.
-    setCharacter(prev => {
-      try {
-        const parsed = yaml.load(prev.yamlProfile) as Record<string, unknown> ?? {};
-        parsed['avatar_3d'] = objectUrl;
-        return { ...prev, yamlProfile: yaml.dump(parsed) };
-      } catch {
-        return prev;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadResult = await apiService.post('/api/character/upload-3d-model', formData);
+      const uploadedUrl = typeof uploadResult?.url === 'string' ? uploadResult.url : null;
+      if (!uploadedUrl) {
+        throw new Error('Upload did not return a stable URL');
       }
-    });
+
+      setModel3dStoredUrl(uploadedUrl);
+      setModel3dPreviewUrl(uploadedUrl);
+      URL.revokeObjectURL(objectUrl);
+
+      setCharacter(prev => {
+        try {
+          const parsed = (yaml.load(prev.yamlProfile) as Record<string, unknown> | null) ?? {};
+          parsed.avatar_3d = uploadedUrl;
+          return { ...prev, yamlProfile: yaml.dump(parsed, { lineWidth: 120 }) };
+        } catch {
+          return prev;
+        }
+      });
+    } catch (error) {
+      console.error('Failed to upload 3D model:', error);
+      setModel3dError('Failed to upload 3D model. Please try again.');
+    } finally {
+      setUploadingModel(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   // Handle form submission to save YAML character profile
@@ -240,7 +296,7 @@ extensions:
         <h3 className="font-semibold text-sm mb-1">3D Avatar Model <span className="font-normal text-gray-500">(optional)</span></h3>
         <p className="text-xs text-gray-500 mb-2">
           Upload a <strong>VRM</strong>, <strong>GLB</strong>, or <strong>GLTF</strong> file to use a 3D model in the
-          Voice Room. The file is loaded locally in the browser and its URL is stored in the{' '}
+          Voice Room. The file is uploaded to the app server and its stable URL is stored in the{' '}
           <code className="bg-gray-100 px-1 rounded">avatar_3d</code> YAML field.
         </p>
         <div className="flex items-center gap-3 flex-wrap">
@@ -256,21 +312,21 @@ extensions:
             htmlFor="avatar3d-upload"
             className="cursor-pointer px-3 py-1.5 text-sm bg-primary-500 text-white rounded hover:bg-primary-600 transition-colors"
           >
-            Choose 3D Model
+            {uploadingModel ? 'Uploading...' : 'Choose 3D Model'}
           </label>
           {model3dFile && (
             <span className="text-sm text-gray-700 truncate max-w-xs">
               ✅ {model3dFile.name}
             </span>
           )}
-          {model3dPreviewUrl && (
+          {model3dStoredUrl && (
             <a
-              href={model3dPreviewUrl}
+              href={model3dStoredUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs text-primary-600 hover:underline"
             >
-              Preview URL
+              Open uploaded model
             </a>
           )}
         </div>
@@ -304,7 +360,8 @@ extensions:
               localStorage.setItem('activeCharacter', JSON.stringify({
                 id: character.id,
                 name: characterName,
-                systemPrompt: systemPrompt
+                systemPrompt: systemPrompt,
+                avatar3d: model3dStoredUrl,
               }));
               // Navigate to chat
               window.location.href = '/chat';

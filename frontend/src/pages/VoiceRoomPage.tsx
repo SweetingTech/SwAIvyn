@@ -20,6 +20,13 @@ interface VoiceConfig {
   ttsProvider: string;
 }
 
+interface ActiveCharacter {
+  id?: string;
+  name?: string;
+  systemPrompt?: string;
+  avatar3d?: string | null;
+}
+
 const VoiceRoomPage = () => {
   const effectiveUserId = useEffectiveUser();
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
@@ -30,6 +37,7 @@ const VoiceRoomPage = () => {
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({ apiKey: '', voice: 'glados', ttsProvider: 'fishspeech' });
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeCharacter, setActiveCharacter] = useState<ActiveCharacter | null>(null);
 
   // 3D room state
   const [activeRoomItems, setActiveRoomItems] = useState<string[]>(loadRoomItems);
@@ -67,6 +75,16 @@ const VoiceRoomPage = () => {
       }
     };
     loadSettings();
+
+    try {
+      const raw = localStorage.getItem('activeCharacter');
+      if (raw) {
+        const parsed = JSON.parse(raw) as ActiveCharacter;
+        setActiveCharacter(parsed);
+      }
+    } catch (error) {
+      console.warn('Failed to load active character context', error);
+    }
 
     // Cleanup on unmount
     return () => {
@@ -249,7 +267,9 @@ const VoiceRoomPage = () => {
       <div className="max-w-5xl mx-auto h-full flex flex-col">
         <div className="text-center mb-4">
           <h1 className="text-3xl font-light text-white tracking-wider">Voice Room</h1>
-          <p className="text-gray-400">Speak naturally with your AI assistant</p>
+          <p className="text-gray-400">
+            Speak naturally with {activeCharacter?.name || 'your AI assistant'}
+          </p>
         </div>
 
         {/* Stats panel */}
@@ -265,7 +285,9 @@ const VoiceRoomPage = () => {
               isListening={isListening}
               isSpeaking={isSpeaking}
               isProcessing={isProcessing}
+              modelUrl={activeCharacter?.avatar3d || undefined}
               activeRoomItems={activeRoomItems}
+              characterName={activeCharacter?.name || 'AI Assistant'}
             />
 
             {/* Controls bar */}
