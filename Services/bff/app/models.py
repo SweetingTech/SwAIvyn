@@ -303,6 +303,26 @@ browse_history = Table(
     Column("visited_at", DateTime(timezone=True), nullable=False),
 )
 
+# Plugin registry - tracks installed plugins
+plugins = Table(
+    "plugins",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("name", String(200), nullable=False),
+    Column("version", String(32), nullable=False),
+    Column("description", Text, nullable=True),
+    Column("author", String(200), nullable=True),
+    Column("manifest", Text, nullable=False),
+    Column("entry_point", String(500), nullable=True),
+    Column("permissions", Text, nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'installed'")),
+    Column("health_endpoint", String(500), nullable=True),
+    Column("health_status", String(32), nullable=True),
+    Column("installed_by", String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("installed_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 # Push notification subscriptions (Web Push / VAPID)
 push_subscriptions = Table(
     "push_subscriptions",

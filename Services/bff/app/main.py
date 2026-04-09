@@ -59,6 +59,7 @@ from .models import (
     agent_registry,
     agent_tasks,
     agent_results,
+    plugins as t_plugins,
     federation_peers as t_fed_peers,
     federated_messages as t_fed_messages,
     email_accounts as t_email_accounts,
@@ -346,8 +347,12 @@ def _default_chat_settings(uid: str) -> Dict[str, Any]:
         "ttsVoiceId": os.getenv("DEFAULT_TTS_VOICE", "glados"),
     }
 
-async def _validate_url_for_ssrf(url: str) -> bool:
-    """Basic SSRF guard with dev localhost allowance."""
+async def _validate_url_for_ssrf(url: str, *, allow_private: bool = False) -> bool:
+    """Basic SSRF guard with dev localhost allowance.
+
+    Pass ``allow_private=True`` to also permit RFC1918 private addresses
+    (useful for plugin URLs when ``ALLOW_PRIVATE_PLUGIN_URLS=true`` is set).
+    """
     try:
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme not in ("http", "https"):
@@ -361,8 +366,12 @@ async def _validate_url_for_ssrf(url: str) -> bool:
             or os.getenv("ENVIRONMENT", "production").lower() in ("development", "dev", "local")
             or os.getenv("ENABLE_DEV_LOCALHOST", "false").lower() == "true"
         )
+        allow_private_urls = (
+            allow_private
+            or os.getenv("ALLOW_PRIVATE_PLUGIN_URLS", "false").lower() == "true"
+        )
         if hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
-            return True if is_development else False
+            return is_development or allow_private_urls
 
         try:
             loop = asyncio.get_running_loop()
@@ -384,10 +393,12 @@ async def _validate_url_for_ssrf(url: str) -> bool:
                 if ip_obj in network:
                     if is_development and ip_obj in ipaddress.ip_network("127.0.0.0/8"):
                         return True
+                    if allow_private_urls:
+                        return True
                     return False
+            return True
         except Exception:
             return False
-        return True
     except Exception:
         return False
 
@@ -792,14 +803,35 @@ async def dashboard_status(request: Request, userId: str = Query(), db: Optional
     return status
 
 @app.get("/api/agents/catalog")
-async def agents_catalog(request: Request):
-    """Available agents catalog that frontend expects"""
+async def agents_catalog(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Plugin marketplace catalog — returns only enabled plugins from the plugin registry."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Return available agents - for now empty, will be populated when agents are registered
-    return []
+    if engine is None:
+        return []
+
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(t_plugins)
+            .where(t_plugins.c.status == "enabled")
+            .order_by(t_plugins.c.name)
+        )
+        catalog = []
+        for row in res.fetchall():
+            plugin = dict(row._mapping)
+            try:
+                plugin["permissions"] = json.loads(plugin.get("permissions") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                plugin["permissions"] = []
+            try:
+                manifest = json.loads(plugin.get("manifest") or "{}")
+                plugin["capabilities"] = manifest.get("capabilities", [])
+            except (json.JSONDecodeError, TypeError):
+                plugin["capabilities"] = []
+            catalog.append(plugin)
+    return catalog
 
 @app.get("/api/folder/user/{user_id}")
 async def get_user_folders(user_id: str, request: Request):
@@ -2196,6 +2228,23 @@ class ResultCreate(BaseModel):
     file_size: Optional[str] = None
     mime_type: Optional[str] = None
     metadata: Optional[dict] = None
+
+# Plugin manifest model — must match the versioned spec in docs/plugin-manifest.md
+class PluginManifest(BaseModel):
+    manifest_version: str = "1"
+    id: str
+    name: str
+    version: str
+    description: Optional[str] = None
+    author: Optional[str] = None
+    entry_point: Optional[str] = None
+    health_endpoint: Optional[str] = None
+    permissions: List[str] = []
+    capabilities: List[str] = []
+    metadata: Optional[dict] = None
+
+class PluginStatusUpdate(BaseModel):
+    status: str  # "enabled" | "disabled"
 
 def current_timestamp():
     """Get current UTC timestamp as a timezone-aware datetime object"""
@@ -4207,6 +4256,264 @@ async def clear_browse_history(request: Request, engine: Optional[AsyncEngine] =
         async with engine.begin() as conn:
             await conn.execute(t_browse_history.delete().where(t_browse_history.c.user_id == uid))
     return {"success": True}
+
+
+# ------------------------- Plugin Endpoints -------------------------
+# Phase 5: Plugin System & Customization
+# Implements install / list / toggle / uninstall / health endpoints.
+# All write operations are admin-only; reads are available to any
+# authenticated user so the catalog can be browsed.
+
+@app.get("/api/plugins")
+async def list_plugins(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """List all registered plugins (any authenticated user)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_plugins).order_by(t_plugins.c.name))
+        result = []
+        for row in res.fetchall():
+            plugin = dict(row._mapping)
+            try:
+                plugin["permissions"] = json.loads(plugin.get("permissions") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                plugin["permissions"] = []
+            try:
+                manifest = json.loads(plugin.get("manifest") or "{}")
+                plugin["capabilities"] = manifest.get("capabilities", [])
+            except (json.JSONDecodeError, TypeError):
+                plugin["capabilities"] = []
+            result.append(plugin)
+    return result
+
+
+@app.post("/api/plugins/install", status_code=201)
+async def install_plugin(
+    manifest: PluginManifest,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Install a plugin from a manifest (admin only).
+
+    The manifest must conform to the versioned spec in docs/plugin-manifest.md.
+    Plugins are sandboxed: they can only be accessed through their declared
+    entry_point and cannot read other users' data unless the corresponding
+    permission is explicitly granted by an admin.
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    if manifest.manifest_version not in ("1",):
+        raise HTTPException(status_code=400, detail=f"Unsupported manifest_version '{manifest.manifest_version}'. Only '1' is supported.")
+
+    _PLUGIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,126}[a-z0-9]$")
+    if not _PLUGIN_ID_RE.match(manifest.id):
+        raise HTTPException(status_code=400, detail="Plugin id must be lower-kebab-case (e.g. 'my-plugin'), 2–128 characters.")
+
+    _ALLOWED_PERMISSIONS: set[str] = {"tool-use"}
+    unknown_perms = [p for p in manifest.permissions if p not in _ALLOWED_PERMISSIONS]
+    if unknown_perms:
+        raise HTTPException(status_code=400, detail=f"Unknown permission(s): {unknown_perms}. Allowed: {sorted(_ALLOWED_PERMISSIONS)}.")
+
+    if manifest.entry_point and not await _validate_url_for_ssrf(manifest.entry_point):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe entry_point URL.")
+    if manifest.health_endpoint and not await _validate_url_for_ssrf(manifest.health_endpoint):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe health_endpoint URL.")
+
+    now = current_timestamp()
+    manifest_json = json.dumps(manifest.model_dump())
+    permissions_json = json.dumps(manifest.permissions)
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_plugins.update()
+            .where(t_plugins.c.id == manifest.id)
+            .values(
+                name=manifest.name,
+                version=manifest.version,
+                description=manifest.description,
+                author=manifest.author,
+                manifest=manifest_json,
+                entry_point=manifest.entry_point,
+                permissions=permissions_json,
+                status="installed",
+                health_endpoint=manifest.health_endpoint,
+                health_status="unknown",
+                updated_at=now,
+            )
+        )
+        if res.rowcount == 0:  # type: ignore[attr-defined]
+            await conn.execute(
+                t_plugins.insert().values(
+                    id=manifest.id,
+                    name=manifest.name,
+                    version=manifest.version,
+                    description=manifest.description,
+                    author=manifest.author,
+                    manifest=manifest_json,
+                    entry_point=manifest.entry_point,
+                    permissions=permissions_json,
+                    status="installed",
+                    health_endpoint=manifest.health_endpoint,
+                    health_status="unknown",
+                    installed_by=u.get("id"),
+                    installed_at=now,
+                    updated_at=now,
+                )
+            )
+
+    logger.info("Plugin %s v%s installed by %s", manifest.id, manifest.version, u.get("username"))
+    return {"success": True, "plugin_id": manifest.id, "message": f"Plugin '{manifest.name}' installed successfully."}
+
+
+@app.get("/api/plugins/{plugin_id}")
+async def get_plugin(plugin_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Get details for a single plugin."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_plugins).where(t_plugins.c.id == plugin_id))
+        row = res.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    plugin = dict(row._mapping)
+    try:
+        plugin["permissions"] = json.loads(plugin.get("permissions") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        plugin["permissions"] = []
+    try:
+        manifest = json.loads(plugin.get("manifest") or "{}")
+        plugin["capabilities"] = manifest.get("capabilities", [])
+    except (json.JSONDecodeError, TypeError):
+        plugin["capabilities"] = []
+    return plugin
+
+
+@app.patch("/api/plugins/{plugin_id}/status")
+async def update_plugin_status(
+    plugin_id: str,
+    body: PluginStatusUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Enable or disable an installed plugin (admin only)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    if body.status not in ("enabled", "disabled"):
+        raise HTTPException(status_code=400, detail="status must be 'enabled' or 'disabled'")
+
+    now = current_timestamp()
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_plugins.update()
+            .where(t_plugins.c.id == plugin_id)
+            .values(status=body.status, updated_at=now)
+        )
+        if res.rowcount == 0:  # type: ignore[attr-defined]
+            raise HTTPException(status_code=404, detail="Plugin not found")
+
+    return {"success": True, "plugin_id": plugin_id, "status": body.status}
+
+
+@app.delete("/api/plugins/{plugin_id}", status_code=204)
+async def uninstall_plugin(
+    plugin_id: str,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Uninstall a plugin (admin only)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.begin() as conn:
+        res = await conn.execute(t_plugins.delete().where(t_plugins.c.id == plugin_id))
+        if res.rowcount == 0:  # type: ignore[attr-defined]
+            raise HTTPException(status_code=404, detail="Plugin not found")
+
+    logger.info("Plugin %s uninstalled by %s", plugin_id, u.get("username"))
+    return Response(status_code=204)
+
+
+@app.get("/api/plugins/{plugin_id}/health")
+async def plugin_health(
+    plugin_id: str,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Probe the plugin's health_endpoint and return the result.
+
+    The health check is performed server-side to avoid SSRF from the browser.
+    Only the response status code and a small JSON payload are surfaced.
+    Admin-only to prevent unauthenticated traffic amplification.
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_plugins).where(t_plugins.c.id == plugin_id))
+        row = res.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    plugin = dict(row._mapping)
+    health_endpoint = plugin.get("health_endpoint")
+
+    if not health_endpoint:
+        return {"plugin_id": plugin_id, "health_status": "unknown", "detail": "No health_endpoint configured."}
+
+    if not await _validate_url_for_ssrf(health_endpoint, allow_private=False):
+        return {"plugin_id": plugin_id, "health_status": "error", "detail": "Invalid health_endpoint URL."}
+
+    try:
+        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+            resp = await client.get(health_endpoint)
+        health_status = "healthy" if 200 <= resp.status_code < 300 else "unhealthy"
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text[:200]
+    except Exception as exc:
+        health_status = "unhealthy"
+        logger.debug("Plugin %s health probe failed: %s", plugin_id, exc)
+        detail = "Health probe failed - could not reach health_endpoint."
+
+    now = current_timestamp()
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_plugins.update()
+                .where(t_plugins.c.id == plugin_id)
+                .values(health_status=health_status, updated_at=now)
+            )
+    except Exception:
+        pass
+
+    return {"plugin_id": plugin_id, "health_status": health_status, "detail": detail}
 
 
 # ------------------------- Push Notification Endpoints -------------------------
