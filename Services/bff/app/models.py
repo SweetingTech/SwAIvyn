@@ -323,6 +323,20 @@ browse_history = Table(
     Column("visited_at", DateTime(timezone=True), nullable=False),
 )
 
+# Per-user memory items
+memories = Table(
+    "memories",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("content", Text, nullable=False),
+    Column("category", String(100), nullable=False, server_default=text("'Personal'")),
+    Column("is_shared", Boolean, nullable=False, server_default=text("false")),
+    Column("annotation", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 # Plugin registry - tracks installed plugins
 plugins = Table(
     "plugins",
