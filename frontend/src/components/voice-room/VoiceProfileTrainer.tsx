@@ -3,10 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Upload, Play, Square, X, UserCheck } from 'lucide-react';
 import ttsService from '../../services/ttsService';
 
-interface VoiceProfileTrainerProps {
-  onClose: () => void;
-}
-
 type RecordingState = 'idle' | 'recording' | 'recorded' | 'uploading' | 'done' | 'error';
 
 // Detect the best audio MIME type supported by the current browser's MediaRecorder.
@@ -28,7 +24,7 @@ function extFromMime(mime: string): string {
   return base;
 }
 
-const VoiceProfileTrainer = ({ onClose }: VoiceProfileTrainerProps) => {
+const VoiceProfileTrainer = () => {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -302,7 +298,7 @@ export const VoiceProfileModal = ({ isOpen, onClose }: VoiceProfileModalProps) =
             Record a reference clip and a matching transcript to fine-tune the TTS voice associated with
             this character. The audio is sent to the Fish&nbsp;Speech voice engine.
           </p>
-          <VoiceProfileTrainer onClose={onClose} />
+          <VoiceProfileTrainer />
         </motion.div>
       </motion.div>
     )}
