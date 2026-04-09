@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, text, ForeignKey
+from sqlalchemy import MetaData, Table, Column, String, Boolean, Text, DateTime, Float, text, ForeignKey
 
 
 metadata = MetaData()
@@ -93,6 +93,26 @@ workflows = Table(
     Column("name", String(200), nullable=False),
     Column("version", String(32), nullable=False, server_default=text("'1'")),
     Column("definition", Text, nullable=False),  # JSON or YAML as text
+)
+
+# Per-user Tamagotchi-style avatar stats (3D avatar Phase 5)
+avatar_stats = Table(
+    "avatar_stats",
+    metadata,
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("energy", Float, nullable=False, server_default=text("80")),
+    Column("mood", Float, nullable=False, server_default=text("70")),
+    Column("relationship_score", Float, nullable=False, server_default=text("50")),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)
+
+# Per-user room item selections (3D avatar Phase 5)
+room_items = Table(
+    "room_items",
+    metadata,
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("items", Text, nullable=False, server_default=text("'[]'")),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
 )
 
 # Agent runtime state (persisted)

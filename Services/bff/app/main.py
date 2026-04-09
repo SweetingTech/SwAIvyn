@@ -59,6 +59,8 @@ from .models import (
     agent_registry,
     agent_tasks,
     agent_results,
+    avatar_stats as t_avatar_stats,
+    room_items as t_room_items,
     memories as t_memories,
     plugins as t_plugins,
     federation_peers as t_fed_peers,
@@ -654,6 +656,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 try:
+    if os.path.exists(UPLOADS_DIR):
+        app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
     frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
     if os.path.exists(frontend_dist):
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
@@ -2210,6 +2214,166 @@ async def import_character_yaml(body: dict, request: Request, engine: Optional[A
     except Exception as e:
         logger.exception("import_character_yaml failed for user %s: %s", u.get("id"), e)
         raise HTTPException(status_code=400, detail="Failed to parse YAML")
+
+@app.post("/api/character/upload-3d-model")
+async def upload_character_3d_model(request: Request, file: UploadFile = File(...)):
+    """Upload a 3D avatar asset and return a stable URL for YAML storage."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    allowed_extensions = {".vrm", ".glb", ".gltf"}
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Only VRM, GLB, and GLTF files are supported")
+
+    max_bytes = 100 * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=400, detail="File must be smaller than 100 MB")
+
+    user_dir = os.path.join(CHAR_UPLOADS_DIR, u["id"])
+    os.makedirs(user_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(user_dir, stored_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    return {
+        "url": f"/uploads/characters/{u['id']}/{stored_name}",
+        "filename": filename,
+        "size": len(content),
+    }
+
+# ─── 3D Avatar Stats endpoints ────────────────────────────────────────────────
+
+@app.get("/api/avatar-stats")
+async def get_avatar_stats(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the Tamagotchi-style avatar stats for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    defaults = {"energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
+    if engine is None:
+        return defaults
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_avatar_stats).where(t_avatar_stats.c.user_id == user_id).limit(1))
+        row = res.first()
+
+    if not row:
+        return defaults
+    r = row._mapping
+    return {
+        "energy": float(r["energy"]),
+        "mood": float(r["mood"]),
+        "relationship_score": float(r["relationship_score"]),
+    }
+
+
+class AvatarStatsUpdate(BaseModel):
+    energy: Optional[float] = None
+    mood: Optional[float] = None
+    relationship_score: Optional[float] = None
+
+
+@app.put("/api/avatar-stats")
+async def update_avatar_stats(
+    body: AvatarStatsUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Upsert avatar stats for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    for key in ("energy", "mood", "relationship_score"):
+        if key in updates:
+            updates[key] = max(0.0, min(100.0, float(updates[key])))
+
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    if engine is None:
+        return {"success": True}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_avatar_stats.update().where(t_avatar_stats.c.user_id == user_id).values(**updates)
+        )
+        if getattr(res, "rowcount", 0) == 0:
+            row_values = {"user_id": user_id, "energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
+            row_values.update(updates)
+            await conn.execute(t_avatar_stats.insert().values(**row_values))
+
+    return {"success": True}
+
+
+# ─── Room Items endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/room-items")
+async def get_room_items(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the list of active room item IDs for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    if engine is None:
+        return {"items": []}
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_room_items).where(t_room_items.c.user_id == user_id).limit(1))
+        row = res.first()
+
+    if not row:
+        return {"items": []}
+    try:
+        items = json.loads(row._mapping["items"] or "[]")
+    except (ValueError, TypeError):
+        items = []
+    return {"items": items}
+
+
+class RoomItemsUpdate(BaseModel):
+    items: list
+
+
+@app.put("/api/room-items")
+async def update_room_items(
+    body: RoomItemsUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Upsert room items for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    allowed_ids = {"plant", "lamp", "book", "rug", "chair"}
+    sanitised = [i for i in body.items if isinstance(i, str) and i in allowed_ids]
+    sanitised = list(dict.fromkeys(sanitised))
+
+    items_json = json.dumps(sanitised)
+    now = datetime.now(timezone.utc)
+
+    if engine is None:
+        return {"success": True, "items": sanitised}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_room_items.update().where(t_room_items.c.user_id == user_id).values(items=items_json, updated_at=now)
+        )
+        if getattr(res, "rowcount", 0) == 0:
+            await conn.execute(t_room_items.insert().values(user_id=user_id, items=items_json, updated_at=now))
+
+    return {"success": True, "items": sanitised}
 
 # ------------------------- Memory Management -------------------------
 

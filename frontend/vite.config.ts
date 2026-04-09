@@ -18,6 +18,9 @@ export default defineConfig(({ mode }) => {
         strategies: 'injectManifest',
         srcDir: 'src',
         filename: 'sw.ts',
+        injectManifest: {
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        },
         includeAssets: ['favicon.ico', 'default-avatar.png'],
         manifest: {
           name: 'SwAIvyn',
