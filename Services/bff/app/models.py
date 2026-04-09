@@ -201,3 +201,15 @@ plugins = Table(
     Column("installed_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
+
+# Push notification subscriptions (Web Push / VAPID)
+push_subscriptions = Table(
+    "push_subscriptions",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("endpoint", Text, nullable=False),
+    Column("p256dh", Text, nullable=False),   # Diffie-Hellman public key
+    Column("auth", Text, nullable=False),      # Auth secret
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
