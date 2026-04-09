@@ -182,6 +182,127 @@ agent_results = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
+# ---------------------------------------------------------------------------
+# Phase 4: Federation & Advanced Features
+# ---------------------------------------------------------------------------
+
+# Known SwAIvyn peer instances
+federation_peers = Table(
+    "federation_peers",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("name", String(200), nullable=False),
+    Column("url", String(500), nullable=False),           # Base URL of peer instance
+    Column("api_key", String(256), nullable=True),        # Hashed shared key for auth
+    Column("status", String(32), nullable=False, server_default=text("'pending'")),  # pending/connected/unreachable
+    Column("discovered_via", String(32), nullable=True),  # 'manual' | 'mdns' | 'broadcast'
+    Column("last_seen", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# Cross-instance user-to-user and AI-to-AI messages
+federated_messages = Table(
+    "federated_messages",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("peer_id", String(64), ForeignKey("federation_peers.id", ondelete="SET NULL"), nullable=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("direction", String(8), nullable=False),       # 'in' | 'out'
+    Column("message_type", String(32), nullable=False),   # 'user' | 'ai_task' | 'ai_result'
+    Column("from_address", String(300), nullable=True),   # "username@peer-url"
+    Column("to_address", String(300), nullable=True),
+    Column("subject", String(500), nullable=True),
+    Column("body", Text, nullable=False),
+    Column("metadata", Text, nullable=True),              # JSON: context, task details, etc.
+    Column("status", String(32), nullable=False, server_default=text("'sent'")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+# IMAP email accounts
+email_accounts = Table(
+    "email_accounts",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("label", String(200), nullable=False),
+    Column("host", String(300), nullable=False),
+    Column("port", String(8), nullable=False, server_default=text("'993'")),
+    Column("username", String(300), nullable=False),
+    Column("password", Text, nullable=True),              # Stored encrypted
+    Column("use_ssl", Boolean, nullable=False, server_default=text("true")),
+    Column("last_synced", DateTime(timezone=True), nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'unchecked'")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+# Mirrored/cached email messages from IMAP
+email_messages = Table(
+    "email_messages",
+    metadata,
+    Column("id", String(128), primary_key=True),          # account_id + ':' + uid
+    Column("account_id", String(64), ForeignKey("email_accounts.id", ondelete="CASCADE"), nullable=False),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("mailbox", String(200), nullable=False, server_default=text("'INBOX'")),
+    Column("uid", String(64), nullable=False),
+    Column("subject", String(500), nullable=True),
+    Column("from_addr", String(500), nullable=True),
+    Column("to_addr", Text, nullable=True),
+    Column("date", DateTime(timezone=True), nullable=True),
+    Column("body_text", Text, nullable=True),
+    Column("is_read", Boolean, nullable=False, server_default=text("false")),
+    Column("flags", Text, nullable=True),                 # JSON array of IMAP flags
+    Column("synced_at", DateTime(timezone=True), nullable=False),
+)
+
+# CalDAV / iCal calendar accounts
+calendar_accounts = Table(
+    "calendar_accounts",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("label", String(200), nullable=False),
+    Column("url", String(500), nullable=False),           # CalDAV principal or .ics URL
+    Column("username", String(300), nullable=True),
+    Column("password", Text, nullable=True),              # Stored encrypted
+    Column("type", String(16), nullable=False, server_default=text("'caldav'")),  # 'caldav' | 'ical'
+    Column("color", String(16), nullable=True),
+    Column("last_synced", DateTime(timezone=True), nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'unchecked'")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+# Synced calendar events
+calendar_events = Table(
+    "calendar_events",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("account_id", String(64), ForeignKey("calendar_accounts.id", ondelete="CASCADE"), nullable=False),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("uid", String(300), nullable=False),
+    Column("summary", String(500), nullable=True),
+    Column("description", Text, nullable=True),
+    Column("location", String(500), nullable=True),
+    Column("start_dt", DateTime(timezone=True), nullable=True),
+    Column("end_dt", DateTime(timezone=True), nullable=True),
+    Column("all_day", Boolean, nullable=False, server_default=text("false")),
+    Column("recurrence", Text, nullable=True),            # iCal RRULE string
+    Column("raw_ical", Text, nullable=True),              # Raw VEVENT data
+    Column("synced_at", DateTime(timezone=True), nullable=False),
+)
+
+# Web browsing history (Browsh / text-based)
+browse_history = Table(
+    "browse_history",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("url", Text, nullable=False),
+    Column("title", String(500), nullable=True),
+    Column("content_text", Text, nullable=True),          # Fetched text content
+    Column("visited_at", DateTime(timezone=True), nullable=False),
+)
+
 # Plugin registry - tracks installed plugins
 plugins = Table(
     "plugins",
@@ -191,12 +312,12 @@ plugins = Table(
     Column("version", String(32), nullable=False),
     Column("description", Text, nullable=True),
     Column("author", String(200), nullable=True),
-    Column("manifest", Text, nullable=False),  # Full JSON manifest
-    Column("entry_point", String(500), nullable=True),  # URL or command
-    Column("permissions", Text, nullable=True),  # JSON array of permission strings
-    Column("status", String(32), nullable=False, server_default=text("'installed'")),  # installed, enabled, disabled, error
+    Column("manifest", Text, nullable=False),
+    Column("entry_point", String(500), nullable=True),
+    Column("permissions", Text, nullable=True),
+    Column("status", String(32), nullable=False, server_default=text("'installed'")),
     Column("health_endpoint", String(500), nullable=True),
-    Column("health_status", String(32), nullable=True),  # healthy, unhealthy, unknown
+    Column("health_status", String(32), nullable=True),
     Column("installed_by", String(64), ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
     Column("installed_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
