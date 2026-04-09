@@ -28,7 +28,6 @@ from fastapi import (
     HTTPException,
     UploadFile,
     File,
-    Form,
     Query,
     Request,
     Depends,
@@ -62,6 +61,15 @@ from .models import (
     agent_results,
     avatar_stats as t_avatar_stats,
     room_items as t_room_items,
+    plugins as t_plugins,
+    federation_peers as t_fed_peers,
+    federated_messages as t_fed_messages,
+    email_accounts as t_email_accounts,
+    email_messages as t_email_messages,
+    calendar_accounts as t_cal_accounts,
+    calendar_events as t_cal_events,
+    browse_history as t_browse_history,
+    push_subscriptions as t_push_subscriptions,
 )
 
 # ------------------------- Logging & Config -------------------------
@@ -93,6 +101,53 @@ DEFAULT_DEV_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+
+# ------------------------- VAPID / Push Notification Config -------------------------
+# VAPID keys are used to authenticate push messages sent to browsers via Web Push.
+# Generate a new key pair with: python -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); print(v.private_pem().decode()); print(v.public_key.public_bytes_raw().hex())"
+# Or use the auto-generated key stored in VAPID_PRIVATE_KEY env var.
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:admin@swai.local")
+
+# Auto-generate VAPID keys at startup if not configured (in-memory only; persist via env vars for production)
+_vapid_instance = None
+
+def _get_vapid():
+    """Return (vapid_instance, public_key_base64) for Web Push VAPID signing.
+
+    The first tuple element is a ``py_vapid.Vapid`` instance used for signing,
+    not a PEM-encoded private key string. If VAPID support is unavailable,
+    returns ``(None, None)``.
+    """
+    global _vapid_instance, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY
+    if _vapid_instance is not None:
+        return _vapid_instance
+    try:
+        from py_vapid import Vapid
+        if VAPID_PRIVATE_KEY:
+            vapid_obj = Vapid.from_pem(VAPID_PRIVATE_KEY.encode() if isinstance(VAPID_PRIVATE_KEY, str) else VAPID_PRIVATE_KEY)
+        else:
+            vapid_obj = Vapid()
+            vapid_obj.generate_keys()
+            logger.warning(
+                "VAPID_PRIVATE_KEY not set; generated ephemeral VAPID keys. "
+                "Push subscriptions will break on restart. Set VAPID_PRIVATE_KEY + VAPID_PUBLIC_KEY env vars."
+            )
+        # Cache application server key (URL-safe base64, no padding)
+        import base64
+        pub_bytes = vapid_obj.public_key.public_bytes(
+            encoding=__import__('cryptography.hazmat.primitives.serialization', fromlist=['Encoding']).Encoding.X962,
+            format=__import__('cryptography.hazmat.primitives.serialization', fromlist=['PublicFormat']).PublicFormat.UncompressedPoint,
+        )
+        pub_b64 = base64.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode()
+        if not VAPID_PUBLIC_KEY:
+            VAPID_PUBLIC_KEY = pub_b64
+        _vapid_instance = (vapid_obj, pub_b64)
+        return _vapid_instance
+    except ImportError:
+        logger.warning("py_vapid / pywebpush not installed; push notifications disabled.")
+        return None, None
 
 # ------------------------- Globals -------------------------
 
@@ -294,8 +349,12 @@ def _default_chat_settings(uid: str) -> Dict[str, Any]:
         "ttsVoiceId": os.getenv("DEFAULT_TTS_VOICE", "glados"),
     }
 
-async def _validate_url_for_ssrf(url: str) -> bool:
-    """Basic SSRF guard with dev localhost allowance."""
+async def _validate_url_for_ssrf(url: str, *, allow_private: bool = False) -> bool:
+    """Basic SSRF guard with dev localhost allowance.
+
+    Pass ``allow_private=True`` to also permit RFC1918 private addresses
+    (useful for plugin URLs when ``ALLOW_PRIVATE_PLUGIN_URLS=true`` is set).
+    """
     try:
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme not in ("http", "https"):
@@ -309,8 +368,12 @@ async def _validate_url_for_ssrf(url: str) -> bool:
             or os.getenv("ENVIRONMENT", "production").lower() in ("development", "dev", "local")
             or os.getenv("ENABLE_DEV_LOCALHOST", "false").lower() == "true"
         )
+        allow_private_urls = (
+            allow_private
+            or os.getenv("ALLOW_PRIVATE_PLUGIN_URLS", "false").lower() == "true"
+        )
         if hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
-            return True if is_development else False
+            return is_development or allow_private_urls
 
         try:
             loop = asyncio.get_running_loop()
@@ -332,10 +395,12 @@ async def _validate_url_for_ssrf(url: str) -> bool:
                 if ip_obj in network:
                     if is_development and ip_obj in ipaddress.ip_network("127.0.0.0/8"):
                         return True
+                    if allow_private_urls:
+                        return True
                     return False
+            return True
         except Exception:
             return False
-        return True
     except Exception:
         return False
 
@@ -373,6 +438,67 @@ async def _ensure_temporal_connected():
     if _temporal_client is None:
         _temporal_client = await _connect_with_retry(TEMPORAL_HOST)
 
+# ------------------------- UDP Discovery Responder -------------------------
+
+import threading as _threading
+
+_discovery_thread: Optional[_threading.Thread] = None
+_discovery_stop_event = _threading.Event()
+
+
+def _run_discovery_responder(port: int, magic: bytes, reply_url: str) -> None:
+    """
+    Listen for UDP broadcast discovery packets and reply with this instance's base URL.
+    Runs in a background daemon thread so it doesn't block the event loop.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)  # Linux/macOS
+            except (AttributeError, OSError):
+                pass
+            sock.bind(("", port))
+            sock.settimeout(1.0)
+            logger.info("Federation UDP discovery responder listening on port %d", port)
+            while not _discovery_stop_event.is_set():
+                try:
+                    data, addr = sock.recvfrom(256)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if data == magic:
+                    reply = magic + reply_url.encode()
+                    try:
+                        sock.sendto(reply, addr)
+                    except OSError:
+                        pass
+    except Exception as exc:
+        logger.warning("Federation UDP discovery responder stopped: %s", exc)
+
+
+def _start_discovery_responder() -> None:
+    global _discovery_thread
+    reply_url = os.getenv("FEDERATION_PUBLIC_URL", "").strip().rstrip("/")
+    if not reply_url:
+        return  # No public URL configured; skip responder
+    _discovery_stop_event.clear()
+    _discovery_thread = _threading.Thread(
+        target=_run_discovery_responder,
+        args=(_FEDERATION_BROADCAST_PORT, _FEDERATION_BROADCAST_MAGIC, reply_url),
+        daemon=True,
+        name="federation-udp-responder",
+    )
+    _discovery_thread.start()
+
+
+def _stop_discovery_responder() -> None:
+    _discovery_stop_event.set()
+    if _discovery_thread is not None:
+        _discovery_thread.join(timeout=2.0)
+
+
 # ------------------------- Lifespan -------------------------
 
 @asynccontextmanager
@@ -385,6 +511,9 @@ async def lifespan(application: FastAPI):
 
     if ENABLE_TEMPORAL:
         asyncio.create_task(_ensure_temporal_connected())
+
+    # Start UDP discovery responder (no-op if FEDERATION_PUBLIC_URL not set)
+    _start_discovery_responder()
 
     if DATABASE_URL:
         try:
@@ -412,6 +541,8 @@ async def lifespan(application: FastAPI):
             logger.exception("Failed to pre-load connection settings: %s", exc)
 
     yield
+    # Shutdown: stop UDP discovery responder if running
+    _stop_discovery_responder()
     # Shutdown: dispose DB engine if created
     if _engine is not None:
         await _engine.dispose()
@@ -676,14 +807,35 @@ async def dashboard_status(request: Request, userId: str = Query(), db: Optional
     return status
 
 @app.get("/api/agents/catalog")
-async def agents_catalog(request: Request):
-    """Available agents catalog that frontend expects"""
+async def agents_catalog(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Plugin marketplace catalog — returns only enabled plugins from the plugin registry."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Return available agents - for now empty, will be populated when agents are registered
-    return []
+    if engine is None:
+        return []
+
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(t_plugins)
+            .where(t_plugins.c.status == "enabled")
+            .order_by(t_plugins.c.name)
+        )
+        catalog = []
+        for row in res.fetchall():
+            plugin = dict(row._mapping)
+            try:
+                plugin["permissions"] = json.loads(plugin.get("permissions") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                plugin["permissions"] = []
+            try:
+                manifest = json.loads(plugin.get("manifest") or "{}")
+                plugin["capabilities"] = manifest.get("capabilities", [])
+            except (json.JSONDecodeError, TypeError):
+                plugin["capabilities"] = []
+            catalog.append(plugin)
+    return catalog
 
 @app.get("/api/folder/user/{user_id}")
 async def get_user_folders(user_id: str, request: Request):
@@ -1942,37 +2094,6 @@ async def create_character_yaml(body: dict, request: Request, engine: Optional[A
         logger.exception("create_character_yaml failed for user %s: %s", u.get("id"), e)
         raise HTTPException(status_code=400, detail="Failed to create character")
 
-@app.post("/api/character/upload-3d-model")
-async def upload_character_3d_model(request: Request, file: UploadFile = File(...)):
-    """Upload a 3D avatar asset and return a stable URL for YAML storage."""
-    u = getattr(request.state, "user", None)
-    if not u:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    filename = file.filename or ""
-    ext = os.path.splitext(filename)[1].lower()
-    allowed_extensions = {".vrm", ".glb", ".gltf"}
-    if ext not in allowed_extensions:
-        raise HTTPException(status_code=400, detail="Only VRM, GLB, and GLTF files are supported")
-
-    max_bytes = 100 * 1024 * 1024
-    content = await file.read()
-    if len(content) > max_bytes:
-        raise HTTPException(status_code=400, detail="File must be smaller than 100 MB")
-
-    user_dir = os.path.join(CHAR_UPLOADS_DIR, u["id"])
-    os.makedirs(user_dir, exist_ok=True)
-    stored_name = f"{uuid.uuid4().hex}{ext}"
-    file_path = os.path.join(user_dir, stored_name)
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    return {
-        "url": f"/uploads/characters/{u['id']}/{stored_name}",
-        "filename": filename,
-        "size": len(content),
-    }
-
 @app.put("/api/character/{character_id}/yaml")
 async def update_character_yaml(character_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
     """Update an existing character from YAML format"""
@@ -2076,6 +2197,166 @@ async def import_character_yaml(body: dict, request: Request, engine: Optional[A
         logger.exception("import_character_yaml failed for user %s: %s", u.get("id"), e)
         raise HTTPException(status_code=400, detail="Failed to parse YAML")
 
+@app.post("/api/character/upload-3d-model")
+async def upload_character_3d_model(request: Request, file: UploadFile = File(...)):
+    """Upload a 3D avatar asset and return a stable URL for YAML storage."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    allowed_extensions = {".vrm", ".glb", ".gltf"}
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Only VRM, GLB, and GLTF files are supported")
+
+    max_bytes = 100 * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=400, detail="File must be smaller than 100 MB")
+
+    user_dir = os.path.join(CHAR_UPLOADS_DIR, u["id"])
+    os.makedirs(user_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(user_dir, stored_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    return {
+        "url": f"/uploads/characters/{u['id']}/{stored_name}",
+        "filename": filename,
+        "size": len(content),
+    }
+
+# ─── 3D Avatar Stats endpoints ────────────────────────────────────────────────
+
+@app.get("/api/avatar-stats")
+async def get_avatar_stats(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the Tamagotchi-style avatar stats for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    defaults = {"energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
+    if engine is None:
+        return defaults
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_avatar_stats).where(t_avatar_stats.c.user_id == user_id).limit(1))
+        row = res.first()
+
+    if not row:
+        return defaults
+    r = row._mapping
+    return {
+        "energy": float(r["energy"]),
+        "mood": float(r["mood"]),
+        "relationship_score": float(r["relationship_score"]),
+    }
+
+
+class AvatarStatsUpdate(BaseModel):
+    energy: Optional[float] = None
+    mood: Optional[float] = None
+    relationship_score: Optional[float] = None
+
+
+@app.put("/api/avatar-stats")
+async def update_avatar_stats(
+    body: AvatarStatsUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Upsert avatar stats for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    for key in ("energy", "mood", "relationship_score"):
+        if key in updates:
+            updates[key] = max(0.0, min(100.0, float(updates[key])))
+
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    if engine is None:
+        return {"success": True}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_avatar_stats.update().where(t_avatar_stats.c.user_id == user_id).values(**updates)
+        )
+        if getattr(res, "rowcount", 0) == 0:
+            row_values = {"user_id": user_id, "energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
+            row_values.update(updates)
+            await conn.execute(t_avatar_stats.insert().values(**row_values))
+
+    return {"success": True}
+
+
+# ─── Room Items endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/room-items")
+async def get_room_items(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Return the list of active room item IDs for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    if engine is None:
+        return {"items": []}
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_room_items).where(t_room_items.c.user_id == user_id).limit(1))
+        row = res.first()
+
+    if not row:
+        return {"items": []}
+    try:
+        items = json.loads(row._mapping["items"] or "[]")
+    except (ValueError, TypeError):
+        items = []
+    return {"items": items}
+
+
+class RoomItemsUpdate(BaseModel):
+    items: list
+
+
+@app.put("/api/room-items")
+async def update_room_items(
+    body: RoomItemsUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Upsert room items for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = u["id"]
+
+    allowed_ids = {"plant", "lamp", "book", "rug", "chair"}
+    sanitised = [i for i in body.items if isinstance(i, str) and i in allowed_ids]
+    sanitised = list(dict.fromkeys(sanitised))
+
+    items_json = json.dumps(sanitised)
+    now = datetime.now(timezone.utc)
+
+    if engine is None:
+        return {"success": True, "items": sanitised}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_room_items.update().where(t_room_items.c.user_id == user_id).values(items=items_json, updated_at=now)
+        )
+        if getattr(res, "rowcount", 0) == 0:
+            await conn.execute(t_room_items.insert().values(user_id=user_id, items=items_json, updated_at=now))
+
+    return {"success": True, "items": sanitised}
+
 # ------------------------- External Agent Management -------------------------
 
 class AgentRegistration(BaseModel):
@@ -2111,6 +2392,23 @@ class ResultCreate(BaseModel):
     file_size: Optional[str] = None
     mime_type: Optional[str] = None
     metadata: Optional[dict] = None
+
+# Plugin manifest model — must match the versioned spec in docs/plugin-manifest.md
+class PluginManifest(BaseModel):
+    manifest_version: str = "1"
+    id: str
+    name: str
+    version: str
+    description: Optional[str] = None
+    author: Optional[str] = None
+    entry_point: Optional[str] = None
+    health_endpoint: Optional[str] = None
+    permissions: List[str] = []
+    capabilities: List[str] = []
+    metadata: Optional[dict] = None
+
+class PluginStatusUpdate(BaseModel):
+    status: str  # "enabled" | "disabled"
 
 def current_timestamp():
     """Get current UTC timestamp as a timezone-aware datetime object"""
@@ -2322,6 +2620,28 @@ async def update_agent_task(task_id: str, body: TaskUpdate, request: Request, en
             .values(**update_values)
         )
 
+    # Send push notification on task completion (best-effort, fire-and-forget)
+    if body.status == "completed":
+        task_name = getattr(task, "name", task_id)
+        asyncio.create_task(
+            _send_push_notification(
+                user_id=task.user_id,
+                title="Agent Task Completed",
+                body=f'"{task_name}" finished successfully.',
+                engine=engine,
+            )
+        )
+    elif body.status == "failed":
+        task_name = getattr(task, "name", task_id)
+        asyncio.create_task(
+            _send_push_notification(
+                user_id=task.user_id,
+                title="Agent Task Failed",
+                body=f'"{task_name}" encountered an error.',
+                engine=engine,
+            )
+        )
+
     return {"success": True}
 
 # User Task Management (user-scoped viewing)
@@ -2461,6 +2781,31 @@ async def create_task_result(task_id: str, body: ResultCreate, request: Request,
                 created_at=now,
             )
         )
+
+    # Send push notification to the task owner only if the task has not already
+    # transitioned to a terminal state.  In the typical agent flow the agent
+    # first PATCHes the task to "completed" (which triggers its own notification)
+    # and then POSTs results — skip here to avoid a duplicate notification.
+    if engine is not None:
+        async with engine.connect() as _sc:
+            _tr = await _sc.execute(
+                select(agent_tasks.c.status)
+                .where(
+                    agent_tasks.c.id == task_id,
+                    agent_tasks.c.user_id == user_id,
+                )
+                .limit(1)
+            )
+            _task_row = _tr.first()
+            if not (_task_row and _task_row.status in {"completed", "failed"}):
+                asyncio.create_task(
+                    _send_push_notification(
+                        user_id=user_id,
+                        title="Agent Task Complete",
+                        body=f"Result ready: {body.name}",
+                        engine=engine,
+                    )
+                )
 
     return {"result_id": result_id, "success": True}
 
@@ -2620,61 +2965,6 @@ async def get_tts_voices(request: Request, provider: str = Query(...)):
         logger.exception("get_tts_voices error: %s", e)
 
     return {"voices": voices}
-
-
-@app.post("/api/tts/voices/upload")
-async def upload_tts_voice(
-    request: Request,
-    audioFile: UploadFile = File(...),
-    transcript: str = Form(...),
-    voiceName: str = Form(...),
-):
-    """Proxy voice upload to the Fish Speech TTS service.
-    Accepts a recorded audio file (WebM, OGG, WAV, or MP3), a reference transcript,
-    and a voice name, then forwards them to the upstream TTS proxy.
-    """
-    u = getattr(request.state, "user", None)
-    if not u:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    voice_name_clean = voiceName.strip()
-    if not voice_name_clean:
-        raise HTTPException(status_code=400, detail="voiceName is required")
-    if not transcript.strip():
-        raise HTTPException(status_code=400, detail="transcript is required")
-
-    # Basic content-type allow-list to prevent uploading arbitrary files
-    allowed_mime_prefixes = ("audio/",)
-    file_ct = (audioFile.content_type or "").lower()
-    if not any(file_ct.startswith(p) for p in allowed_mime_prefixes):
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ct}")
-
-    audio_bytes = await audioFile.read()
-    if len(audio_bytes) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Audio file exceeds 50 MB limit")
-
-    tts_url = os.getenv("FISHSPEECH_URL", "http://localhost:8081").rstrip("/")
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            # Derive a sensible file extension from the content-type when the client
-            # doesn't supply a filename (e.g. audio/webm → .webm, audio/ogg → .ogg).
-            fallback_ext = file_ct.split(";")[0].split("/")[-1] if "/" in file_ct else "webm"
-            upload_filename = audioFile.filename or f"{voice_name_clean}.{fallback_ext}"
-            r = await client.post(
-                f"{tts_url}/voices/upload",
-                files={"audioFile": (upload_filename, audio_bytes, file_ct)},
-                data={"transcript": transcript.strip(), "voiceName": voice_name_clean},
-            )
-            if r.status_code == 200:
-                return r.json()
-            logger.warning("upstream voice upload returned %d: %s", r.status_code, r.text[:200])
-            raise HTTPException(status_code=r.status_code, detail="Upstream TTS voice upload failed")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("upload_tts_voice proxy error: %s", exc)
-        raise HTTPException(status_code=502, detail="TTS service unavailable") from exc
-
 
 @app.get("/api/tts/health")
 async def tts_health(request: Request):
@@ -2918,147 +3208,1627 @@ async def put_connection_settings(body: dict, request: Request, engine: Optional
                 await conn.execute(t_conn_settings.insert().values(user_id=uid, **db_values))
     return {"success": True}
 
+# ---------------------------------------------------------------------------
+# Phase 4: Federation & Advanced Features
+# ---------------------------------------------------------------------------
 
-# ─── 3D Avatar Stats endpoints ────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
-@app.get("/api/avatar-stats")
-async def get_avatar_stats(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
-    """Return the Tamagotchi-style avatar stats for the authenticated user."""
+_FEDERATION_SHARED_SECRET = os.getenv("FEDERATION_SHARED_SECRET", "")
+_FEDERATION_BROADCAST_PORT = int(os.getenv("FEDERATION_BROADCAST_PORT", "49152"))
+_FEDERATION_BROADCAST_MAGIC = b"SWAIVYN_DISCOVERY_V1"
+_MAX_URL_LEN = 500
+_MAX_LABEL_LEN = 200
+
+
+def _hash_peer_key(key: str) -> str:
+    """Bcrypt-hash a federation peer API key."""
+    return bcrypt.hashpw(key.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+async def _validate_federation_url(url: str) -> bool:
+    """Allow both public and private URLs for peer instances (federation is opt-in)."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if not parsed.hostname:
+            return False
+        # Disallow javascript: / data: scheme abuse via hostname
+        hostname = parsed.hostname.lower()
+        if hostname in {"", ".", ".."}:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _serialize_peer(row: dict) -> dict:
+    r = dict(row)
+    r.pop("api_key", None)  # Never expose hashed key
+    for k in ("last_seen", "created_at", "updated_at"):
+        if r.get(k) and hasattr(r[k], "isoformat"):
+            r[k] = r[k].isoformat()
+    return r
+
+
+def _serialize_fed_msg(row: dict) -> dict:
+    r = dict(row)
+    for k in ("created_at",):
+        if r.get(k) and hasattr(r[k], "isoformat"):
+            r[k] = r[k].isoformat()
+    return r
+
+
+# ─── Peer Management ─────────────────────────────────────────────────────────
+
+@app.get("/api/federation/peers")
+async def list_federation_peers(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """List all known federation peers."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = u["id"]
-
-    defaults = {"energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
     if engine is None:
-        return defaults
-
+        return []
     async with engine.connect() as conn:
-        res = await conn.execute(
-            select(t_avatar_stats).where(t_avatar_stats.c.user_id == user_id).limit(1)
+        rows = await conn.execute(
+            t_fed_peers.select().order_by(t_fed_peers.c.created_at.desc())
         )
-        row = res.first()
-
-    if not row:
-        return defaults
-    r = row._mapping
-    return {
-        "energy": float(r["energy"]),
-        "mood": float(r["mood"]),
-        "relationship_score": float(r["relationship_score"]),
-    }
+        return [_serialize_peer(dict(r._mapping)) for r in rows]
 
 
-class AvatarStatsUpdate(BaseModel):
-    energy: Optional[float] = None
-    mood: Optional[float] = None
-    relationship_score: Optional[float] = None
-
-
-@app.put("/api/avatar-stats")
-async def update_avatar_stats(
-    body: AvatarStatsUpdate,
-    request: Request,
-    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
-):
-    """Upsert avatar stats for the authenticated user."""
+@app.post("/api/federation/peers")
+async def add_federation_peer(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Manually register a peer SwAIvyn instance."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = u["id"]
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
 
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
-    # Clamp values to [0, 100]
-    for key in ("energy", "mood", "relationship_score"):
-        if key in updates:
-            updates[key] = max(0.0, min(100.0, float(updates[key])))
+    name = _assert_length((body.get("name") or "").strip(), _MAX_LABEL_LEN, "name")
+    url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
+    if not name or not url:
+        raise HTTPException(status_code=400, detail="name and url are required")
+    if not await _validate_federation_url(url):
+        raise HTTPException(status_code=400, detail="Invalid peer URL")
 
-    updates["updated_at"] = datetime.now(timezone.utc)
+    raw_key = (body.get("api_key") or secrets.token_urlsafe(32)).strip()
+    hashed_key = _hash_peer_key(raw_key)
+    peer_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
 
-    if engine is None:
-        return {"success": True}
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_peers.insert().values(
+                id=peer_id,
+                name=name,
+                url=url.rstrip("/"),
+                api_key=hashed_key,
+                status="pending",
+                discovered_via="manual",
+                last_seen=None,
+                created_at=now,
+                updated_at=now,
+            ))
+    return {"id": peer_id, "name": name, "url": url, "status": "pending", "api_key": raw_key}
 
-    async with engine.begin() as conn:
-        res = await conn.execute(
-            t_avatar_stats.update()
-            .where(t_avatar_stats.c.user_id == user_id)
-            .values(**updates)
-        )
-        if getattr(res, "rowcount", 0) == 0:
-            row_values = {"user_id": user_id, "energy": 80.0, "mood": 70.0, "relationship_score": 50.0}
-            row_values.update(updates)
-            await conn.execute(t_avatar_stats.insert().values(**row_values))
 
+@app.delete("/api/federation/peers/{peer_id}")
+async def remove_federation_peer(peer_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Remove a known peer."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_peers.delete().where(t_fed_peers.c.id == peer_id))
     return {"success": True}
 
 
-# ─── Room Items endpoints ─────────────────────────────────────────────────────
-
-@app.get("/api/room-items")
-async def get_room_items(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
-    """Return the list of active room item IDs for the authenticated user."""
+@app.post("/api/federation/peers/{peer_id}/ping")
+async def ping_federation_peer(peer_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Ping a peer to check connectivity and update its status."""
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = u["id"]
-
     if engine is None:
-        return {"items": []}
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with engine.connect() as conn:
-        res = await conn.execute(
-            select(t_room_items).where(t_room_items.c.user_id == user_id).limit(1)
-        )
-        row = res.first()
+        row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
+        peer = row.first()
+    if not peer:
+        raise HTTPException(status_code=404, detail="Peer not found")
 
-    if not row:
-        return {"items": []}
+    peer_url = peer._mapping["url"]
+    new_status = "unreachable"
     try:
-        items = json.loads(row._mapping["items"] or "[]")
-    except (ValueError, TypeError):
-        items = []
-    return {"items": items}
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{peer_url}/healthz")
+            if resp.status_code < 400:
+                new_status = "connected"
+    except Exception:
+        pass
+
+    now = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_fed_peers.update()
+            .where(t_fed_peers.c.id == peer_id)
+            .values(status=new_status, last_seen=now if new_status == "connected" else None, updated_at=now)
+        )
+    return {"peer_id": peer_id, "status": new_status}
 
 
-class RoomItemsUpdate(BaseModel):
-    items: list
+# ─── Peer Discovery (LAN UDP broadcast) ──────────────────────────────────────
+
+@app.post("/api/federation/peers/discover")
+async def discover_peers(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Broadcast a UDP discovery packet on the local network and collect responses.
+    Peers that implement the same protocol will reply with their base URL.
+    Returns a list of discovered peer URLs (not yet registered).
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    discovered: List[str] = []
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _do_broadcast() -> List[str]:
+            results: List[str] = []
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.settimeout(2.0)
+                payload = _FEDERATION_BROADCAST_MAGIC
+                try:
+                    sock.sendto(payload, ("<broadcast>", _FEDERATION_BROADCAST_PORT))
+                except OSError:
+                    return results
+                # Collect replies for 2 seconds
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    try:
+                        data, addr = sock.recvfrom(1024)
+                        if data.startswith(_FEDERATION_BROADCAST_MAGIC):
+                            remainder = data[len(_FEDERATION_BROADCAST_MAGIC):]
+                            if remainder:
+                                peer_url = remainder.decode(errors="replace").strip()
+                                if peer_url and peer_url not in results:
+                                    results.append(peer_url)
+                    except socket.timeout:
+                        break
+                    except OSError:
+                        break
+            return results
+
+        discovered = await loop.run_in_executor(None, _do_broadcast)
+    except Exception as exc:
+        logger.warning("Federation discovery failed: %s", exc)
+
+    return {"discovered": discovered}
 
 
-@app.put("/api/room-items")
-async def update_room_items(
-    body: RoomItemsUpdate,
+# ─── Federated Messages (User-to-User & AI-to-AI) ────────────────────────────
+
+@app.get("/api/federation/messages")
+async def list_federated_messages(
+    request: Request,
+    direction: Optional[str] = Query(None),
+    message_type: Optional[str] = Query(None),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """List federated messages for the current user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    q = t_fed_messages.select().where(t_fed_messages.c.user_id == uid)
+    if direction in ("in", "out"):
+        q = q.where(t_fed_messages.c.direction == direction)
+    if message_type:
+        q = q.where(t_fed_messages.c.message_type == message_type)
+    q = q.order_by(t_fed_messages.c.created_at.desc()).limit(200)
+    async with engine.connect() as conn:
+        rows = await conn.execute(q)
+        return [_serialize_fed_msg(dict(r._mapping)) for r in rows]
+
+
+@app.post("/api/federation/messages")
+async def send_federated_message(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Send a federated message to a user on another instance.
+    Body: { peer_id, to_address, subject?, body, message_type? }
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    username = u.get("username", uid)
+
+    peer_id = (body.get("peer_id") or "").strip()
+    to_address = _assert_length((body.get("to_address") or "").strip(), 300, "to_address")
+    subject = _assert_length((body.get("subject") or "").strip(), 500, "subject")
+    msg_body = _assert_length((body.get("body") or "").strip(), _MAX_MESSAGE_LEN, "body")
+    msg_type = (body.get("message_type") or "user").strip()
+
+    if not peer_id or not to_address or not msg_body:
+        raise HTTPException(status_code=400, detail="peer_id, to_address and body are required")
+    if msg_type not in ("user", "ai_task", "ai_result"):
+        raise HTTPException(status_code=400, detail="message_type must be user|ai_task|ai_result")
+
+    # Look up peer
+    peer_url: Optional[str] = None
+    if engine is not None:
+        async with engine.connect() as conn:
+            row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
+            peer = row.first()
+            if not peer:
+                raise HTTPException(status_code=404, detail="Peer not found")
+            peer_url = peer._mapping["url"]
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    from_address = f"{username}@{request.base_url.hostname}"
+
+    # Store outbound record
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_messages.insert().values(
+                id=msg_id,
+                peer_id=peer_id,
+                user_id=uid,
+                direction="out",
+                message_type=msg_type,
+                from_address=from_address,
+                to_address=to_address,
+                subject=subject,
+                body=msg_body,
+                metadata=json.dumps({"peer_url": peer_url}),
+                status="sending",
+                created_at=now,
+            ))
+
+    # Attempt delivery to peer
+    delivery_status = "failed"
+    if peer_url:
+        payload = {
+            "from_address": from_address,
+            "to_address": to_address,
+            "subject": subject,
+            "body": msg_body,
+            "message_type": msg_type,
+            "metadata": body.get("metadata"),
+        }
+        headers = {"X-Federation-Secret": _FEDERATION_SHARED_SECRET} if _FEDERATION_SHARED_SECRET else {}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{peer_url}/api/federation/incoming/message",
+                    json=payload,
+                    headers=headers,
+                )
+                if resp.status_code < 400:
+                    delivery_status = "sent"
+        except Exception as exc:
+            logger.warning("Failed to deliver federated message to %s: %s", peer_url, exc)
+
+    # Update delivery status
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_fed_messages.update().where(t_fed_messages.c.id == msg_id).values(status=delivery_status)
+            )
+
+    return {"id": msg_id, "status": delivery_status}
+
+
+@app.delete("/api/federation/messages/{msg_id}")
+async def delete_federated_message(msg_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Delete a federated message for the current user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_fed_messages.delete()
+                .where(t_fed_messages.c.id == msg_id)
+                .where(t_fed_messages.c.user_id == uid)
+            )
+    return {"success": True}
+
+
+# ─── Incoming endpoints (called by remote SwAIvyn peers) ─────────────────────
+
+@app.post("/api/federation/incoming/message")
+async def receive_federated_message(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Receive an inbound federated message from another SwAIvyn instance.
+    Authenticated via X-Federation-Secret header.
+    """
+    if not _FEDERATION_SHARED_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Inbound federation is disabled until FEDERATION_SHARED_SECRET is configured",
+        )
+
+    incoming_secret = request.headers.get("X-Federation-Secret", "")
+    # Use hmac-safe comparison to avoid timing attacks
+    if not secrets.compare_digest(incoming_secret, _FEDERATION_SHARED_SECRET):
+        raise HTTPException(status_code=403, detail="Invalid federation secret")
+
+    from_address = _assert_length((body.get("from_address") or "").strip(), 300, "from_address")
+    to_address = _assert_length((body.get("to_address") or "").strip(), 300, "to_address")
+    subject = _assert_length((body.get("subject") or "").strip(), 500, "subject")
+    msg_body = _assert_length((body.get("body") or "").strip(), _MAX_MESSAGE_LEN, "body")
+    msg_type = (body.get("message_type") or "user").strip()
+
+    if not from_address or not msg_body:
+        raise HTTPException(status_code=400, detail="from_address and body are required")
+
+    # Resolve local recipient - match by username from "user@host" address
+    local_username = to_address.split("@")[0] if "@" in to_address else to_address
+    local_uid: Optional[str] = None
+    if engine is not None:
+        async with engine.connect() as conn:
+            row = await conn.execute(
+                users.select().where(users.c.username == local_username).limit(1)
+            )
+            u_row = row.first()
+            if u_row:
+                local_uid = u_row._mapping["id"]
+
+    if not local_uid:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_messages.insert().values(
+                id=msg_id,
+                peer_id=None,
+                user_id=local_uid,
+                direction="in",
+                message_type=msg_type,
+                from_address=from_address,
+                to_address=to_address,
+                subject=subject,
+                body=msg_body,
+                metadata=json.dumps(body.get("metadata") or {}),
+                status="received",
+                created_at=now,
+            ))
+
+    return {"id": msg_id, "status": "received"}
+
+
+@app.post("/api/federation/ai-task")
+async def delegate_ai_task(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Delegate an AI task to a peer instance via federated message.
+    Body: { peer_id, task_prompt, context? }
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    username = u.get("username", uid)
+
+    peer_id = (body.get("peer_id") or "").strip()
+    task_prompt = _assert_length((body.get("task_prompt") or "").strip(), _MAX_MESSAGE_LEN, "task_prompt")
+    context = body.get("context")
+
+    if not peer_id or not task_prompt:
+        raise HTTPException(status_code=400, detail="peer_id and task_prompt are required")
+
+    peer_url: Optional[str] = None
+    if engine is not None:
+        async with engine.connect() as conn:
+            row = await conn.execute(t_fed_peers.select().where(t_fed_peers.c.id == peer_id).limit(1))
+            peer = row.first()
+            if not peer:
+                raise HTTPException(status_code=404, detail="Peer not found")
+            peer_url = peer._mapping["url"]
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    from_address = f"{username}@{request.base_url.hostname}"
+
+    metadata_payload = json.dumps({"context": context, "task_id": msg_id})
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_fed_messages.insert().values(
+                id=msg_id,
+                peer_id=peer_id,
+                user_id=uid,
+                direction="out",
+                message_type="ai_task",
+                from_address=from_address,
+                to_address=f"ai@{urllib.parse.urlparse(peer_url).hostname}" if peer_url else "ai@peer",
+                subject="AI Task Delegation",
+                body=task_prompt,
+                metadata=metadata_payload,
+                status="sending",
+                created_at=now,
+            ))
+
+    delivery_status = "failed"
+    if peer_url:
+        payload = {
+            "from_address": from_address,
+            "to_address": "ai@local",
+            "subject": "AI Task Delegation",
+            "body": task_prompt,
+            "message_type": "ai_task",
+            "metadata": {"context": context, "task_id": msg_id},
+        }
+        headers = {"X-Federation-Secret": _FEDERATION_SHARED_SECRET} if _FEDERATION_SHARED_SECRET else {}
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{peer_url}/api/federation/incoming/message",
+                    json=payload,
+                    headers=headers,
+                )
+                if resp.status_code < 400:
+                    delivery_status = "sent"
+        except Exception as exc:
+            logger.warning("Failed to deliver AI task to peer %s: %s", peer_url, exc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_fed_messages.update().where(t_fed_messages.c.id == msg_id).values(status=delivery_status)
+            )
+
+    return {"id": msg_id, "status": delivery_status}
+
+
+# ─── Email (IMAP) Endpoints ───────────────────────────────────────────────────
+
+@app.get("/api/federation/email/accounts")
+async def list_email_accounts(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_email_accounts.select().where(t_email_accounts.c.user_id == uid).order_by(t_email_accounts.c.created_at)
+        )
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("password", None)  # Never expose stored password
+            for k in ("last_synced", "created_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/email/accounts")
+async def add_email_account(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    label = _assert_length((body.get("label") or "").strip(), _MAX_LABEL_LEN, "label")
+    host = _assert_length((body.get("host") or "").strip(), 300, "host")
+    username = _assert_length((body.get("username") or "").strip(), 300, "username")
+    raw_port = body.get("port")
+    if raw_port in (None, ""):
+        port_num = 993
+    else:
+        try:
+            port_num = int(str(raw_port).strip())
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="port must be an integer between 1 and 65535")
+        if not 1 <= port_num <= 65535:
+            raise HTTPException(status_code=400, detail="port must be an integer between 1 and 65535")
+    port = str(port_num)
+    password = body.get("password") or ""
+    use_ssl = bool(body.get("use_ssl", True))
+
+    if not label or not host or not username:
+        raise HTTPException(status_code=400, detail="label, host and username are required")
+
+    # Encrypt password if key available
+    stored_password = _encrypt_api_key(password) if password else None
+    account_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_email_accounts.insert().values(
+                id=account_id,
+                user_id=uid,
+                label=label,
+                host=host,
+                port=port,
+                username=username,
+                password=stored_password,
+                use_ssl=use_ssl,
+                last_synced=None,
+                status="unchecked",
+                created_at=now,
+            ))
+    return {"id": account_id, "label": label, "host": host, "status": "unchecked"}
+
+
+@app.delete("/api/federation/email/accounts/{account_id}")
+async def remove_email_account(account_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_email_accounts.delete()
+                .where(t_email_accounts.c.id == account_id)
+                .where(t_email_accounts.c.user_id == uid)
+            )
+    return {"success": True}
+
+
+@app.get("/api/federation/email/messages")
+async def list_email_messages(
+    request: Request,
+    account_id: Optional[str] = Query(None),
+    mailbox: Optional[str] = Query("INBOX"),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    q = t_email_messages.select().where(t_email_messages.c.user_id == uid)
+    if account_id:
+        q = q.where(t_email_messages.c.account_id == account_id)
+    if mailbox:
+        q = q.where(t_email_messages.c.mailbox == mailbox)
+    q = q.order_by(t_email_messages.c.date.desc()).limit(100)
+    async with engine.connect() as conn:
+        rows = await conn.execute(q)
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            for k in ("date", "synced_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/email/sync/{account_id}")
+async def sync_email_account(account_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Trigger an IMAP sync for the given email account.
+    Fetches recent messages from INBOX and caches them.
+    Requires imaplib (stdlib); returns up to 20 most-recent messages.
+    """
+    import imaplib
+    import email as _email_module
+    from email.header import decode_header as _decode_header
+
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            t_email_accounts.select()
+            .where(t_email_accounts.c.id == account_id)
+            .where(t_email_accounts.c.user_id == uid)
+            .limit(1)
+        )
+        acct = row.first()
+    if not acct:
+        raise HTTPException(status_code=404, detail="Email account not found")
+
+    acct_map = dict(acct._mapping)
+    host = acct_map["host"]
+    port = int(acct_map.get("port") or 993)
+    use_ssl = bool(acct_map.get("use_ssl", True))
+    imap_user = acct_map["username"]
+    raw_password = _decrypt_api_key(acct_map.get("password")) or ""
+
+    def _sync_imap() -> tuple[List[dict], bool]:
+        """Returns (messages, success)."""
+        msgs: List[dict] = []
+        success = False
+        try:
+            if use_ssl:
+                conn_imap = imaplib.IMAP4_SSL(host, port)
+            else:
+                conn_imap = imaplib.IMAP4(host, port)
+            conn_imap.login(imap_user, raw_password)
+            conn_imap.select("INBOX", readonly=True)
+            # Use UID commands for stable message identifiers
+            _, data = conn_imap.uid("search", None, "ALL")
+            uids = data[0].split()
+            recent = uids[-20:] if len(uids) > 20 else uids
+            for uid_b in reversed(recent):
+                uid_str = uid_b.decode()
+                _, msg_data = conn_imap.uid("fetch", uid_b, "(RFC822)")
+                raw_msg = msg_data[0][1] if msg_data and msg_data[0] else None
+                if not raw_msg:
+                    continue
+                parsed = _email_module.message_from_bytes(raw_msg)
+
+                def _decode_str(val: Any) -> str:
+                    if not val:
+                        return ""
+                    parts = _decode_header(val)
+                    result = []
+                    for part, enc in parts:
+                        if isinstance(part, bytes):
+                            result.append(part.decode(enc or "utf-8", errors="replace"))
+                        else:
+                            result.append(str(part))
+                    return "".join(result)
+
+                subj = _decode_str(parsed.get("Subject", ""))
+                from_addr = _decode_str(parsed.get("From", ""))
+                to_addr = _decode_str(parsed.get("To", ""))
+                date_str = parsed.get("Date", "")
+                body_text = ""
+                if parsed.is_multipart():
+                    for part in parsed.walk():
+                        if part.get_content_type() == "text/plain":
+                            body_text = part.get_payload(decode=True).decode(errors="replace")[:8000]
+                            break
+                else:
+                    payload = parsed.get_payload(decode=True)
+                    if payload:
+                        body_text = payload.decode(errors="replace")[:8000]
+
+                msgs.append({
+                    "uid": uid_str,
+                    "subject": subj[:500],
+                    "from_addr": from_addr[:500],
+                    "to_addr": to_addr[:1000],
+                    "date_str": date_str,
+                    "body_text": body_text,
+                })
+            conn_imap.close()
+            conn_imap.logout()
+            success = True
+        except Exception as exc:
+            logger.warning("IMAP sync failed for account %s: %s", account_id, exc)
+        return msgs, success
+
+    loop = asyncio.get_running_loop()
+    raw_msgs, sync_ok = await loop.run_in_executor(None, _sync_imap)
+
+    now = datetime.now(timezone.utc)
+    new_status = "connected" if sync_ok else "error"
+
+    # Persist all new messages in a single transaction
+    saved = 0
+    if raw_msgs:
+        from email.utils import parsedate_to_datetime as _parsedate
+
+        rows_to_insert = []
+        for m in raw_msgs:
+            msg_id = f"{account_id}:{m['uid']}"
+            msg_date = now
+            try:
+                if m["date_str"]:
+                    msg_date = _parsedate(m["date_str"]).astimezone(timezone.utc)
+            except Exception:
+                pass
+            rows_to_insert.append({
+                "id": msg_id,
+                "account_id": account_id,
+                "user_id": uid,
+                "mailbox": "INBOX",
+                "uid": m["uid"],
+                "subject": m["subject"],
+                "from_addr": m["from_addr"],
+                "to_addr": m["to_addr"],
+                "date": msg_date,
+                "body_text": m["body_text"],
+                "is_read": False,
+                "flags": None,
+                "synced_at": now,
+            })
+
+        async with engine.begin() as conn:
+            for row in rows_to_insert:
+                try:
+                    await conn.execute(t_email_messages.insert().values(**row))
+                    saved += 1
+                except Exception:
+                    pass  # Duplicate UID - already synced
+
+    # Update last_synced and status based on sync result
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_email_accounts.update()
+            .where(t_email_accounts.c.id == account_id)
+            .values(last_synced=now if sync_ok else None, status=new_status)
+        )
+
+    return {"synced": len(raw_msgs), "saved": saved}
+
+
+# ─── Calendar Endpoints ───────────────────────────────────────────────────────
+
+@app.get("/api/federation/calendar/accounts")
+async def list_calendar_accounts(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_cal_accounts.select().where(t_cal_accounts.c.user_id == uid).order_by(t_cal_accounts.c.created_at)
+        )
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("password", None)
+            for k in ("last_synced", "created_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/calendar/accounts")
+async def add_calendar_account(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    label = _assert_length((body.get("label") or "").strip(), _MAX_LABEL_LEN, "label")
+    url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
+    cal_username = (body.get("username") or "").strip()
+    cal_password = body.get("password") or ""
+    cal_type = (body.get("type") or "caldav").strip()
+    color = (body.get("color") or "#4f8ef7").strip()[:16]
+
+    if not label or not url:
+        raise HTTPException(status_code=400, detail="label and url are required")
+    if not await _validate_federation_url(url):
+        raise HTTPException(status_code=400, detail="Invalid calendar URL")
+    if not await _validate_url_for_ssrf(url):
+        raise HTTPException(status_code=400, detail="Calendar URL is not allowed (private/link-local addresses are blocked)")
+    if cal_type not in ("caldav", "ical"):
+        raise HTTPException(status_code=400, detail="type must be caldav or ical")
+
+    stored_password = _encrypt_api_key(cal_password) if cal_password else None
+    acct_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_cal_accounts.insert().values(
+                id=acct_id,
+                user_id=uid,
+                label=label,
+                url=url,
+                username=cal_username or None,
+                password=stored_password,
+                type=cal_type,
+                color=color,
+                last_synced=None,
+                status="unchecked",
+                created_at=now,
+            ))
+    return {"id": acct_id, "label": label, "url": url, "type": cal_type, "status": "unchecked"}
+
+
+@app.delete("/api/federation/calendar/accounts/{acct_id}")
+async def remove_calendar_account(acct_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_cal_accounts.delete()
+                .where(t_cal_accounts.c.id == acct_id)
+                .where(t_cal_accounts.c.user_id == uid)
+            )
+    return {"success": True}
+
+
+@app.get("/api/federation/calendar/events")
+async def list_calendar_events(
+    request: Request,
+    account_id: Optional[str] = Query(None),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    q = t_cal_events.select().where(t_cal_events.c.user_id == uid)
+    if account_id:
+        q = q.where(t_cal_events.c.account_id == account_id)
+    q = q.order_by(t_cal_events.c.start_dt.asc()).limit(200)
+    async with engine.connect() as conn:
+        rows = await conn.execute(q)
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("raw_ical", None)
+            for k in ("start_dt", "end_dt", "synced_at"):
+                if d.get(k) and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/calendar/sync/{acct_id}")
+async def sync_calendar_account(acct_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Sync a CalDAV or iCal URL and store events locally.
+    Uses only stdlib + httpx; no external caldav library required.
+    """
+    import re as _re
+
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            t_cal_accounts.select()
+            .where(t_cal_accounts.c.id == acct_id)
+            .where(t_cal_accounts.c.user_id == uid)
+            .limit(1)
+        )
+        acct = row.first()
+    if not acct:
+        raise HTTPException(status_code=404, detail="Calendar account not found")
+
+    acct_map = dict(acct._mapping)
+    cal_url = acct_map["url"]
+    cal_username = acct_map.get("username") or ""
+    raw_password = _decrypt_api_key(acct_map.get("password")) or ""
+    cal_type = acct_map.get("type", "ical")
+
+    auth = (cal_username, raw_password) if cal_username else None
+
+    def _parse_ical_simple(ical_text: str) -> List[dict]:
+        """Minimal iCal VEVENT parser using regex (no external library)."""
+        events: List[dict] = []
+        for block in _re.split(r"BEGIN:VEVENT", ical_text, flags=_re.IGNORECASE):
+            if "END:VEVENT" not in block.upper():
+                continue
+            block = block[:block.upper().index("END:VEVENT")]
+
+            def _prop(name: str) -> str:
+                m = _re.search(rf"^{name}[;:][^\r\n]*", block, _re.MULTILINE | _re.IGNORECASE)
+                if not m:
+                    return ""
+                val = m.group(0)
+                # Strip property name and parameters
+                val = _re.sub(rf"^{name}[^:]*:", "", val, flags=_re.IGNORECASE)
+                return val.strip()
+
+            def _parse_dt(s: str) -> Optional[datetime]:
+                if not s:
+                    return None
+                # Strip VALUE= or TZID= param prefix (e.g. "TZID=America/New_York:20060102T150405")
+                if ":" in s:
+                    s = s.rsplit(":", 1)[-1]
+                s = s.strip()
+                try:
+                    # DATE-only value: YYYYMMDD
+                    if _re.fullmatch(r"\d{8}", s):
+                        return datetime.strptime(s, "%Y%m%d").replace(tzinfo=timezone.utc)
+                    # UTC datetime: YYYYMMDDTHHMMSSZ
+                    if _re.fullmatch(r"\d{8}T\d{6}Z", s, _re.IGNORECASE):
+                        dt = datetime.strptime(s.upper(), "%Y%m%dT%H%M%SZ")
+                        return dt.replace(tzinfo=timezone.utc)
+                    # Offset datetime: YYYYMMDDTHHMMSS±HHMM or YYYYMMDDTHHMMSS±HH:MM
+                    offset_m = _re.fullmatch(r"(\d{8}T\d{6})([+-]\d{2}:?\d{2})", s)
+                    if offset_m:
+                        base = offset_m.group(1)
+                        tz_str = offset_m.group(2).replace(":", "")
+                        dt = datetime.strptime(base + tz_str, "%Y%m%dT%H%M%S%z")
+                        return dt.astimezone(timezone.utc)
+                    # Naive datetime: YYYYMMDDTHHMMSS (treat as UTC)
+                    if _re.fullmatch(r"\d{8}T\d{6}", s):
+                        return datetime.strptime(s, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    pass
+                return None
+
+            uid_val = _prop("UID")
+            if not uid_val:
+                uid_val = str(uuid.uuid4())
+            start_raw = _prop("DTSTART")
+            end_raw = _prop("DTEND")
+            all_day = "T" not in start_raw.upper() and start_raw != ""
+            events.append({
+                "uid": uid_val[:300],
+                "summary": _prop("SUMMARY")[:500],
+                "description": _prop("DESCRIPTION")[:2000],
+                "location": _prop("LOCATION")[:500],
+                "start_dt": _parse_dt(start_raw),
+                "end_dt": _parse_dt(end_raw),
+                "all_day": all_day,
+                "recurrence": _prop("RRULE")[:500] or None,
+                "raw_ical": block[:5000],
+            })
+        return events
+
+    ical_text: str = ""
+    new_status = "error"
+    try:
+        async with httpx.AsyncClient(timeout=15.0, auth=auth) as client:
+            if cal_type == "ical":
+                resp = await client.get(cal_url)
+            else:
+                # CalDAV: issue a REPORT request to fetch VCALENDAR data
+                report_body = (
+                    '<?xml version="1.0" encoding="utf-8" ?>'
+                    '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">'
+                    '<D:prop><D:getetag/><C:calendar-data/></D:prop>'
+                    '<C:filter><C:comp-filter name="VCALENDAR"/></C:filter>'
+                    '</C:calendar-query>'
+                )
+                resp = await client.request(
+                    "REPORT",
+                    cal_url,
+                    content=report_body,
+                    headers={"Content-Type": "application/xml", "Depth": "1"},
+                )
+            resp.raise_for_status()
+            ical_text = resp.text
+            new_status = "connected"
+    except Exception as exc:
+        logger.warning("Calendar sync failed for account %s: %s", acct_id, exc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_cal_accounts.update()
+                .where(t_cal_accounts.c.id == acct_id)
+                .values(status="error")
+            )
+        raise HTTPException(status_code=502, detail=f"Failed to fetch calendar: {exc}")
+
+    events = _parse_ical_simple(ical_text)
+    now = datetime.now(timezone.utc)
+    saved = 0
+    for ev in events:
+        ev_id = f"{acct_id}:{ev['uid']}"
+        async with engine.begin() as conn:
+            try:
+                await conn.execute(t_cal_events.insert().values(
+                    id=ev_id,
+                    account_id=acct_id,
+                    user_id=uid,
+                    uid=ev["uid"],
+                    summary=ev["summary"],
+                    description=ev["description"],
+                    location=ev["location"],
+                    start_dt=ev["start_dt"],
+                    end_dt=ev["end_dt"],
+                    all_day=ev["all_day"],
+                    recurrence=ev["recurrence"],
+                    raw_ical=ev["raw_ical"],
+                    synced_at=now,
+                ))
+                saved += 1
+            except Exception:
+                # Update existing event
+                try:
+                    await conn.execute(
+                        t_cal_events.update()
+                        .where(t_cal_events.c.id == ev_id)
+                        .values(
+                            summary=ev["summary"],
+                            description=ev["description"],
+                            location=ev["location"],
+                            start_dt=ev["start_dt"],
+                            end_dt=ev["end_dt"],
+                            all_day=ev["all_day"],
+                            recurrence=ev["recurrence"],
+                            raw_ical=ev["raw_ical"],
+                            synced_at=now,
+                        )
+                    )
+                except Exception:
+                    pass
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_cal_accounts.update()
+            .where(t_cal_accounts.c.id == acct_id)
+            .values(last_synced=now, status=new_status)
+        )
+
+    return {"synced": len(events), "saved": saved}
+
+
+# ─── Web Browse Endpoints ─────────────────────────────────────────────────────
+
+_MAX_BROWSE_CONTENT = 50_000  # 50 KB of text
+
+
+@app.get("/api/federation/browse/history")
+async def get_browse_history(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            t_browse_history.select()
+            .where(t_browse_history.c.user_id == uid)
+            .order_by(t_browse_history.c.visited_at.desc())
+            .limit(limit)
+        )
+        result = []
+        for r in rows:
+            d = dict(r._mapping)
+            d.pop("content_text", None)  # Omit heavy content from list
+            if d.get("visited_at") and hasattr(d["visited_at"], "isoformat"):
+                d["visited_at"] = d["visited_at"].isoformat()
+            result.append(d)
+        return result
+
+
+@app.post("/api/federation/browse")
+async def browse_url(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """
+    Fetch a web page and return its text content, recording it in browse history.
+    Uses httpx for HTTP retrieval; strips HTML tags to extract readable text.
+    Note: Full Browsh integration requires a Browsh service; this provides
+    a lightweight fallback using HTTP + basic HTML stripping.
+    """
+    import html
+    import re as _re
+    url = _assert_length((body.get("url") or "").strip(), _MAX_URL_LEN, "url")
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+    # Use the strict SSRF guard (blocks private/link-local IPs) for web browsing
+    if not await _validate_url_for_ssrf(url):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe URL")
+
+    content_text = ""
+    title = ""
+    fetch_error: Optional[str] = None
+    try:
+        _max_response_bytes = min(_MAX_BROWSE_CONTENT * 4, 1024 * 1024)  # 4× text limit, max 1 MB
+        _max_redirects = 5
+        current_url = url
+        raw_html = ""
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            for _ in range(_max_redirects + 1):
+                resp = await client.get(current_url, headers={"User-Agent": "SwAIvyn-Browser/1.0"})
+                if resp.is_redirect:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ValueError("Redirect response missing Location header")
+                    next_url = urllib.parse.urljoin(str(resp.url), location)
+                    if not await _validate_url_for_ssrf(next_url):
+                        raise HTTPException(status_code=400, detail="Invalid or unsafe redirect URL")
+                    current_url = next_url
+                    continue
+                break
+            else:
+                raise ValueError("Too many redirects")
+
+            resp.raise_for_status()
+            # Cap response size to avoid large-page memory/CPU DoS
+            raw_bytes = bytearray()
+            async for chunk in resp.aiter_bytes():
+                if len(raw_bytes) + len(chunk) > _max_response_bytes:
+                    remaining = _max_response_bytes - len(raw_bytes)
+                    if remaining > 0:
+                        raw_bytes.extend(chunk[:remaining])
+                    break
+                raw_bytes.extend(chunk)
+            encoding = resp.encoding or "utf-8"
+            raw_html = bytes(raw_bytes).decode(encoding, errors="replace")
+
+        # Strip scripts and styles (including tags with whitespace before >)
+        clean = _re.sub(r"<(script|style)\b[^>]*>.*?</(script|style)\s*>", "", raw_html, flags=_re.DOTALL | _re.IGNORECASE)
+        # Extract title
+        title_m = _re.search(r"<title[^>]*>(.*?)</title>", clean, _re.DOTALL | _re.IGNORECASE)
+        if title_m:
+            title = html.unescape(_re.sub(r"<[^>]+>", "", title_m.group(1))).strip()[:500]
+        # Strip remaining HTML tags
+        text = _re.sub(r"<[^>]+>", " ", clean)
+        text = html.unescape(text)
+        # Collapse whitespace
+        text = _re.sub(r"[ \t]+", " ", text)
+        text = _re.sub(r"\n\s*\n", "\n\n", text)
+        content_text = text.strip()[:_MAX_BROWSE_CONTENT]
+    except Exception as exc:
+        fetch_error = str(exc)
+        logger.warning("Browse fetch failed for %s: %s", url, exc)
+
+    now = datetime.now(timezone.utc)
+    visit_id = str(uuid.uuid4())
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_browse_history.insert().values(
+                id=visit_id,
+                user_id=uid,
+                url=url,
+                title=title or None,
+                content_text=content_text or None,
+                visited_at=now,
+            ))
+
+    if fetch_error:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {fetch_error}")
+
+    return {
+        "id": visit_id,
+        "url": url,
+        "title": title,
+        "content_text": content_text,
+        "visited_at": now.isoformat(),
+    }
+
+
+@app.delete("/api/federation/browse/history")
+async def clear_browse_history(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Clear all browse history for the current user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(t_browse_history.delete().where(t_browse_history.c.user_id == uid))
+    return {"success": True}
+
+
+# ------------------------- Plugin Endpoints -------------------------
+# Phase 5: Plugin System & Customization
+# Implements install / list / toggle / uninstall / health endpoints.
+# All write operations are admin-only; reads are available to any
+# authenticated user so the catalog can be browsed.
+
+@app.get("/api/plugins")
+async def list_plugins(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """List all registered plugins (any authenticated user)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        return []
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_plugins).order_by(t_plugins.c.name))
+        result = []
+        for row in res.fetchall():
+            plugin = dict(row._mapping)
+            try:
+                plugin["permissions"] = json.loads(plugin.get("permissions") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                plugin["permissions"] = []
+            try:
+                manifest = json.loads(plugin.get("manifest") or "{}")
+                plugin["capabilities"] = manifest.get("capabilities", [])
+            except (json.JSONDecodeError, TypeError):
+                plugin["capabilities"] = []
+            result.append(plugin)
+    return result
+
+
+@app.post("/api/plugins/install", status_code=201)
+async def install_plugin(
+    manifest: PluginManifest,
     request: Request,
     engine: Optional[AsyncEngine] = Depends(get_engine_dep),
 ):
-    """Upsert room items for the authenticated user."""
+    """Install a plugin from a manifest (admin only).
+
+    The manifest must conform to the versioned spec in docs/plugin-manifest.md.
+    Plugins are sandboxed: they can only be accessed through their declared
+    entry_point and cannot read other users' data unless the corresponding
+    permission is explicitly granted by an admin.
+    """
     u = getattr(request.state, "user", None)
     if not u:
         raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = u["id"]
-
-    # Validate: each item must be a non-empty string with only safe chars
-    allowed_ids = {"plant", "lamp", "book", "rug", "chair"}
-    sanitised = [i for i in body.items if isinstance(i, str) and i in allowed_ids]
-    # De-duplicate while preserving the original request order
-    sanitised = list(dict.fromkeys(sanitised))
-
-    items_json = json.dumps(sanitised)
-    now = datetime.now(timezone.utc)
-
+    require_admin(u)
     if engine is None:
-        return {"success": True, "items": sanitised}
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    if manifest.manifest_version not in ("1",):
+        raise HTTPException(status_code=400, detail=f"Unsupported manifest_version '{manifest.manifest_version}'. Only '1' is supported.")
+
+    _PLUGIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,126}[a-z0-9]$")
+    if not _PLUGIN_ID_RE.match(manifest.id):
+        raise HTTPException(status_code=400, detail="Plugin id must be lower-kebab-case (e.g. 'my-plugin'), 2–128 characters.")
+
+    _ALLOWED_PERMISSIONS: set[str] = {"tool-use"}
+    unknown_perms = [p for p in manifest.permissions if p not in _ALLOWED_PERMISSIONS]
+    if unknown_perms:
+        raise HTTPException(status_code=400, detail=f"Unknown permission(s): {unknown_perms}. Allowed: {sorted(_ALLOWED_PERMISSIONS)}.")
+
+    if manifest.entry_point and not await _validate_url_for_ssrf(manifest.entry_point):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe entry_point URL.")
+    if manifest.health_endpoint and not await _validate_url_for_ssrf(manifest.health_endpoint):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe health_endpoint URL.")
+
+    now = current_timestamp()
+    manifest_json = json.dumps(manifest.model_dump())
+    permissions_json = json.dumps(manifest.permissions)
 
     async with engine.begin() as conn:
         res = await conn.execute(
-            t_room_items.update()
-            .where(t_room_items.c.user_id == user_id)
-            .values(items=items_json, updated_at=now)
+            t_plugins.update()
+            .where(t_plugins.c.id == manifest.id)
+            .values(
+                name=manifest.name,
+                version=manifest.version,
+                description=manifest.description,
+                author=manifest.author,
+                manifest=manifest_json,
+                entry_point=manifest.entry_point,
+                permissions=permissions_json,
+                status="installed",
+                health_endpoint=manifest.health_endpoint,
+                health_status="unknown",
+                updated_at=now,
+            )
         )
-        if getattr(res, "rowcount", 0) == 0:
+        if res.rowcount == 0:  # type: ignore[attr-defined]
             await conn.execute(
-                t_room_items.insert().values(user_id=user_id, items=items_json, updated_at=now)
+                t_plugins.insert().values(
+                    id=manifest.id,
+                    name=manifest.name,
+                    version=manifest.version,
+                    description=manifest.description,
+                    author=manifest.author,
+                    manifest=manifest_json,
+                    entry_point=manifest.entry_point,
+                    permissions=permissions_json,
+                    status="installed",
+                    health_endpoint=manifest.health_endpoint,
+                    health_status="unknown",
+                    installed_by=u.get("id"),
+                    installed_at=now,
+                    updated_at=now,
+                )
             )
 
-    return {"success": True, "items": sanitised}
+    logger.info("Plugin %s v%s installed by %s", manifest.id, manifest.version, u.get("username"))
+    return {"success": True, "plugin_id": manifest.id, "message": f"Plugin '{manifest.name}' installed successfully."}
+
+
+@app.get("/api/plugins/{plugin_id}")
+async def get_plugin(plugin_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Get details for a single plugin."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_plugins).where(t_plugins.c.id == plugin_id))
+        row = res.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    plugin = dict(row._mapping)
+    try:
+        plugin["permissions"] = json.loads(plugin.get("permissions") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        plugin["permissions"] = []
+    try:
+        manifest = json.loads(plugin.get("manifest") or "{}")
+        plugin["capabilities"] = manifest.get("capabilities", [])
+    except (json.JSONDecodeError, TypeError):
+        plugin["capabilities"] = []
+    return plugin
+
+
+@app.patch("/api/plugins/{plugin_id}/status")
+async def update_plugin_status(
+    plugin_id: str,
+    body: PluginStatusUpdate,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Enable or disable an installed plugin (admin only)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    if body.status not in ("enabled", "disabled"):
+        raise HTTPException(status_code=400, detail="status must be 'enabled' or 'disabled'")
+
+    now = current_timestamp()
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_plugins.update()
+            .where(t_plugins.c.id == plugin_id)
+            .values(status=body.status, updated_at=now)
+        )
+        if res.rowcount == 0:  # type: ignore[attr-defined]
+            raise HTTPException(status_code=404, detail="Plugin not found")
+
+    return {"success": True, "plugin_id": plugin_id, "status": body.status}
+
+
+@app.delete("/api/plugins/{plugin_id}", status_code=204)
+async def uninstall_plugin(
+    plugin_id: str,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Uninstall a plugin (admin only)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.begin() as conn:
+        res = await conn.execute(t_plugins.delete().where(t_plugins.c.id == plugin_id))
+        if res.rowcount == 0:  # type: ignore[attr-defined]
+            raise HTTPException(status_code=404, detail="Plugin not found")
+
+    logger.info("Plugin %s uninstalled by %s", plugin_id, u.get("username"))
+    return Response(status_code=204)
+
+
+@app.get("/api/plugins/{plugin_id}/health")
+async def plugin_health(
+    plugin_id: str,
+    request: Request,
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """Probe the plugin's health_endpoint and return the result.
+
+    The health check is performed server-side to avoid SSRF from the browser.
+    Only the response status code and a small JSON payload are surfaced.
+    Admin-only to prevent unauthenticated traffic amplification.
+    """
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin(u)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_plugins).where(t_plugins.c.id == plugin_id))
+        row = res.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    plugin = dict(row._mapping)
+    health_endpoint = plugin.get("health_endpoint")
+
+    if not health_endpoint:
+        return {"plugin_id": plugin_id, "health_status": "unknown", "detail": "No health_endpoint configured."}
+
+    if not await _validate_url_for_ssrf(health_endpoint, allow_private=False):
+        return {"plugin_id": plugin_id, "health_status": "error", "detail": "Invalid health_endpoint URL."}
+
+    try:
+        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+            resp = await client.get(health_endpoint)
+        health_status = "healthy" if 200 <= resp.status_code < 300 else "unhealthy"
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text[:200]
+    except Exception as exc:
+        health_status = "unhealthy"
+        logger.debug("Plugin %s health probe failed: %s", plugin_id, exc)
+        detail = "Health probe failed - could not reach health_endpoint."
+
+    now = current_timestamp()
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_plugins.update()
+                .where(t_plugins.c.id == plugin_id)
+                .values(health_status=health_status, updated_at=now)
+            )
+    except Exception:
+        pass
+
+    return {"plugin_id": plugin_id, "health_status": health_status, "detail": detail}
+
+
+# ------------------------- Push Notification Endpoints -------------------------
+
+async def _send_push_notification(user_id: str, title: str, body: str, engine: Optional[AsyncEngine]) -> int:
+    """
+    Send a Web Push notification to all registered endpoints for a user.
+    Returns the number of successful sends.
+    """
+    if engine is None:
+        return 0
+    vapid_pair = _get_vapid()
+    if vapid_pair[0] is None:
+        return 0
+    vapid_obj, _pub_key = vapid_pair
+
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        logger.warning("pywebpush not available; skipping push notification.")
+        return 0
+
+    payload = json.dumps({"title": title, "body": body})
+    sent = 0
+    stale_endpoints: list[str] = []
+
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(t_push_subscriptions).where(t_push_subscriptions.c.user_id == user_id)
+        )
+        rows = res.fetchall()
+
+    for row in rows:
+        subscription_info = {
+            "endpoint": row.endpoint,
+            "keys": {"p256dh": row.p256dh, "auth": row.auth},
+        }
+        try:
+            await asyncio.to_thread(
+                webpush,
+                subscription_info=subscription_info,
+                data=payload,
+                vapid_private_key=vapid_obj,
+                vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
+            )
+            sent += 1
+        except WebPushException as e:
+            status_code = getattr(e.response, "status_code", None) if e.response else None
+            if status_code in (404, 410):
+                stale_endpoints.append(row.endpoint)
+            else:
+                logger.warning("Push send failed for %s: %s", row.endpoint[:40], e)
+        except Exception as e:
+            logger.warning("Push send error for %s: %s", row.endpoint[:40], e)
+
+    if stale_endpoints and engine is not None:
+        async with engine.begin() as conn:
+            for ep in stale_endpoints:
+                await conn.execute(
+                    t_push_subscriptions.delete().where(t_push_subscriptions.c.endpoint == ep)
+                )
+
+    return sent
+
+
+@app.get("/api/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Return the server's VAPID application server key for the frontend to subscribe."""
+    _, pub_key = _get_vapid()
+    if not pub_key:
+        raise HTTPException(status_code=503, detail="Push notifications not configured on this server.")
+    return {"vapid_public_key": pub_key}
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: Request, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Register a Web Push subscription for the authenticated user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    endpoint = (body or {}).get("endpoint")
+    keys = (body or {}).get("keys") or {}
+    p256dh = keys.get("p256dh")
+    auth_key = keys.get("auth")
+
+    if not endpoint or not p256dh or not auth_key:
+        raise HTTPException(status_code=422, detail="endpoint, keys.p256dh, and keys.auth are required.")
+
+    if engine is None:
+        return {"success": True, "persisted": False}
+
+    now = datetime.now(timezone.utc)
+    sub_id = str(uuid.uuid4())
+
+    async with engine.begin() as conn:
+        existing = await conn.execute(
+            select(
+                t_push_subscriptions.c.id,
+                t_push_subscriptions.c.user_id,
+            ).where(t_push_subscriptions.c.endpoint == endpoint).limit(1)
+        )
+        row = existing.first()
+        if row:
+            if row.user_id != uid:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This push subscription endpoint is already registered to another user.",
+                )
+            await conn.execute(
+                t_push_subscriptions.update()
+                .where(
+                    t_push_subscriptions.c.endpoint == endpoint,
+                    t_push_subscriptions.c.user_id == uid,
+                )
+                .values(p256dh=p256dh, auth=auth_key, created_at=now)
+            )
+        else:
+            await conn.execute(
+                t_push_subscriptions.insert().values(
+                    id=sub_id, user_id=uid, endpoint=endpoint,
+                    p256dh=p256dh, auth=auth_key, created_at=now,
+                )
+            )
+
+    logger.info("Push subscription registered for user %s", uid)
+    return {"success": True, "persisted": True}
+
+
+@app.post("/api/push/unsubscribe")
+async def push_unsubscribe(request: Request, body: dict, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Remove a Web Push subscription."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = u.get("id")
+
+    endpoint = (body or {}).get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=422, detail="endpoint is required.")
+
+    if engine is not None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                t_push_subscriptions.delete().where(
+                    t_push_subscriptions.c.endpoint == endpoint,
+                    t_push_subscriptions.c.user_id == uid,
+                )
+            )
+
+    return {"success": True}
 
 # This ends the main.py file - all imports and endpoints are complete

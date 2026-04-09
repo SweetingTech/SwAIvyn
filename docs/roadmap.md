@@ -44,13 +44,13 @@
 - [OK] Add 3D model (VRM / glTF) upload support in the Character Editor.
 
 ## Phase 4: Federation & Advanced Features
-- Implement peer discovery on local network.
-- Create P2P communication protocol with encryption, authentication, and connection management.
-- Build AI-to-AI communication system with message types, response handling, and context sharing.
-- Add user-to-user messaging with forwarding and history.
-- Implement IMAP client for email access and mirroring.
-- Add calendar integration with iCal/CalDAV support.
-- Integrate Browsh for text-based web browsing and history management.
+- [OK] Implement peer discovery on local network.
+- [OK] Create P2P communication protocol with encryption, authentication, and connection management.
+- [OK] Build AI-to-AI communication system with message types, response handling, and context sharing.
+- [OK] Add user-to-user messaging with forwarding and history.
+- [OK] Implement IMAP client for email access and mirroring.
+- [OK] Add calendar integration with iCal/CalDAV support.
+- [OK] Integrate text-based web browsing with history management.
 
 ## Phase 5: Plugin System & Customization
 - Design plugin interface and manifest format.
