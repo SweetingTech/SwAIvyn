@@ -277,7 +277,7 @@ All scripts read `.env` and construct `DATABASE_URL` from `POSTGRES_PASSWORD` if
 - [ ] Memory management UI enhancements
 - [ ] Plugin system expansion
 - [ ] 3D avatar support
-- [ ] Mobile companion app
+- [x] Mobile companion app (PWA)
 
 See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for detailed progress.
 
