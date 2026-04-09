@@ -59,6 +59,7 @@ from .models import (
     agent_registry,
     agent_tasks,
     agent_results,
+    memories as t_memories,
     plugins as t_plugins,
     federation_peers as t_fed_peers,
     federated_messages as t_fed_messages,
@@ -240,12 +241,29 @@ _MAX_NAME_LEN = 200
 _MAX_SYSTEM_PROMPT_LEN = 32_000
 _MAX_MESSAGE_LEN = 64_000
 _MAX_YAML_BYTES = 512_000  # 512 KB
+_MAX_MEMORY_CONTENT_LEN = int(os.getenv("MAX_MEMORY_CONTENT_LEN", "8000"))
+_MAX_MEMORY_ANNOTATION_LEN = int(os.getenv("MAX_MEMORY_ANNOTATION_LEN", "4000"))
+_MEMORY_PAGE_SIZE_MAX = 200
 
 
 def _assert_length(value: str, max_len: int, field: str) -> str:
     if len(value) > max_len:
         raise HTTPException(status_code=400, detail=f"{field} exceeds maximum length of {max_len} characters.")
     return value
+
+
+def _serialize_memory(row) -> dict:
+    m = dict(row._mapping)
+    return {
+        "id": m["id"],
+        "userId": m["user_id"],
+        "content": m["content"],
+        "category": m.get("category") or "Personal",
+        "isShared": bool(m.get("is_shared", False)),
+        "annotation": m.get("annotation"),
+        "createdAt": _dt_str(m.get("created_at")),
+        "updatedAt": _dt_str(m.get("updated_at")),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2192,6 +2210,421 @@ async def import_character_yaml(body: dict, request: Request, engine: Optional[A
     except Exception as e:
         logger.exception("import_character_yaml failed for user %s: %s", u.get("id"), e)
         raise HTTPException(status_code=400, detail="Failed to parse YAML")
+
+# ------------------------- Memory Management -------------------------
+
+@app.get("/api/memory/{user_id}")
+async def get_memories(
+    user_id: str,
+    request: Request,
+    q: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=_MEMORY_PAGE_SIZE_MAX),
+    engine: Optional[AsyncEngine] = Depends(get_engine_dep),
+):
+    """List memories for a user with optional full-text search and category filter."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if engine is None:
+        return []
+
+    async with engine.connect() as conn:
+        stmt = select(t_memories).where(t_memories.c.user_id == user_id)
+        if category and category.lower() != "all":
+            stmt = stmt.where(t_memories.c.category == category)
+        if q:
+            term = f"%{q}%"
+            stmt = stmt.where(
+                t_memories.c.content.ilike(term) | t_memories.c.annotation.ilike(term)
+            )
+        stmt = stmt.order_by(t_memories.c.created_at.desc())
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        res = await conn.execute(stmt)
+        rows = res.fetchall()
+
+    return [_serialize_memory(r) for r in rows]
+
+
+@app.post("/api/memory")
+async def create_memory(body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Create a new memory item."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    uid = body.get("userId") or u.get("id")
+    if uid != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+    _assert_length(content, _MAX_MEMORY_CONTENT_LEN, "content")
+
+    annotation = (body.get("annotation") or "").strip() or None
+    if annotation:
+        _assert_length(annotation, _MAX_MEMORY_ANNOTATION_LEN, "annotation")
+
+    category = (body.get("category") or "Personal").strip()
+    is_shared = bool(body.get("isShared", False))
+    now = datetime.now(timezone.utc)
+    mem_id = str(uuid.uuid4())
+
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            t_memories.insert().values(
+                id=mem_id,
+                user_id=uid,
+                content=content,
+                category=category,
+                is_shared=is_shared,
+                annotation=annotation,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        res = await conn.execute(select(t_memories).where(t_memories.c.id == mem_id))
+        row = res.first()
+
+    return _serialize_memory(row)
+
+
+@app.get("/api/memory/item/{memory_id}")
+async def get_memory_item(memory_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Get a single memory item by ID."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if engine is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_memories).where(t_memories.c.id == memory_id))
+        row = res.first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    m = dict(row._mapping)
+    if m["user_id"] != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return _serialize_memory(row)
+
+
+@app.put("/api/memory/{memory_id}")
+async def update_memory(memory_id: str, body: dict, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Edit content, category, annotation, or sharing of a memory item."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if engine is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_memories).where(t_memories.c.id == memory_id))
+        row = res.first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    m = dict(row._mapping)
+    if m["user_id"] != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    updates: dict = {}
+    if "content" in body:
+        content = body["content"].strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="content cannot be empty")
+        _assert_length(content, _MAX_MEMORY_CONTENT_LEN, "content")
+        updates["content"] = content
+    if "category" in body:
+        updates["category"] = body["category"].strip() or "Personal"
+    if "isShared" in body:
+        updates["is_shared"] = bool(body["isShared"])
+    if "annotation" in body:
+        annotation = (body["annotation"] or "").strip() or None
+        if annotation:
+            _assert_length(annotation, _MAX_MEMORY_ANNOTATION_LEN, "annotation")
+        updates["annotation"] = annotation
+
+    if not updates:
+        return _serialize_memory(row)
+
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    async with engine.begin() as conn:
+        await conn.execute(t_memories.update().where(t_memories.c.id == memory_id).values(**updates))
+        res = await conn.execute(select(t_memories).where(t_memories.c.id == memory_id))
+        updated_row = res.first()
+
+    if not updated_row:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    return _serialize_memory(updated_row)
+
+
+@app.delete("/api/memory/{memory_id}")
+async def delete_memory(memory_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Delete a single memory item."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.connect() as conn:
+        res = await conn.execute(select(t_memories).where(t_memories.c.id == memory_id))
+        row = res.first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    m = dict(row._mapping)
+    if m["user_id"] != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    async with engine.begin() as conn:
+        await conn.execute(t_memories.delete().where(t_memories.c.id == memory_id))
+
+    return {"deleted": True}
+
+
+@app.delete("/api/memory/user/{user_id}/all")
+async def delete_all_memories(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Bulk-clear all memories for a user."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if engine is None:
+        return {"deleted": 0}
+
+    async with engine.begin() as conn:
+        res = await conn.execute(t_memories.delete().where(t_memories.c.user_id == user_id))
+        deleted = res.rowcount if hasattr(res, "rowcount") else 0
+
+    return {"deleted": deleted}
+
+
+@app.get("/api/memory/user/{user_id}/export")
+async def export_memories(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Export a user's memories as a JSON download."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    items: List[dict] = []
+    if engine is not None:
+        async with engine.connect() as conn:
+            res = await conn.execute(
+                select(t_memories).where(t_memories.c.user_id == user_id).order_by(t_memories.c.created_at.asc())
+            )
+            items = [_serialize_memory(r) for r in res.fetchall()]
+
+    payload = json.dumps({"version": 1, "memories": items}, indent=2)
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="memories-{user_id}.json"'},
+    )
+
+
+@app.post("/api/memory/user/{user_id}/import")
+async def import_memories(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Import memories from a JSON backup (created by export)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    items = body.get("memories", [])
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="'memories' must be an array")
+
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Memory import service unavailable")
+
+    now = datetime.now(timezone.utc)
+    imported = 0
+    async with engine.begin() as conn:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            content = (item.get("content") or "").strip()
+            if not content:
+                continue
+            if len(content) > _MAX_MEMORY_CONTENT_LEN:
+                content = content[:_MAX_MEMORY_CONTENT_LEN]
+            annotation = (item.get("annotation") or "").strip() or None
+            if annotation and len(annotation) > _MAX_MEMORY_ANNOTATION_LEN:
+                annotation = annotation[:_MAX_MEMORY_ANNOTATION_LEN]
+            await conn.execute(
+                t_memories.insert().values(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    content=content,
+                    category=(item.get("category") or "Personal").strip(),
+                    is_shared=bool(item.get("isShared", False)),
+                    annotation=annotation,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            imported += 1
+
+    return {"imported": imported}
+
+
+@app.get("/api/admin/memory/stats")
+async def admin_memory_stats(request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Admin: memory item counts and last-updated per user. Does not expose memory content."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if engine is None:
+        return []
+
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(
+                t_memories.c.user_id,
+                func.count(t_memories.c.id).label("count"),
+                func.max(t_memories.c.updated_at).label("last_updated"),
+            ).group_by(t_memories.c.user_id)
+        )
+        rows = res.fetchall()
+
+    return [
+        {
+            "userId": r._mapping["user_id"],
+            "count": r._mapping["count"],
+            "lastUpdated": _dt_str(r._mapping["last_updated"]),
+        }
+        for r in rows
+    ]
+
+
+@app.delete("/api/admin/memory/{user_id}/{memory_id}")
+async def admin_force_delete_memory(user_id: str, memory_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Admin: force-delete a specific memory item."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            t_memories.delete().where(
+                (t_memories.c.user_id == user_id) & (t_memories.c.id == memory_id)
+            )
+        )
+        deleted = res.rowcount if hasattr(res, "rowcount") else 0
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    return {"deleted": True}
+
+
+@app.get("/api/memorysyncstatus/status/{user_id}")
+async def get_memory_sync_status(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Get memory sync status (SQLite vs Neo4j counts)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    sqlite_count = 0
+    if engine is not None:
+        async with engine.connect() as conn:
+            res = await conn.execute(select(func.count(t_memories.c.id)).where(t_memories.c.user_id == user_id))
+            row = res.first()
+            sqlite_count = row[0] if row else 0
+
+    neo4j_count = 0
+    in_sync = sqlite_count == neo4j_count
+
+    return {
+        "userId": user_id,
+        "sqliteCount": sqlite_count,
+        "neo4jCount": neo4j_count,
+        "inSync": in_sync,
+        "missingInNeo4j": {"count": max(0, sqlite_count - neo4j_count), "memoryIds": [], "details": []},
+        "missingInSqlite": {"count": max(0, neo4j_count - sqlite_count), "memoryIds": []},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/api/memorysyncstatus/repair/{user_id}")
+async def repair_memory_sync(user_id: str, request: Request):
+    """Repair memory sync (stub — graph sync handled by orchestrator)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user_id != u.get("id") and u.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    return {
+        "userId": user_id,
+        "totalMissingMemories": 0,
+        "successfulRepairs": 0,
+        "failedRepairs": 0,
+        "repairDetails": [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/api/memorysyncstatus/full/{user_id}")
+async def full_memory_sync(user_id: str, request: Request, engine: Optional[AsyncEngine] = Depends(get_engine_dep)):
+    """Perform full memory sync (stub — graph sync handled by orchestrator)."""
+    initial_status = await get_memory_sync_status(user_id, request, engine)
+    repair_result = await repair_memory_sync(user_id, request)
+    final_status = await get_memory_sync_status(user_id, request, engine)
+    return {
+        "userId": user_id,
+        "initialStatus": initial_status,
+        "finalStatus": final_status,
+        "repairResult": repair_result,
+        "summary": {
+            "wasInSync": bool(initial_status.get("inSync")),
+            "isNowInSync": bool(final_status.get("inSync")),
+            "improvementMade": bool(initial_status.get("sqliteCount", 0) != final_status.get("sqliteCount", 0)),
+            "totalInitialIssues": int(initial_status.get("missingInNeo4j", {}).get("count", 0)),
+            "totalRemainingIssues": int(final_status.get("missingInNeo4j", {}).get("count", 0)),
+            "issuesResolved": 0,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 # ------------------------- External Agent Management -------------------------
 
