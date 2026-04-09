@@ -33,6 +33,7 @@ if (enableStagewise) {
   ReactPlugin = require('@stagewise-plugins/react').ReactPlugin;
 }
 import AdminUsersPage from './pages/AdminUsersPage';
+import PluginsPage from './pages/PluginsPage';
 
 // Initialize i18n
 import './i18n';
@@ -93,6 +94,7 @@ function AppContent() {
             <Route path="knowledge-upload" element={<KnowledgeUploadPage />} />
             <Route path="character-editor" element={<CharacterEditor userId={user?.id || "demo-user-id"} onSave={() => navigate('/dashboard')} onCancel={() => navigate('/dashboard')} />} />
             <Route path="admin/users" element={<AdminUsersPage />} />
+            <Route path="plugins" element={<PluginsPage />} />
             <Route path="memory-browser" element={<MemoryBrowser userId={user?.id || "demo-user-id"} />} />
             <Route path="conversation-management" element={<ConversationManagement userId={user?.id || "demo-user-id"} onSelectConversation={() => {}} />} />
           </Route>
