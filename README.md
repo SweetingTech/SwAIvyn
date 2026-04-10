@@ -23,6 +23,8 @@ SwAIvyn is a self-hosted AI platform designed for multi-user teams. It runs enti
 | **Agent integration**  | Manual / none              | Multi-tenant registry with full task lifecycle      |
 | **Workflow execution** | Direct API calls           | Temporal-orchestrated, versioned workflows          |
 | **Memory**             | Shared or none             | Per-user vector + graph memory with admin controls  |
+| **Extensibility**      | Hard-coded                 | Manifest-driven plugin system with admin controls   |
+| **Federation**         | None                       | Cross-instance peer discovery, messaging, and sync  |
 | **LLM routing**        | Global config              | Per-user engine selection (Ollama, LM Studio, OpenAI, Claude, vLLM) with admin-level routing  |
 | **Deployment**         | Local only                 | Bare metal, Docker Swarm, cloud                     |
 
@@ -160,7 +162,7 @@ netsh advfirewall firewall add rule name="SwAIvyn Backend" dir=in action=allow p
 
 ### Per-user isolated memory with admin visibility controls
 
-Each user has a dedicated memory space across three stores: Qdrant (vector similarity), Neo4j (associative memory graph), and PostgreSQL (structured conversation history). Users can browse, search, edit, and selectively share memories. Admins can view and manage memory across all users without cross-contaminating user data.
+Each user has a dedicated memory space across three stores: Qdrant (vector similarity), Neo4j (associative memory graph), and PostgreSQL (structured conversation history). Users can browse, search, edit, annotate, import/export, bulk-clear, and selectively share memories from the UI. Admins can view per-user memory stats and manage memory across all users without cross-contaminating user data.
 
 ### Per-user LLM engine selection with admin-level routing
 
@@ -205,6 +207,14 @@ Authorization: Bearer <jwt>
 
 Full API reference: [`docs/external-agent-guide.md`](docs/external-agent-guide.md) and [`docs/agent-stack-integration.md`](docs/agent-stack-integration.md)
 
+### Cross-instance federation for teams that run multiple SwAIvyn nodes
+
+SwAIvyn instances can discover and connect to peer deployments, exchange authenticated messages, and sync selected integrations across nodes. Federation support includes peer management, UDP-based discovery, inbound/outbound message exchange, and federated email, calendar, and browse-history sync endpoints.
+
+### Manifest-driven plugin system with admin install and health management
+
+Admins can install, enable, disable, probe, and uninstall plugins from signed manifest metadata. The platform now includes plugin registry endpoints, a plugin management UI, marketplace/catalog responses, and a sample `hello-world` plugin under [`plugins/hello-world`](plugins/hello-world).
+
 ### Temporal-orchestrated versioned chat workflows
 
 Chat execution is driven by Temporal workflows with engine-specific routing. The orchestrator worker registers six workflow types (`ReplyWorkflow`, `ReplyWorkflow_Ollama`, `ReplyWorkflow_LMStudio`, `ReplyWorkflowOpenAI`, `ReplyWorkflowClaude`, `ReplyWorkflowVLLM`). Every chat request becomes a Temporal workflow execution — durable, retryable, and auditable. Workflows chain four activities: `generate_reply` → `synthesize_tts` → `upsert_vector_memory` → `update_graph`. Temporal support is enabled via the `ENABLE_TEMPORAL` environment variable.
@@ -212,7 +222,11 @@ Chat execution is driven by Temporal workflows with engine-specific routing. The
 ### Dual interfaces: text chat and voice-first room
 
 - **Text Chat** — Full conversation history, file uploads, webcam, rich markdown and code rendering, TTS playback. All data is user-scoped.
-- **AI Room** — Voice-first interface with visual representation of the AI in a virtual space. Voice is the primary input method; text input is available as a secondary mode.
+- **AI Room** — Voice-first interface with a visual representation of the AI in a virtual space. It now includes 3D avatar rendering, room customization, avatar stats, voice profile training, wake-word support, and stable 3D model uploads tied to character data.
+
+### Mobile companion experience via Progressive Web App
+
+SwAIvyn ships as an installable PWA with mobile-focused layout improvements, push-subscription plumbing, and dedicated mobile settings guidance in the app. This gives users a lightweight mobile companion without maintaining a separate native codebase.
 
 ### Admin dashboard
 
@@ -273,10 +287,10 @@ All scripts read `.env` and construct `DATABASE_URL` from `POSTGRES_PASSWORD` if
 - [x] Bare metal, Docker Swarm, and cloud deployment
 - [x] Environment-aware configuration and dashboard
 - [x] Voice-first AI Room interface
-- [ ] Cross-instance AI federation
-- [ ] Memory management UI enhancements
-- [ ] Plugin system expansion
-- [ ] 3D avatar support
+- [x] Cross-instance AI federation
+- [x] Memory management UI enhancements
+- [x] Plugin system expansion
+- [x] 3D avatar support
 - [x] Mobile companion app (PWA)
 
 See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for detailed progress.
@@ -288,8 +302,8 @@ See the [project board](https://github.com/SweetingTech/SwAIvyn/projects) for de
 Each user can configure a persistent AI persona through the character system:
 
 - **Character cards** — Import YAML/JSON character cards or create custom personalities via the admin panel. Built-in characters include Sam, Sherlock, and GLaDOS. Admin controls character creation; users are assigned characters.
-- **Avatars** — Upload custom 2D avatars (3D support planned). Voice and speech pattern configuration per character.
-- **AI Room** — An optional voice-first interface that gives the AI a visual presence in a virtual living space. Decorable environment with planned 3D item support.
+- **Avatars** — Upload custom 2D avatars and user-supplied 3D avatar models (`.vrm`, `.glb`, `.gltf`) tied to character YAML. Voice and speech pattern configuration per character.
+- **AI Room** — An optional voice-first interface that gives the AI a visual presence in a virtual living space, with decorable room items, live avatar stats, and 3D rendering support.
 - **Voice** — Fish Speech TTS (default, local, private) or ElevenLabs adapter. Per-user voice selection persisted in settings. Voice directory layout: `voices.json`, `*.wav` files, or one-level subfolders under `speech/TTS/openaudio-s1-mini/voices/`.
 
 The personalization layer runs on top of the platform — characters and avatars are cosmetic configuration, not architectural components.
